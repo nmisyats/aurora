@@ -24,7 +24,7 @@ def plot_camera_views(cam_path: Path):
 def plot_model_matrix(model_path: Path):
     model = parse_model_data(model_path)
     m, x, y = model.matrix, model.altitudes, model.energies
-    plt.imshow(m, extent=[x[0], x[-1], y[0], y[-1]], origin="upper", aspect="auto")
+    plt.imshow(m, extent=[x[0], x[-1], y[-1], y[0]], origin="upper", aspect="auto")
     plt.colorbar()
     plt.xlabel("Altitude (z)")
     plt.ylabel("Energy (E)")
