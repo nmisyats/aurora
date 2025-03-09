@@ -1,24 +1,31 @@
 import argparse
 from pathlib import Path
-from aurora.plot import plot_camera_image, plot_camera_views
+from aurora.plot import plot_camera_image, plot_camera_views, plot_model_matrix
 
 def main():
     parser = argparse.ArgumentParser(prog="aurora")
-    parser.add_argument("dataset", type=Path)
+    # parser.add_argument("dataset", type=Path)
 
     subparsers = parser.add_subparsers(dest="command")
 
-    show_parser = subparsers.add_parser("show")
-    show_parser.add_argument("type", choices=["image", "views"])
-    show_parser.add_argument("name", type=str)
+    plot_parser = subparsers.add_parser("plot")
+    plot_subparsers = plot_parser.add_subparsers(dest="plot_command")
+    plot_image_parser = plot_subparsers.add_parser("image")
+    plot_image_parser.add_argument("path", type=Path)
+    plot_views_parser = plot_subparsers.add_parser("views")
+    plot_views_parser.add_argument("path", type=Path)
+    plot_model_parser = plot_subparsers.add_parser("model")
+    plot_model_parser.add_argument("path", type=Path)
 
     args = parser.parse_args()
 
-    if args.command == "show":
-        if args.type == "image":
-            plot_camera_image(args.dataset / args.name)
-        elif args.type == "views":
-            plot_camera_views(args.dataset / args.name)
+    if args.command == "plot":
+        if args.plot_command == "image":
+            plot_camera_image(args.path)
+        elif args.plot_command == "views":
+            plot_camera_views(args.path)
+        elif args.plot_command == "model":
+            plot_model_matrix(args.path)
 
 if __name__ == "__main__":
     main()

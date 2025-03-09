@@ -15,15 +15,22 @@ class Camera:
     zenith: np.ndarray
 
 
+@dataclass
+class Model:
+    altitudes: np.ndarray
+    energies: np.ndarray
+    matrix: np.ndarray
+
+
 def parse_dataset_cameras(dataset_path: Path) -> dict[str, Camera]:
     cam_dirs = [entry.name for entry in os.scandir(dataset_path) if entry.is_dir()]
     
     camera_positions = parse_camera_positions(dataset_path / "camera_position.set")
     cameras = {}
     for cam_name in cam_dirs:
-        image = parse_image_data(dataset_path / "image.dat")
-        azimuth = parse_image_data(dataset_path / "az_cam.dat")
-        zenith = parse_image_data(dataset_path / "ze_cam.dat")
+        image = parse_matrix_data(dataset_path / "image.dat")
+        azimuth = parse_matrix_data(dataset_path / "az_cam.dat")
+        zenith = parse_matrix_data(dataset_path / "ze_cam.dat")
         camera = Camera(
             name=cam_name,
             longitude=camera_positions[cam_name]["longitude"],
@@ -70,7 +77,7 @@ def parse_camera_positions(set_path: Path) -> dict[str, dict]:
     return positions
 
 
-def parse_image_data(dat_path: Path):
+def parse_matrix_data(dat_path: Path):
     img = []
     with open(dat_path, "r") as f:
         for line in f:
@@ -78,3 +85,10 @@ def parse_image_data(dat_path: Path):
             img.append(row)
     img = np.array(img)
     return img
+
+
+def parse_model_data(model_path: Path):
+    altitudes = parse_matrix_data(model_path / "altitude.dat").flatten()
+    energies = parse_matrix_data(model_path / "energy.dat").flatten()
+    matrix = parse_matrix_data(model_path / "M_emis.dat")
+    return Model(altitudes, energies, matrix)
