@@ -28,9 +28,9 @@ def parse_dataset_cameras(dataset_path: Path) -> dict[str, Camera]:
     camera_positions = parse_camera_positions(dataset_path / "camera_position.set")
     cameras = {}
     for cam_name in cam_dirs:
-        image = parse_matrix_data(dataset_path / "image.dat")
-        azimuth = parse_matrix_data(dataset_path / "az_cam.dat")
-        zenith = parse_matrix_data(dataset_path / "ze_cam.dat")
+        image = parse_matrix_data(dataset_path / cam_name / "image.dat")
+        azimuth = parse_matrix_data(dataset_path / cam_name / "az_cam.dat")
+        zenith = parse_matrix_data(dataset_path / cam_name / "ze_cam.dat")
         camera = Camera(
             name=cam_name,
             longitude=camera_positions[cam_name]["longitude"],
