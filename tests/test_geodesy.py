@@ -1,6 +1,7 @@
 import pytest
 import torch
-from aurora.geodesy import az_ze_to_UNE, UNE_to_ECEF, ECEF_to_UNE
+import numpy as np
+from aurora.geodesy import az_ze_to_UNE, UNE_to_ECEF, ECEF_to_UNE, UNE_basis_ECEF
 
 # Set tolerance for floating point comparisons
 @pytest.fixture
@@ -94,6 +95,24 @@ def test_UNE_ECEF_round_trip(tol):
         ecef = UNE_to_ECEF(une_original, lat.item(), lon.item())
         une_back = ECEF_to_UNE(ecef, lat.item(), lon.item())
         assert torch.allclose(une_back, une_original, atol=tol)
+
+def test_UNE_basis_ECEF():
+    s22 = float(np.sqrt(2.0)/2.0)
+
+    up, north, east = UNE_basis_ECEF(0.0, 0.0)
+    assert torch.allclose(up,    torch.tensor([1.0, 0.0, 0.0]))
+    assert torch.allclose(north, torch.tensor([0.0, 0.0, 1.0]))
+    assert torch.allclose(east,  torch.tensor([0.0, 1.0, 0.0]))
+
+    up, north, east = UNE_basis_ECEF(45.0, 0.0)
+    assert torch.allclose(up,    torch.tensor([s22,  0.0, s22]))
+    assert torch.allclose(north, torch.tensor([-s22, 0.0, s22]))
+    assert torch.allclose(east,  torch.tensor([0.0,  1.0, 0.0]))
+
+    up, north, east = UNE_basis_ECEF(-45.0, 90.0)
+    assert torch.allclose(up,    torch.tensor([0.0,  s22, -s22]))
+    assert torch.allclose(north, torch.tensor([0.0,  s22, s22]))
+    assert torch.allclose(east,  torch.tensor([-1.0, 0.0, 0.0]))
 
 if __name__ == "__main__":
     pytest.main(["-v", "-s"])
