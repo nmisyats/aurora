@@ -14,15 +14,11 @@ from aurora.geodesy import (
 def get_device():
     return torch.device("cpu")
 
-def change_vector_basis(v, bx, by, bz):
-    nx = torch.sum(v * bx, dim=-1)
-    ny = torch.sum(v * by, dim=-1)
-    nz = torch.sum(v * bz, dim=-1)
-    return torch.stack((nx, ny, nz), dim=-1)
-
 def create_rays(cameras: list[Camera], o_lat: float, o_lon: float):
     o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
-    o_une_basis_ecef = UNE_basis_ECEF(o_lat, o_lon)
+
+    to_o_matrix = torch.stack(UNE_basis_ECEF(o_lat, o_lon))
+    to_o_matrix = torch.linalg.inv(to_o_matrix.T)
     
     ro_list, rd_list = [], []
     for cam in cameras:
@@ -32,12 +28,12 @@ def create_rays(cameras: list[Camera], o_lat: float, o_lon: float):
         ze = torch.from_numpy(cam.zenith).flatten()
         rd_une = az_ze_to_UNE(az, ze)
         rd_ecef = UNE_to_ECEF(rd_une, lat, lon)
-        rd_rel = change_vector_basis(rd_ecef, *o_une_basis_ecef)
+        rd_rel = torch.matmul(rd_ecef, to_o_matrix.T)
 
         radius = earth_radius(lat, lon) + cam.altitude
         ro_ecef = lat_lon_to_ECEF(lat, lon)
         ro_rel = radius * (ro_ecef - o_ecef)
-        ro_rel = change_vector_basis(ro_rel, *o_une_basis_ecef)
+        ro_rel = torch.matmul(ro_rel, to_o_matrix.T)
         ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
 
         ro_list.append(ro_rel)

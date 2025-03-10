@@ -62,7 +62,7 @@ def UNE_to_ECEF(une: torch.Tensor, lat: float, lon: float):
     y = -sin_lat * sin_lon * north + cos_lon * east + cos_lat * sin_lon * up
     z = cos_lat * north + sin_lat * up
     
-    return torch.stack((x, y, z), dim=-1)
+    return torch.stack((x, y, z), dim=-1).to(torch.float32)
 
 def ECEF_to_UNE(ecef: torch.Tensor, lat: float, lon: float):
     """
@@ -95,7 +95,7 @@ def ECEF_to_UNE(ecef: torch.Tensor, lat: float, lon: float):
     north = -sin_lat * cos_lon * x - sin_lat * sin_lon * y + cos_lat * z
     east = -sin_lon * x + cos_lon * y
     
-    return torch.stack((up, north, east), dim=-1)
+    return torch.stack((up, north, east), dim=-1).to(torch.float32)
 
 def lat_lon_to_ECEF(lat: float, lon: float):
     """
@@ -116,7 +116,7 @@ def lat_lon_to_ECEF(lat: float, lon: float):
     y = np.cos(lat_rad) * np.sin(lon_rad)
     z = np.sin(lat_rad)
 
-    return torch.tensor([x, y, z])
+    return torch.tensor([x, y, z]).to(torch.float32)
 
 def UNE_basis_ECEF(lat: float, lon: float):
     up_dir    = UNE_to_ECEF(torch.tensor([1, 0, 0]), lat, lon)
