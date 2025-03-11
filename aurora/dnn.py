@@ -10,6 +10,7 @@ from aurora.geodesy import (
     UNE_basis_ECEF,
     earth_radius
 )
+from aurora.geometry import ray_box_intersection
 
 def get_device():
     return torch.device("cpu")
@@ -55,6 +56,16 @@ def create_rays(cameras: list[Camera], model: Model, o_lat: float, o_lon: float)
     
     return ro, rd
 
+def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float):
+    num_bins = 128
+    bin_edges = torch.linspace(min_t, max_t, num_bins + 1) # num_bins + 1 edges
+    # Lower and upper edges of each bin
+    lower_edges = bin_edges[:-1]
+    upper_edges = bin_edges[1:]
+    # Generate random values in each bin
+    t = lower_edges + torch.rand(num_bins) * (upper_edges - lower_edges)
+    # Create points
+    return t, ro + t.reshape(t.shape[0], 1) * rd
 
 if __name__ == "__main__":
     from aurora.data import parse_dataset_cameras, parse_model_data
@@ -63,3 +74,12 @@ if __name__ == "__main__":
     cams = parse_dataset_cameras(Path("../datasets/simulation1"))
     model = parse_model_data(Path("../model"))
     ro, rd = create_rays(list(cams.values()), model, cams["skibotn"].latitude, cams["skibotn"].longitude)
+    print(ro.shape, rd.shape)
+    box_min, box_max = torch.tensor(model.box_min), torch.tensor(model.box_max)
+    print(box_min.shape, box_max.shape)
+    tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
+    print(tn.shape, tf.shape)
+    
+    i = 0
+    t, p = create_ray_points(ro[i], rd[i], tn[i], tf[i])
+    print(t.shape, p.shape)

@@ -22,6 +22,8 @@ class Model:
     matrix: np.ndarray
     field_azimuth: float
     field_elevation: float
+    box_min: tuple[float, float, float]
+    box_max: tuple[float, float, float]
 
 
 def parse_dataset_cameras(dataset_path: Path) -> dict[str, Camera]:
@@ -93,7 +95,13 @@ def parse_model_data(model_path: Path):
     altitudes = parse_matrix_data(model_path / "altitude.dat").flatten()
     energies = parse_matrix_data(model_path / "energy.dat").flatten()
     matrix = parse_matrix_data(model_path / "M_emis.dat")
-    # TODO: Load from file
-    field_azimuth = 185.8
-    field_elevation = 77.4
-    return Model(altitudes, energies, matrix, field_azimuth, field_elevation)
+    return Model(
+        altitudes=altitudes,
+        energies=energies,
+        matrix=matrix,
+        # TODO: Load from file
+        field_azimuth=185.8,
+        field_elevation=77.4,
+        box_min=(-50, -73, -80),
+        box_max=(88, 65, 230),
+    )
