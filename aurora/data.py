@@ -91,7 +91,7 @@ def parse_matrix_data(dat_path: Path):
     return img
 
 
-def parse_model_data(model_path: Path):
+def parse_physical_model_data(model_path: Path):
     altitudes = parse_matrix_data(model_path / "altitude.dat").flatten()
     energies = parse_matrix_data(model_path / "energy.dat").flatten()
     m_emis = parse_matrix_data(model_path / "M_emis.dat")

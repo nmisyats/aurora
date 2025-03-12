@@ -105,14 +105,14 @@ class FMLP(nn.Module):
 def estimate_f(net: FMLP, xy: torch.Tensor):
     return torch.pow(10.0, 3.0 + 4.0*net(xy))
 
-def train(net: FMLP, model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
-    z_edges = torch.from_numpy(model.altitudes).to(torch.float32).to(device)
-    m_mat = torch.from_numpy(model.emission_matrix).to(torch.float32).to(device)
-    box_min = torch.tensor(model.box_min).to(device)
-    box_max = torch.tensor(model.box_max).to(device)
+def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
+    z_edges = torch.from_numpy(pm.altitudes).to(torch.float32).to(device)
+    m_mat = torch.from_numpy(pm.emission_matrix).to(torch.float32).to(device)
+    box_min = torch.tensor(pm.box_min).to(device)
+    box_max = torch.tensor(pm.box_max).to(device)
     xy_min, xy_max = box_min[:2], box_max[:2]
 
-    optimizer = torch.optim.Adam(mlp.parameters(), lr=5e-5)
+    optimizer = torch.optim.Adam(net.parameters(), lr=5e-5)
 
     def ray_loss(ro, rd, tn, tf, g_ref):
         t, p = create_ray_points(ro, rd, tn, tf, ray_bins)
@@ -149,20 +149,20 @@ def train(net: FMLP, model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch
         )
     tq.close()
 
-def plot_total_energy_flux(mlp: FMLP, model: Model, n):
+def plot_total_energy_flux(net: FMLP, pm: Model, n):
     x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
     y = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1).T
     xy = torch.stack((x, y), dim=-1)
-    f = estimate_f(mlp, xy.reshape(n*n, 2)).detach().cpu().numpy()
+    f = estimate_f(net, xy.reshape(n*n, 2)).detach().cpu().numpy()
     e = 1.602e-19
-    E = model.energies
+    E = pm.energies
     dE = E[1:] - E[:-1]
     q = (10**3) * e * (10**4) * (f * E[:-1] * dE)
     q = np.sum(q, axis=1)
     q = q.reshape((n, n)).T
 
-    x_min, x_max = model.box_min[0], model.box_max[0]
-    y_min, y_max = model.box_min[1], model.box_max[1]
+    x_min, x_max = pm.box_min[0], pm.box_max[0]
+    y_min, y_max = pm.box_min[1], pm.box_max[1]
     plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min])
     cbar = plt.colorbar()
     cbar.set_label("W m$^{-2}$")
@@ -172,13 +172,13 @@ def plot_total_energy_flux(mlp: FMLP, model: Model, n):
     plt.show()
 
 if __name__ == "__main__":
-    from aurora.data import parse_dataset_cameras, parse_model_data
+    from aurora.data import parse_dataset_cameras, parse_physical_model_data
     from pathlib import Path
 
     cams = parse_dataset_cameras(Path("../datasets/simulation1"))
-    model = parse_model_data(Path("../model"))
-    ro, rd, g_ref = create_ray_g_pairs(list(cams.values()), model, cams["skibotn"].latitude, cams["skibotn"].longitude)
-    box_min, box_max = torch.tensor(model.box_min), torch.tensor(model.box_max)
+    pm = parse_physical_model_data(Path("../model"))
+    ro, rd, g_ref = create_ray_g_pairs(list(cams.values()), pm, cams["skibotn"].latitude, cams["skibotn"].longitude)
+    box_min, box_max = torch.tensor(pm.box_min), torch.tensor(pm.box_max)
     tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
 
     # Get mask for non-NaN values in tn
@@ -190,8 +190,8 @@ if __name__ == "__main__":
     tn = tn[valid_mask].contiguous().to(device)
     tf = tf[valid_mask].contiguous().to(device)
 
-    mlp = FMLP(model, 8).to(device)
-    print(mlp)
+    net = FMLP(pm, 16).to(device)
+    print(net)
     
-    train(mlp, model, ro, rd, tn, tf, g_ref, 50000, 1024, 128)
-    plot_total_energy_flux(mlp, model, 64)
+    train(net, pm, ro, rd, tn, tf, g_ref, 50000, 1024, 64)
+    plot_total_energy_flux(net, pm, 64)
