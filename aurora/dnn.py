@@ -15,6 +15,9 @@ from aurora.geometry import ray_box_intersection
 from matplotlib import pyplot as plt
 
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
 def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon: float):
     o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
 
@@ -61,12 +64,12 @@ def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon:
     return ro, rd, g_ref
 
 def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float, num_bins: int):
-    bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=ro.device) # num_bins + 1 edges
+    bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=device) # num_bins + 1 edges
     # Lower and upper edges of each bin
     lower_edges = bin_edges[:-1]
     upper_edges = bin_edges[1:]
     # Generate random values in each bin
-    t = lower_edges + torch.rand(num_bins, device=ro.device) * (upper_edges - lower_edges)
+    t = lower_edges + torch.rand(num_bins, device=device) * (upper_edges - lower_edges)
     # Create points
     return t, ro + t.reshape(t.shape[0], 1) * rd
 
@@ -102,8 +105,6 @@ def estimate_f(mlp: FMLP, xy: torch.Tensor):
     return torch.pow(10.0, 3.0 + 4.0*mlp(xy))
 
 def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
-    device = ro.device
-    
     z_edges = torch.from_numpy(model.altitudes).to(torch.float32).to(device)
     m_mat = torch.from_numpy(model.emission_matrix).to(torch.float32).to(device)
     box_min = torch.tensor(model.box_min).to(device)
@@ -139,6 +140,7 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
 
         idxs = torch.randint(0, len(ro), (batch_size,))
         loss = batch_loss(ro[idxs], rd[idxs], tn[idxs], tf[idxs], g_ref[idxs]).sum()
+        loss /= batch_size
         loss.backward()
 
         optimizer.step()
@@ -148,10 +150,10 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
     return mlp
 
 def plot_total_energy_flux(mlp: FMLP, model: Model, n):
-    x = torch.linspace(0.0, 1.0, n).repeat(n, 1)
-    y = torch.linspace(0.0, 1.0, n).repeat(n, 1).T
+    x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
+    y = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1).T
     xy = torch.stack((x, y), dim=-1)
-    f = estimate_f(mlp, xy.reshape(n*n, 2)).detach().numpy()
+    f = estimate_f(mlp, xy.reshape(n*n, 2)).detach().cpu().numpy()
     e = 1.602e-19
     E = model.energies
     dE = E[1:] - E[:-1]
@@ -179,8 +181,6 @@ if __name__ == "__main__":
     box_min, box_max = torch.tensor(model.box_min), torch.tensor(model.box_max)
     tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
 
-    device = torch.device("cpu")
-
     # Get mask for non-NaN values in tn
     valid_mask = ~(torch.isnan(tn) & torch.isnan(tf))
     # Apply the mask to all tensors
@@ -190,5 +190,5 @@ if __name__ == "__main__":
     tn = tn[valid_mask].contiguous().to(device)
     tf = tf[valid_mask].contiguous().to(device)
 
-    mlp = train(model, ro, rd, tn, tf, g_ref, 10000, 64, 128)
+    mlp = train(model, ro, rd, tn, tf, g_ref, 50000, 256, 128)
     plot_total_energy_flux(mlp, model, 64)
