@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from matplotlib import pyplot as plt
+import tqdm
 
 from aurora.data import Camera, Model
 from aurora.geodesy import (
@@ -12,7 +14,6 @@ from aurora.geodesy import (
     earth_radius
 )
 from aurora.geometry import ray_box_intersection
-from matplotlib import pyplot as plt
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -101,18 +102,15 @@ class FMLP(nn.Module):
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((*cos_x, *sin_x), dim=-1)
 
-def estimate_f(mlp: FMLP, xy: torch.Tensor):
-    return torch.pow(10.0, 3.0 + 4.0*mlp(xy))
+def estimate_f(net: FMLP, xy: torch.Tensor):
+    return torch.pow(10.0, 3.0 + 4.0*net(xy))
 
-def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
+def train(net: FMLP, model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
     z_edges = torch.from_numpy(model.altitudes).to(torch.float32).to(device)
     m_mat = torch.from_numpy(model.emission_matrix).to(torch.float32).to(device)
     box_min = torch.tensor(model.box_min).to(device)
     box_max = torch.tensor(model.box_max).to(device)
     xy_min, xy_max = box_min[:2], box_max[:2]
-
-    mlp = FMLP(model, 8).to(device)
-    print(mlp)
 
     optimizer = torch.optim.Adam(mlp.parameters(), lr=5e-5)
 
@@ -125,7 +123,7 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
         xy = (xy - xy_min) / (xy_max - xy_min)
 
         m_i = m_mat[:, z_idx]
-        f = estimate_f(mlp, xy)
+        f = estimate_f(net, xy)
         l = torch.sum(m_i.T * f, dim=1)
         d = t[1:] - t[:-1]
         g = torch.sum(l[:-1] * d)
@@ -135,7 +133,8 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
     
     batch_loss = torch.vmap(ray_loss, randomness='different')
 
-    for iter in range(num_iters):
+    tq = tqdm.trange(num_iters)
+    for iter in tq:
         optimizer.zero_grad()
 
         idxs = torch.randint(0, len(ro), (batch_size,))
@@ -145,9 +144,10 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
 
         optimizer.step()
 
-        print(f"{iter=}/{num_iters}: loss = {loss.item()}")
-    
-    return mlp
+        tq.set_postfix(
+            loss=f"{loss.item():.0f}"
+        )
+    tq.close()
 
 def plot_total_energy_flux(mlp: FMLP, model: Model, n):
     x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
@@ -190,5 +190,8 @@ if __name__ == "__main__":
     tn = tn[valid_mask].contiguous().to(device)
     tf = tf[valid_mask].contiguous().to(device)
 
-    mlp = train(model, ro, rd, tn, tf, g_ref, 50000, 256, 128)
+    mlp = FMLP(model, 8).to(device)
+    print(mlp)
+    
+    train(mlp, model, ro, rd, tn, tf, g_ref, 50000, 1024, 128)
     plot_total_energy_flux(mlp, model, 64)
