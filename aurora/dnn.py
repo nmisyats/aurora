@@ -85,19 +85,24 @@ class FMLP(nn.Module):
         self.embed_size = self.input_size * 2 * embed_exp
         self.output_size = len(model.energies) - 1
         
-        self.fc1 = nn.Linear(self.embed_size, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, self.output_size)
+        self.fc1 = nn.Linear(self.embed_size, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256 + self.embed_size, 256)
+        self.fc4 = nn.Linear(256, 128)
+        self.fc5 = nn.Linear(128, self.output_size)
     
     def forward(self, x: torch.Tensor):
         x = self.embed_fourier(x)
+        x0 = x
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
+        x = F.relu(self.fc4(x))
+        x = F.relu(self.fc5(x))
         return x
     
     def embed_fourier(self, x: torch.Tensor):
-        freqs = [(2**i) * 2.0 * torch.pi for i in range(self.embed_exp)]
+        freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
         cos_x = [torch.cos(f * x) for f in freqs]
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((*cos_x, *sin_x), dim=-1)
@@ -126,10 +131,10 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         f = estimate_f(net, xy)
         l = torch.sum(m_i.T * f, dim=1)
         d = t[1:] - t[:-1]
-        g = torch.sum(l[:-1] * d)
+        g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
+        g *= torch.pi / 10.0
 
-        g_ref_scaled = g_ref / (torch.pi / 10.0)
-        return (g - g_ref_scaled)**2
+        return (g - g_ref)**2
     
     batch_loss = torch.vmap(ray_loss, randomness='different')
 
@@ -155,9 +160,10 @@ def plot_total_energy_flux(net: FMLP, pm: Model, n):
     xy = torch.stack((x, y), dim=-1)
     f = estimate_f(net, xy.reshape(n*n, 2)).detach().cpu().numpy()
     e = 1.602e-19
-    E = pm.energies
-    dE = E[1:] - E[:-1]
-    q = (10**3) * e * (10**4) * (f * E[:-1] * dE)
+    lower_E, upper_E = pm.energies[:-1], pm.energies[1:]
+    E = (lower_E + upper_E) / 2.0
+    dE = upper_E - lower_E
+    q = (10**3) * e * (10**4) * (f * E * dE)
     q = np.sum(q, axis=1)
     q = q.reshape((n, n)).T
 
@@ -165,7 +171,7 @@ def plot_total_energy_flux(net: FMLP, pm: Model, n):
     y_min, y_max = pm.box_min[1], pm.box_max[1]
     plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min])
     cbar = plt.colorbar()
-    cbar.set_label("W m$^{-2}$")
+    cbar.set_label("mW m$^{-2}$")
     plt.xlabel("y (km)")
     plt.ylabel("x (km)")
     plt.title("Reconstructed total energy flux")
@@ -190,8 +196,8 @@ if __name__ == "__main__":
     tn = tn[valid_mask].contiguous().to(device)
     tf = tf[valid_mask].contiguous().to(device)
 
-    net = FMLP(pm, 16).to(device)
+    net = FMLP(pm, 4).to(device)
     print(net)
     
-    train(net, pm, ro, rd, tn, tf, g_ref, 50000, 1024, 64)
-    plot_total_energy_flux(net, pm, 64)
+    train(net, pm, ro, rd, tn, tf, g_ref, 5000, 1024, 128)
+    plot_total_energy_flux(net, pm, 128)
