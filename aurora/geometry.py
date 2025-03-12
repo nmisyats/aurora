@@ -24,6 +24,11 @@ def ray_box_intersection(ro: torch.Tensor, rd: torch.Tensor, box_min: torch.Tens
     tn = torch.max(t0, dim=1).values
     tf = torch.min(t1, dim=1).values
     
+    inside_mask = ((ro >= box_min) & (ro <= box_max)).all(dim=1)
+    
+    tf[inside_mask] = 0.0
+    tn[inside_mask] = torch.max(t1[inside_mask], dim=1).values
+    
     mask = (tn <= tf) & (tf >= 0)
     tn[~mask] = float('nan')
     tf[~mask] = float('nan')

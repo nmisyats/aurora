@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from aurora.data import Camera, Model
 from aurora.geodesy import (
@@ -11,11 +12,10 @@ from aurora.geodesy import (
     earth_radius
 )
 from aurora.geometry import ray_box_intersection
+from matplotlib import pyplot as plt
 
-def get_device():
-    return torch.device("cpu")
 
-def create_rays(cameras: list[Camera], model: Model, o_lat: float, o_lon: float):
+def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon: float):
     o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
 
     to_o_une_matrix = torch.stack(UNE_basis_ECEF(o_lat, o_lon))
@@ -32,7 +32,7 @@ def create_rays(cameras: list[Camera], model: Model, o_lat: float, o_lon: float)
     o_une_to_spec_matrix = torch.linalg.inv(o_une_to_spec_matrix.T)
     to_spec_matrix = torch.matmul(o_une_to_spec_matrix, to_o_une_matrix)
     
-    ro_list, rd_list = [], []
+    ro_list, rd_list, g_ref_list = [], [], []
     for cam in cameras:
         lat, lon = cam.latitude, cam.longitude
 
@@ -50,22 +50,122 @@ def create_rays(cameras: list[Camera], model: Model, o_lat: float, o_lon: float)
 
         ro_list.append(ro_rel)
         rd_list.append(rd_rel)
+
+        g = torch.from_numpy(cam.image).flatten()
+        g_ref_list.append(g)
     
     ro = torch.cat(ro_list)
     rd = torch.cat(rd_list)
+    g_ref = torch.cat(g_ref_list)
     
-    return ro, rd
+    return ro, rd, g_ref
 
 def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float):
-    num_bins = 128
-    bin_edges = torch.linspace(min_t, max_t, num_bins + 1) # num_bins + 1 edges
+    num_bins = 32
+    bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=ro.device) # num_bins + 1 edges
     # Lower and upper edges of each bin
     lower_edges = bin_edges[:-1]
     upper_edges = bin_edges[1:]
     # Generate random values in each bin
-    t = lower_edges + torch.rand(num_bins) * (upper_edges - lower_edges)
+    t = lower_edges + torch.rand(num_bins, device=ro.device) * (upper_edges - lower_edges)
     # Create points
     return t, ro + t.reshape(t.shape[0], 1) * rd
+
+
+class FMLP(nn.Module):
+    def __init__(self, model: Model, embed_exp: int):
+        assert embed_exp >= 1
+
+        super(FMLP, self).__init__()
+        self.input_size = 2
+        self.embed_exp = embed_exp
+        self.embed_size = self.input_size * 2 * embed_exp
+        self.output_size = len(model.energies) - 1
+        
+        self.fc1 = nn.Linear(self.embed_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, self.output_size)
+    
+    def forward(self, x: torch.Tensor):
+        x = self.embed_fourier(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+    
+    def embed_fourier(self, x: torch.Tensor):
+        freqs = [(2**i) * 2.0 * torch.pi for i in range(self.embed_exp)]
+        cos_x = [torch.cos(f * x) for f in freqs]
+        sin_x = [torch.sin(f * x) for f in freqs]
+        return torch.cat((*cos_x, *sin_x), dim=-1)
+
+def estimate_f(mlp: FMLP, xy: torch.Tensor):
+    return torch.pow(10.0, 3.0 + 4.0*mlp(xy))
+
+def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int):
+    device = ro.device
+    
+    z_edges = torch.from_numpy(model.altitudes).to(torch.float32).to(device)
+    m_mat = torch.from_numpy(model.emission_matrix).to(torch.float32).to(device)
+    box_min = torch.tensor(model.box_min).to(device)
+    box_max = torch.tensor(model.box_max).to(device)
+    xy_min, xy_max = box_min[:2], box_max[:2]
+
+    mlp = FMLP(model, 8).to(device)
+    print(mlp)
+
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=5e-5)
+
+    for iter in range(num_iters):
+        optimizer.zero_grad()
+
+        batch_loss = torch.tensor([0.0], device=device)
+        for _ in range(batch_size):
+            ray_idx = torch.randint(0, len(ro), (1,)).item()
+            t, p = create_ray_points(ro[ray_idx], rd[ray_idx], tn[ray_idx], tf[ray_idx])
+            xy, z = p[:,:2], p[:,2]
+            z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
+
+            xy = (xy - xy_min) / (xy_max - xy_min)
+
+            m_i = m_mat[:, z_idx]
+            f = estimate_f(mlp, xy)
+            l = torch.sum(m_i.T * f, dim=1)
+            d = t[1:] - t[:-1]
+            g = torch.sum(l[:-1] * d)
+
+            g_ref_ray = g_ref[ray_idx] / (torch.pi / 10.0)
+            batch_loss += (g - g_ref_ray)**2
+
+        batch_loss.backward()
+
+        optimizer.step()
+
+        print(f"{iter=}/{num_iters}: loss = {batch_loss.item()}")
+    
+    return mlp
+
+def plot_total_energy_flux(mlp: FMLP, model: Model, n):
+    x = torch.linspace(0.0, 1.0, n).repeat(n, 1)
+    y = torch.linspace(0.0, 1.0, n).repeat(n, 1).T
+    xy = torch.stack((x, y), dim=-1)
+    f = estimate_f(mlp, xy.reshape(n*n, 2)).detach().numpy()
+    e = 1.602e-19
+    E = model.energies
+    dE = E[1:] - E[:-1]
+    q = (10**3) * e * (10**4) * (f * E[:-1] * dE)
+    q = np.sum(q, axis=1)
+    q = q.reshape((n, n)).T
+
+    x_min, x_max = model.box_min[0], model.box_max[0]
+    y_min, y_max = model.box_min[1], model.box_max[1]
+    plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min])
+    cbar = plt.colorbar()
+    cbar.set_label("W m$^{-2}$")
+    plt.xlabel("y (km)")
+    plt.ylabel("x (km)")
+    plt.title("Reconstructed total energy flux")
+    plt.show()
 
 if __name__ == "__main__":
     from aurora.data import parse_dataset_cameras, parse_model_data
@@ -73,13 +173,20 @@ if __name__ == "__main__":
 
     cams = parse_dataset_cameras(Path("../datasets/simulation1"))
     model = parse_model_data(Path("../model"))
-    ro, rd = create_rays(list(cams.values()), model, cams["skibotn"].latitude, cams["skibotn"].longitude)
-    print(ro.shape, rd.shape)
+    ro, rd, g_ref = create_ray_g_pairs(list(cams.values()), model, cams["skibotn"].latitude, cams["skibotn"].longitude)
     box_min, box_max = torch.tensor(model.box_min), torch.tensor(model.box_max)
-    print(box_min.shape, box_max.shape)
     tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
-    print(tn.shape, tf.shape)
-    
-    i = 0
-    t, p = create_ray_points(ro[i], rd[i], tn[i], tf[i])
-    print(t.shape, p.shape)
+
+    device = torch.device("cpu")
+
+    # Get mask for non-NaN values in tn
+    valid_mask = ~(torch.isnan(tn) & torch.isnan(tf))
+    # Apply the mask to all tensors
+    ro = ro[valid_mask].contiguous().to(device)
+    rd = rd[valid_mask].contiguous().to(device)
+    g_ref = g_ref[valid_mask].contiguous().to(device)
+    tn = tn[valid_mask].contiguous().to(device)
+    tf = tf[valid_mask].contiguous().to(device)
+
+    mlp = train(model, ro, rd, tn, tf, g_ref, 10000, 64)
+    plot_total_energy_flux(mlp, model, 64)
