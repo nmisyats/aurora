@@ -60,8 +60,7 @@ def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon:
     
     return ro, rd, g_ref
 
-def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float):
-    num_bins = 32
+def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float, num_bins: int):
     bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=ro.device) # num_bins + 1 edges
     # Lower and upper edges of each bin
     lower_edges = bin_edges[:-1]
@@ -102,7 +101,7 @@ class FMLP(nn.Module):
 def estimate_f(mlp: FMLP, xy: torch.Tensor):
     return torch.pow(10.0, 3.0 + 4.0*mlp(xy))
 
-def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int):
+def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
     device = ro.device
     
     z_edges = torch.from_numpy(model.altitudes).to(torch.float32).to(device)
@@ -116,32 +115,35 @@ def train(model: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf
 
     optimizer = torch.optim.Adam(mlp.parameters(), lr=5e-5)
 
+    def ray_loss(ro, rd, tn, tf, g_ref):
+        t, p = create_ray_points(ro, rd, tn, tf, ray_bins)
+        xy, z = p[:,:2], p[:,2]
+        z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
+        z_idx = torch.clamp(z_idx, 0, m_mat.shape[1]-1)
+
+        xy = (xy - xy_min) / (xy_max - xy_min)
+
+        m_i = m_mat[:, z_idx]
+        f = estimate_f(mlp, xy)
+        l = torch.sum(m_i.T * f, dim=1)
+        d = t[1:] - t[:-1]
+        g = torch.sum(l[:-1] * d)
+
+        g_ref_scaled = g_ref / (torch.pi / 10.0)
+        return (g - g_ref_scaled)**2
+    
+    batch_loss = torch.vmap(ray_loss, randomness='different')
+
     for iter in range(num_iters):
         optimizer.zero_grad()
 
-        batch_loss = torch.tensor([0.0], device=device)
-        for _ in range(batch_size):
-            ray_idx = torch.randint(0, len(ro), (1,)).item()
-            t, p = create_ray_points(ro[ray_idx], rd[ray_idx], tn[ray_idx], tf[ray_idx])
-            xy, z = p[:,:2], p[:,2]
-            z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
-
-            xy = (xy - xy_min) / (xy_max - xy_min)
-
-            m_i = m_mat[:, z_idx]
-            f = estimate_f(mlp, xy)
-            l = torch.sum(m_i.T * f, dim=1)
-            d = t[1:] - t[:-1]
-            g = torch.sum(l[:-1] * d)
-
-            g_ref_ray = g_ref[ray_idx] / (torch.pi / 10.0)
-            batch_loss += (g - g_ref_ray)**2
-
-        batch_loss.backward()
+        idxs = torch.randint(0, len(ro), (batch_size,))
+        loss = batch_loss(ro[idxs], rd[idxs], tn[idxs], tf[idxs], g_ref[idxs]).sum()
+        loss.backward()
 
         optimizer.step()
 
-        print(f"{iter=}/{num_iters}: loss = {batch_loss.item()}")
+        print(f"{iter=}/{num_iters}: loss = {loss.item()}")
     
     return mlp
 
@@ -188,5 +190,5 @@ if __name__ == "__main__":
     tn = tn[valid_mask].contiguous().to(device)
     tf = tf[valid_mask].contiguous().to(device)
 
-    mlp = train(model, ro, rd, tn, tf, g_ref, 10000, 64)
+    mlp = train(model, ro, rd, tn, tf, g_ref, 10000, 64, 128)
     plot_total_energy_flux(mlp, model, 64)
