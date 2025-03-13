@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 from pathlib import Path
+import numpy as np
 from aurora.data import parse_matrix_data, parse_physical_model_data
 
 def plot_camera_image(cam_path: Path):
@@ -24,8 +25,8 @@ def plot_camera_views(cam_path: Path):
 def plot_model_matrix(model_path: Path):
     model = parse_physical_model_data(model_path)
     m, x, y = model.emission_matrix, model.altitudes, model.energies
-    plt.imshow(m, extent=[x[0], x[-1], y[-1], y[0]], origin="upper", aspect="auto")
+    plt.matshow(np.log(m))
     plt.colorbar()
-    plt.xlabel("Altitude (z)")
-    plt.ylabel("Energy (E)")
+    plt.ylabel("Altitude (z)")
+    plt.xlabel("Energy (E)")
     plt.show()

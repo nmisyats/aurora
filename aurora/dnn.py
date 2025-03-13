@@ -98,7 +98,7 @@ class FMLP(nn.Module):
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
-        x = F.relu(self.fc5(x))
+        x = F.sigmoid(self.fc5(x))
         return x
     
     def embed_fourier(self, x: torch.Tensor):
@@ -127,12 +127,13 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
 
         xy = (xy - xy_min) / (xy_max - xy_min)
 
-        m_i = m_mat[:, z_idx]
+        m_i = m_mat[z_idx,:]
         f = estimate_f(net, xy)
-        l = torch.sum(m_i.T * f, dim=1)
+        l = torch.sum(m_i * f, dim=1)
         d = t[1:] - t[:-1]
         g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
-        g *= torch.pi / 10.0
+        # g *= torch.pi / 10.0
+        g /= 10.0
 
         return (g - g_ref)**2
     
@@ -199,5 +200,5 @@ if __name__ == "__main__":
     net = FMLP(pm, 4).to(device)
     print(net)
     
-    train(net, pm, ro, rd, tn, tf, g_ref, 5000, 1024, 128)
+    train(net, pm, ro, rd, tn, tf, g_ref, 50000, 1024, 128)
     plot_total_energy_flux(net, pm, 128)
