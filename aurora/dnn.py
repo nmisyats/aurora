@@ -123,7 +123,7 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
 
     loss_list = []
 
-    def ray_loss(ro, rd, tn, tf, g_ref):
+    def estimate_ray_pixel(ro, rd, tn, tf):
         t, p = create_ray_points(ro, rd, tn, tf, ray_bins)
         xy, z = p[:,:2], p[:,2]
         z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
@@ -138,6 +138,10 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
         g /= 10.0
 
+        return g
+
+    def ray_loss(ro, rd, tn, tf, g_ref):
+        g = estimate_ray_pixel(ro, rd, tn, tf)
         return (g - g_ref)**2
     
     batch_loss = torch.vmap(ray_loss, randomness='different')
@@ -162,7 +166,7 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         )
     tq.close()
 
-    return loss_list
+    return loss_list, estimate_ray_pixel
 
 def plot_total_energy_flux(net: FMLP, pm: Model, n):
     x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
@@ -194,6 +198,72 @@ def plot_training_loss(loss_list: list[float]):
     plt.title("Training batch loss")
     plt.show()
 
+def plot_reconstructed_image(estimate_pixel, get_image_data, n_img):
+    # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4))
+    # plt.subplots_adjust(wspace=0.05, hspace=0.05)
+    # for i in range(n_img):
+    #     ro, rd, tn, tf, g_ref, w, h = get_image_data(i)
+    #     img = torch.vmap(estimate_pixel, randomness='different')(ro, rd, tn, tf)
+    #     img = img.detach().cpu().numpy()
+    #     img = img.reshape(h, w)
+    #     ref = g_ref.cpu().numpy().reshape(h, w)
+    #     axs[0, i].imshow(img)
+    #     axs[1, i].imshow(ref)
+    # plt.tight_layout()
+    # plt.show()
+
+    fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
+    plt.subplots_adjust(wspace=0.05, hspace=0.05)
+
+    # Lists to store min and max values for color scaling
+    all_mins = []
+    all_maxs = []
+
+    imgs = []
+    refs = []
+
+    # First pass to get min and max values across all images
+    for i in range(n_img):
+        ro, rd, tn, tf, g_ref, w, h = get_image_data(i)
+        img = torch.vmap(estimate_pixel, randomness='different')(ro, rd, tn, tf)
+        img = img.detach().cpu().numpy().reshape(h, w)
+        ref = g_ref.cpu().numpy().reshape(h, w)
+        img = np.nan_to_num(img, nan=0.0)
+        ref = np.nan_to_num(ref, nan=0.0)
+        imgs.append(img)
+        refs.append(ref)
+        
+        all_mins.append(min(img.min(), ref.min()))
+        all_maxs.append(max(img.max(), ref.max()))
+
+    # Get global min and max
+    vmin = min(all_mins)
+    vmax = max(all_maxs)
+
+    # Second pass to plot images with consistent color scale
+    ims = []
+    for i in range(n_img):
+        img = imgs[i]
+        ref = refs[i]
+        
+        im1 = axs[0, i].imshow(img, vmin=vmin, vmax=vmax)
+        im2 = axs[1, i].imshow(ref, vmin=vmin, vmax=vmax)
+        ims.append(im1)
+        ims.append(im2)
+        
+        # Remove axis ticks
+        axs[0, i].set_xticks([])
+        axs[0, i].set_yticks([])
+        axs[1, i].set_xticks([])
+        axs[1, i].set_yticks([])
+
+    # Add a single colorbar that applies to all subplots
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    cbar = fig.colorbar(ims[0], cax=cbar_ax)
+
+    plt.tight_layout(rect=[0, 0, 0.9, 1])  # Adjust layout to make room for colorbar
+    plt.show()
+
 if __name__ == "__main__":
     from aurora.data import parse_dataset_cameras, parse_physical_model_data
     from pathlib import Path
@@ -203,6 +273,12 @@ if __name__ == "__main__":
     ro, rd, g_ref = create_ray_g_pairs(list(cams.values()), pm, cams["skibotn"].latitude, cams["skibotn"].longitude)
     box_min, box_max = torch.tensor(pm.box_min), torch.tensor(pm.box_max)
     tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
+
+    ro0 = ro.to(device)
+    rd0 = rd.to(device)
+    g_ref0 = g_ref.to(device)
+    tn0 = tn.to(device)
+    tf0 = tf.to(device)
 
     # Get mask for non-NaN values in tn
     valid_mask = ~(torch.isnan(tn) & torch.isnan(tf))
@@ -216,6 +292,17 @@ if __name__ == "__main__":
     net = FMLP(pm, 4).to(device)
     print(net)
     
-    loss = train(net, pm, ro, rd, tn, tf, g_ref, 10000, 4096, 128)
+    loss, estimate_pixel = train(net, pm, ro, rd, tn, tf, g_ref, 10000, 4096, 128)
     plot_total_energy_flux(net, pm, 128)
     plot_training_loss(loss)
+
+    def get_image_data(i):
+        return (
+            ro0[i*256*256:(i+1)*256*256],
+            rd0[i*256*256:(i+1)*256*256],
+            tn0[i*256*256:(i+1)*256*256],
+            tf0[i*256*256:(i+1)*256*256],
+            g_ref0[i*256*256:(i+1)*256*256],
+            256, 256
+        )
+    plot_reconstructed_image(estimate_pixel, get_image_data, len(cams))
