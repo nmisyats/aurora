@@ -85,10 +85,10 @@ class FMLP(nn.Module):
         self.embed_size = self.input_size * 2 * embed_exp
         self.output_size = len(model.energies) - 1
         
-        self.fc1 = nn.Linear(self.embed_size, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256 + self.embed_size, 256)
-        self.fc4 = nn.Linear(256, 128)
+        self.fc1 = nn.Linear(self.embed_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128 + self.embed_size, 128)
+        self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
     def forward(self, x: torch.Tensor):
@@ -98,7 +98,7 @@ class FMLP(nn.Module):
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
-        x = F.sigmoid(self.fc5(x))
+        x = F.relu(self.fc5(x))
         return x
     
     def embed_fourier(self, x: torch.Tensor):
@@ -108,7 +108,7 @@ class FMLP(nn.Module):
         return torch.cat((*cos_x, *sin_x), dim=-1)
 
 def estimate_f(net: FMLP, xy: torch.Tensor):
-    return torch.pow(10.0, 3.0 + 4.0*net(xy))
+    return torch.pow(10.0, 10.0*net(xy))
 
 def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
     z_edges = torch.from_numpy(pm.altitudes).to(torch.float32).to(device)
@@ -132,7 +132,6 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         l = torch.sum(m_i * f, dim=1)
         d = t[1:] - t[:-1]
         g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
-        # g *= torch.pi / 10.0
         g /= 10.0
 
         return (g - g_ref)**2
@@ -164,7 +163,7 @@ def plot_total_energy_flux(net: FMLP, pm: Model, n):
     lower_E, upper_E = pm.energies[:-1], pm.energies[1:]
     E = (lower_E + upper_E) / 2.0
     dE = upper_E - lower_E
-    q = (10**3) * e * (10**4) * (f * E * dE)
+    q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
     q = np.sum(q, axis=1)
     q = q.reshape((n, n)).T
 
