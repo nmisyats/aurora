@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim.lr_scheduler as lr_scheduler
 import numpy as np
 from matplotlib import pyplot as plt
 import tqdm
@@ -118,6 +119,9 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
     xy_min, xy_max = box_min[:2], box_max[:2]
 
     optimizer = torch.optim.Adam(net.parameters(), lr=5e-5)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1)
+
+    loss_list = []
 
     def ray_loss(ro, rd, tn, tf, g_ref):
         t, p = create_ray_points(ro, rd, tn, tf, ray_bins)
@@ -148,11 +152,17 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         loss.backward()
 
         optimizer.step()
+        scheduler.step()
+
+        loss_list.append(loss.item())
 
         tq.set_postfix(
-            loss=f"{loss.item():.0f}"
+            loss=f"{loss.item():.0f}",
+            lr=f"{scheduler.get_last_lr()[0]:.2e}"
         )
     tq.close()
+
+    return loss_list
 
 def plot_total_energy_flux(net: FMLP, pm: Model, n):
     x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
@@ -177,6 +187,13 @@ def plot_total_energy_flux(net: FMLP, pm: Model, n):
     plt.title("Reconstructed total energy flux")
     plt.show()
 
+def plot_training_loss(loss_list: list[float]):
+    plt.plot(loss_list)
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.title("Training batch loss")
+    plt.show()
+
 if __name__ == "__main__":
     from aurora.data import parse_dataset_cameras, parse_physical_model_data
     from pathlib import Path
@@ -199,5 +216,6 @@ if __name__ == "__main__":
     net = FMLP(pm, 4).to(device)
     print(net)
     
-    train(net, pm, ro, rd, tn, tf, g_ref, 50000, 1024, 128)
+    loss = train(net, pm, ro, rd, tn, tf, g_ref, 10000, 4096, 128)
     plot_total_energy_flux(net, pm, 128)
+    plot_training_loss(loss)
