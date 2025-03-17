@@ -2,6 +2,16 @@ from pathlib import Path
 import os
 import numpy as np
 from dataclasses import dataclass
+from schema import Schema, Optional, And, Use
+import yaml
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    from yaml import Loader
+
+def load_yaml(stream):
+    return yaml.load(stream, Loader=Loader)
+
 
 
 @dataclass
@@ -17,34 +27,83 @@ class Camera:
 
 @dataclass
 class Model:
-    altitudes: np.ndarray
-    energies: np.ndarray
+    altitude_bins: np.ndarray
+    energy_bins: np.ndarray
     emission_matrix: np.ndarray
-    field_azimuth: float
-    field_elevation: float
+    mag_field_azimuth: float
+    mag_field_elevation: float
+    box_origin_lat: float
+    box_origin_lon: float
     box_min: tuple[float, float, float]
     box_max: tuple[float, float, float]
+    has_ref_q0: bool = False,
+    ref_q0_image: np.ndarray | None = None
+    ref_q0_range_min: tuple[float, float] | None = None
+    ref_q0_range_max: tuple[float, float] | None = None
+    ref_q0_range_scale: tuple[float, float] | None = None
 
 
-def parse_dataset_cameras(dataset_path: Path) -> dict[str, Camera]:
-    cam_dirs = [entry.name for entry in os.scandir(dataset_path) if entry.is_dir()]
+def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], Model]:
+    schema = Schema({
+        Optional("name"): str,
+        "cameras": {
+            "positions": And(Use(Path), lambda p: p.exists()),
+            "images": And(Use(Path), lambda p: p.exists())
+        },
+        "model": {
+            "M_emis": And(Use(Path), lambda p: p.exists()),
+            "altitude_bins": And(Use(Path), lambda p: p.exists()),
+            "energy_bins": And(Use(Path), lambda p: p.exists()),
+            "mag_field": {
+                "azimuth": float,
+                "elevation": float
+            },
+            "volume": {
+                "origin": {"lat": float, "lon": float},
+                "range_x": {"min": float, "max": float},
+                "range_y": {"min": float, "max": float},
+                "range_z": {"min": float, "max": float}
+            },
+            Optional("ref_q0"): {
+                "image": Use(Path),
+                "range_x": {
+                    "min": float,
+                    "max": float,
+                    Optional("scale"): float
+                },
+                "range_y": {
+                    "min": float,
+                    "max": float,
+                    Optional("scale"): float
+                }
+            }
+        }
+    })
     
-    camera_positions = parse_camera_positions(dataset_path / "camera_position.set")
-    cameras = {}
-    for cam_name in cam_dirs:
-        image = parse_matrix_data(dataset_path / cam_name / "image.dat")
-        azimuth = parse_matrix_data(dataset_path / cam_name / "az_cam.dat")
-        zenith = parse_matrix_data(dataset_path / cam_name / "ze_cam.dat")
+    with open(yaml_path, "r") as f:
+        desc = schema.validate(load_yaml(f))
+    cameras = parse_dataset_cameras(desc["cameras"])
+    model = parse_physical_model(desc["model"])
+    return cameras, model
+
+def parse_dataset_cameras(desc: dict) -> list[Camera]:
+    camera_positions = parse_camera_positions(desc["positions"])
+    images_dir = desc["images"]
+    cameras = []
+    for cam_name, cam_pos in camera_positions.items():
+        image = parse_matrix_data(images_dir / cam_name / "image.dat")
+        azimuth = parse_matrix_data(images_dir / cam_name / "az_cam.dat")
+        zenith = parse_matrix_data(images_dir / cam_name / "ze_cam.dat")
         camera = Camera(
             name=cam_name,
-            longitude=camera_positions[cam_name]["longitude"],
-            latitude=camera_positions[cam_name]["latitude"],
-            altitude=camera_positions[cam_name]["altitude"],
+            longitude=cam_pos["longitude"],
+            latitude=cam_pos["latitude"],
+            altitude=cam_pos["altitude"],
             image=image,
             azimuth=azimuth,
             zenith=zenith,
         )
-        cameras[camera.name] = camera
+        cameras.append(camera)
     return cameras
 
 
@@ -87,21 +146,33 @@ def parse_matrix_data(dat_path: Path):
         for line in f:
             row = [float(num) for num in line.strip().split()]
             img.append(row)
-    img = np.array(img)
+    img = np.array(img, dtype=np.float32)
     return img
 
 
-def parse_physical_model_data(model_path: Path):
-    altitudes = parse_matrix_data(model_path / "altitude.dat").flatten()
-    energies = parse_matrix_data(model_path / "energy.dat").flatten()
-    m_emis = parse_matrix_data(model_path / "M_emis.dat").T
-    return Model(
-        altitudes=altitudes,
-        energies=energies,
+def parse_physical_model(desc: dict):
+    altitude_bins = parse_matrix_data(desc["altitude_bins"]).flatten()
+    energy_bins = parse_matrix_data(desc["energy_bins"]).flatten()
+    m_emis = parse_matrix_data(desc["M_emis"]).T
+    vol = desc["volume"]
+    x, y, z = vol["range_x"], vol["range_y"], vol["range_z"]
+    pm = Model(
+        altitude_bins=altitude_bins,
+        energy_bins=energy_bins,
         emission_matrix=m_emis,
-        # TODO: Load from file
-        field_azimuth=185.8,
-        field_elevation=77.4,
-        box_min=(-50.0, -73.0, 90.0),
-        box_max=(88.0, 65.0, 190.0),
+        mag_field_azimuth=desc["mag_field"]["azimuth"],
+        mag_field_elevation=desc["mag_field"]["elevation"],
+        box_origin_lat=vol["origin"]["lat"],
+        box_origin_lon=vol["origin"]["lon"],
+        box_min=(x["min"], y["min"], z["min"]),
+        box_max=(x["max"], y["max"], z["max"]),
     )
+    if "ref_q0" in desc:
+        ref = desc["ref_q0"]
+        x, y = ref["range_x"], ref["range_y"]
+        pm.has_ref_q0 = True
+        pm.ref_q0_image = parse_matrix_data(ref["image"])
+        pm.ref_q0_range_min = (x["min"], y["min"])
+        pm.ref_q0_range_max = (x["max"], y["max"])
+        pm.ref_q0_range_scale = (x.get("scale", 1.0), y.get("scale", 1.0))
+    return pm

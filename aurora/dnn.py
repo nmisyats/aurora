@@ -20,14 +20,15 @@ from aurora.geometry import ray_box_intersection
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon: float):
+def get_ray_transform(model: Model):
+    o_lat, o_lon = model.box_origin_lat, model.box_origin_lon
     o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
 
     to_o_une_matrix = torch.stack(UNE_basis_ECEF(o_lat, o_lon))
     to_o_une_matrix = torch.linalg.inv(to_o_une_matrix.T)
     field_dir_une = az_ze_to_UNE(
-        torch.tensor([model.field_azimuth]),
-        torch.tensor([90 - model.field_elevation])
+        torch.tensor([model.mag_field_azimuth]),
+        torch.tensor([90 - model.mag_field_elevation])
     )[0]
     o_une_to_spec_matrix = torch.stack((
         torch.tensor([0.0, -1.0, 0.0]),
@@ -36,22 +37,32 @@ def create_ray_g_pairs(cameras: list[Camera], model: Model, o_lat: float, o_lon:
     ))
     o_une_to_spec_matrix = torch.linalg.inv(o_une_to_spec_matrix.T)
     to_spec_matrix = torch.matmul(o_une_to_spec_matrix, to_o_une_matrix)
+
+    return o_ecef, to_spec_matrix
+
+def create_ray(cam: Camera, o_ecef: torch.Tensor, to_spec_matrix: torch.Tensor):
+    lat, lon = cam.latitude, cam.longitude
+
+    az = torch.from_numpy(cam.azimuth).flatten()
+    ze = torch.from_numpy(cam.zenith).flatten()
+    rd_une = az_ze_to_UNE(az, ze)
+    rd_ecef = UNE_to_ECEF(rd_une, lat, lon)
+    rd_rel = torch.matmul(rd_ecef, to_spec_matrix.T)
+
+    radius = earth_radius(lat, lon) + cam.altitude
+    ro_ecef = lat_lon_to_ECEF(lat, lon)
+    ro_rel = radius * (ro_ecef - o_ecef)
+    ro_rel = torch.matmul(ro_rel, to_spec_matrix.T)
+    ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
+
+    return ro_rel, rd_rel
+
+def create_ray_g_pairs(cameras: list[Camera], model: Model):
+    o_ecef, to_spec_matrix = get_ray_transform(model)
     
     ro_list, rd_list, g_ref_list = [], [], []
     for cam in cameras:
-        lat, lon = cam.latitude, cam.longitude
-
-        az = torch.from_numpy(cam.azimuth).flatten()
-        ze = torch.from_numpy(cam.zenith).flatten()
-        rd_une = az_ze_to_UNE(az, ze)
-        rd_ecef = UNE_to_ECEF(rd_une, lat, lon)
-        rd_rel = torch.matmul(rd_ecef, to_spec_matrix.T)
-
-        radius = earth_radius(lat, lon) + cam.altitude
-        ro_ecef = lat_lon_to_ECEF(lat, lon)
-        ro_rel = radius * (ro_ecef - o_ecef)
-        ro_rel = torch.matmul(ro_rel, to_spec_matrix.T)
-        ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
+        ro_rel, rd_rel = create_ray(cam, o_ecef, to_spec_matrix)
 
         ro_list.append(ro_rel)
         rd_list.append(rd_rel)
@@ -84,7 +95,7 @@ class FMLP(nn.Module):
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size * 2 * embed_exp
-        self.output_size = len(model.energies) - 1
+        self.output_size = len(model.energy_bins) - 1
         
         self.fc1 = nn.Linear(self.embed_size, 128)
         self.fc2 = nn.Linear(128, 128)
@@ -108,22 +119,17 @@ class FMLP(nn.Module):
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((*cos_x, *sin_x), dim=-1)
 
-def estimate_f(net: FMLP, xy: torch.Tensor):
+def estimate_f(net: nn.Module, xy: torch.Tensor):
     return torch.pow(10.0, 10.0*net(xy))
 
-def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
-    z_edges = torch.from_numpy(pm.altitudes).to(torch.float32).to(device)
-    m_mat = torch.from_numpy(pm.emission_matrix).to(torch.float32).to(device)
+def get_pixel_estimator(pm: Model, ray_bins: int):
+    z_edges = torch.from_numpy(pm.altitude_bins).to(device)
+    m_mat = torch.from_numpy(pm.emission_matrix).to(device)
     box_min = torch.tensor(pm.box_min).to(device)
     box_max = torch.tensor(pm.box_max).to(device)
     xy_min, xy_max = box_min[:2], box_max[:2]
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=5e-5)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1)
-
-    loss_list = []
-
-    def estimate_ray_pixel(ro, rd, tn, tf):
+    def estimate_pixel(ro, rd, tn, tf):
         t, p = create_ray_points(ro, rd, tn, tf, ray_bins)
         xy, z = p[:,:2], p[:,2]
         z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
@@ -139,9 +145,19 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         g /= 10.0
 
         return g
+    
+    return estimate_pixel
+
+def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int, ray_bins: int):
+    optimizer = torch.optim.Adam(net.parameters(), lr=5e-5)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1)
+
+    loss_list = []
+
+    estimate_pixel = get_pixel_estimator(pm, 128)
 
     def ray_loss(ro, rd, tn, tf, g_ref):
-        g = estimate_ray_pixel(ro, rd, tn, tf)
+        g = estimate_pixel(ro, rd, tn, tf)
         return (g - g_ref)**2
     
     batch_loss = torch.vmap(ray_loss, randomness='different')
@@ -166,30 +182,7 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
         )
     tq.close()
 
-    return loss_list, estimate_ray_pixel
-
-def plot_total_energy_flux(net: FMLP, pm: Model, n):
-    x = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1)
-    y = torch.linspace(0.0, 1.0, n, device=device).repeat(n, 1).T
-    xy = torch.stack((x, y), dim=-1)
-    f = estimate_f(net, xy.reshape(n*n, 2)).detach().cpu().numpy()
-    e = 1.602e-19
-    lower_E, upper_E = pm.energies[:-1], pm.energies[1:]
-    E = (lower_E + upper_E) / 2.0
-    dE = upper_E - lower_E
-    q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
-    q = np.sum(q, axis=1)
-    q = q.reshape((n, n)).T
-
-    x_min, x_max = pm.box_min[0], pm.box_max[0]
-    y_min, y_max = pm.box_min[1], pm.box_max[1]
-    plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min])
-    cbar = plt.colorbar()
-    cbar.set_label("mW m$^{-2}$")
-    plt.xlabel("y (km)")
-    plt.ylabel("x (km)")
-    plt.title("Reconstructed total energy flux")
-    plt.show()
+    return loss_list
 
 def plot_training_loss(loss_list: list[float]):
     plt.plot(loss_list)
@@ -198,90 +191,19 @@ def plot_training_loss(loss_list: list[float]):
     plt.title("Training batch loss")
     plt.show()
 
-def plot_reconstructed_image(estimate_pixel, get_image_data, n_img):
-    # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4))
-    # plt.subplots_adjust(wspace=0.05, hspace=0.05)
-    # for i in range(n_img):
-    #     ro, rd, tn, tf, g_ref, w, h = get_image_data(i)
-    #     img = torch.vmap(estimate_pixel, randomness='different')(ro, rd, tn, tf)
-    #     img = img.detach().cpu().numpy()
-    #     img = img.reshape(h, w)
-    #     ref = g_ref.cpu().numpy().reshape(h, w)
-    #     axs[0, i].imshow(img)
-    #     axs[1, i].imshow(ref)
-    # plt.tight_layout()
-    # plt.show()
-
-    fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
-    plt.subplots_adjust(wspace=0.05, hspace=0.05)
-
-    # Lists to store min and max values for color scaling
-    all_mins = []
-    all_maxs = []
-
-    imgs = []
-    refs = []
-
-    # First pass to get min and max values across all images
-    for i in range(n_img):
-        ro, rd, tn, tf, g_ref, w, h = get_image_data(i)
-        img = torch.vmap(estimate_pixel, randomness='different')(ro, rd, tn, tf)
-        img = img.detach().cpu().numpy().reshape(h, w)
-        ref = g_ref.cpu().numpy().reshape(h, w)
-        img = np.nan_to_num(img, nan=0.0)
-        ref = np.nan_to_num(ref, nan=0.0)
-        imgs.append(img)
-        refs.append(ref)
-        
-        all_mins.append(min(img.min(), ref.min()))
-        all_maxs.append(max(img.max(), ref.max()))
-
-    # Get global min and max
-    vmin = min(all_mins)
-    vmax = max(all_maxs)
-
-    # Second pass to plot images with consistent color scale
-    ims = []
-    for i in range(n_img):
-        img = imgs[i]
-        ref = refs[i]
-        
-        im1 = axs[0, i].imshow(img, vmin=vmin, vmax=vmax)
-        im2 = axs[1, i].imshow(ref, vmin=vmin, vmax=vmax)
-        ims.append(im1)
-        ims.append(im2)
-        
-        # Remove axis ticks
-        axs[0, i].set_xticks([])
-        axs[0, i].set_yticks([])
-        axs[1, i].set_xticks([])
-        axs[1, i].set_yticks([])
-
-    # Add a single colorbar that applies to all subplots
-    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
-    cbar = fig.colorbar(ims[0], cax=cbar_ax)
-
-    plt.tight_layout(rect=[0, 0, 0.9, 1])  # Adjust layout to make room for colorbar
-    plt.show()
 
 if __name__ == "__main__":
-    from aurora.data import parse_dataset_cameras, parse_physical_model_data
+    from aurora.data import load_dataset_description
+    from aurora.plot import plot_total_energy_flux, plot_reconstructed_images
     from pathlib import Path
 
-    cams = parse_dataset_cameras(Path("../datasets/simulation1"))
-    pm = parse_physical_model_data(Path("../model"))
-    ro, rd, g_ref = create_ray_g_pairs(list(cams.values()), pm, cams["skibotn"].latitude, cams["skibotn"].longitude)
+    cams, pm = load_dataset_description(Path("./simulation.yaml"))
+    ro, rd, g_ref = create_ray_g_pairs(cams, pm)
     box_min, box_max = torch.tensor(pm.box_min), torch.tensor(pm.box_max)
     tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
 
-    ro0 = ro.to(device)
-    rd0 = rd.to(device)
-    g_ref0 = g_ref.to(device)
-    tn0 = tn.to(device)
-    tf0 = tf.to(device)
-
     # Get mask for non-NaN values in tn
-    valid_mask = ~(torch.isnan(tn) & torch.isnan(tf))
+    valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
     # Apply the mask to all tensors
     ro = ro[valid_mask].contiguous().to(device)
     rd = rd[valid_mask].contiguous().to(device)
@@ -292,17 +214,29 @@ if __name__ == "__main__":
     net = FMLP(pm, 4).to(device)
     print(net)
     
-    loss, estimate_pixel = train(net, pm, ro, rd, tn, tf, g_ref, 10000, 4096, 128)
-    plot_total_energy_flux(net, pm, 128)
+    loss = train(net, pm, ro, rd, tn, tf, g_ref, 10000, 4096, 128)
     plot_training_loss(loss)
 
-    def get_image_data(i):
-        return (
-            ro0[i*256*256:(i+1)*256*256],
-            rd0[i*256*256:(i+1)*256*256],
-            tn0[i*256*256:(i+1)*256*256],
-            tf0[i*256*256:(i+1)*256*256],
-            g_ref0[i*256*256:(i+1)*256*256],
-            256, 256
-        )
-    plot_reconstructed_image(estimate_pixel, get_image_data, len(cams))
+    def f(xy):
+        xy = torch.from_numpy(xy).to(device)
+        f_est = estimate_f(net, xy)
+        return f_est.detach().cpu().numpy()
+    plot_total_energy_flux(f, pm, 128)
+
+    o_ecef, to_spec_matrix = get_ray_transform(pm)
+    estimate_pixel = get_pixel_estimator(pm, 128)
+    estimate_pixel = torch.vmap(estimate_pixel, randomness='different')
+    def img(cam):
+        ro, rd = create_ray(cam, o_ecef, to_spec_matrix)
+        tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
+        ro = ro.to(device)
+        rd = rd.to(device)
+        tn = tn.to(device)
+        tf = tf.to(device)
+        g = estimate_pixel(ro, rd, tn, tf)
+        g = g.detach().cpu().numpy()
+        g = g.reshape(cam.azimuth.shape[0], cam.azimuth.shape[1])
+        g = np.nan_to_num(g, nan=0.0)
+        return g
+    plot_reconstructed_images(img, cams)
+
