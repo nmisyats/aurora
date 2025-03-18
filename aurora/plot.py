@@ -1,8 +1,10 @@
 from matplotlib import pyplot as plt
+import pyvista as pv
 from pathlib import Path
 import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
 from typing import Callable
+
 from aurora.data import parse_matrix_data, Model, Camera
 
 def plot_camera_image(cam_path: Path):
@@ -142,3 +144,37 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     grid[n_img].set_ylabel("Reference image")
 
     plt.show()
+
+def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int, res_z: int):
+    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
+    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
+    z = np.linspace(0.0, 1.0, res_z, dtype=np.float32)
+    xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
+    xyz = np.stack((xx, yy, zz), axis=-1)
+    L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
+    L = L.reshape(res_x, res_y, res_z)
+    
+    grid = pv.ImageData()
+    grid.dimensions = np.array(L.shape) + 1  # Add 1 because dimensions are number of points
+    grid.spacing = (1, 1, 1)  # Voxel spacing
+    grid.origin = (0, 0, 0)   # Origin of the grid
+
+    # Add the density data to the grid as a cell array
+    # Need to flatten the numpy array to match PyVista's expected format
+    grid.cell_data["density"] = L.flatten(order="F")
+
+    # Create a custom opacity transfer function
+    # This maps density values to opacity
+    opacity = [0, 0, 0.1, 0.3, 0.6, 0.8, 1.0]
+
+    # Create the plotter
+    pl = pv.Plotter()
+
+    # Add the volume to the plotter with a colormap
+    pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=True)
+
+    # Optional: Add axes for reference
+    pl.show_axes()
+
+    # Display the plot
+    pl.show()

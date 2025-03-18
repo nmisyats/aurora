@@ -1,6 +1,7 @@
 pytest
 numpy
 matplotlib
+pyvista
 pyyaml
 schema
 --extra-index-url https://download.pytorch.org/whl/cu118
