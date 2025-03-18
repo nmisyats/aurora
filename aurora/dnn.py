@@ -154,7 +154,7 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
 
     loss_list = []
 
-    estimate_pixel = get_pixel_estimator(pm, 128)
+    estimate_pixel = get_pixel_estimator(pm, ray_bins)
 
     def ray_loss(ro, rd, tn, tf, g_ref):
         g = estimate_pixel(ro, rd, tn, tf)
