@@ -36,7 +36,7 @@ class Model:
     box_origin_lon: float
     box_min: tuple[float, float, float]
     box_max: tuple[float, float, float]
-    has_ref_q0: bool = False,
+    has_ref_q0: bool = False
     ref_q0_image: np.ndarray | None = None
     ref_q0_range_min: tuple[float, float] | None = None
     ref_q0_range_max: tuple[float, float] | None = None
