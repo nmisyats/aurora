@@ -94,7 +94,7 @@ class FMLP(nn.Module):
         super(FMLP, self).__init__()
         self.input_size = 2
         self.embed_exp = embed_exp
-        self.embed_size = self.input_size * 2 * embed_exp
+        self.embed_size = self.input_size + self.input_size * 2 * embed_exp
         self.output_size = len(model.energy_bins) - 1
         
         self.fc1 = nn.Linear(self.embed_size, 128)
@@ -117,7 +117,7 @@ class FMLP(nn.Module):
         freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
         cos_x = [torch.cos(f * x) for f in freqs]
         sin_x = [torch.sin(f * x) for f in freqs]
-        return torch.cat((*cos_x, *sin_x), dim=-1)
+        return torch.cat((x, *cos_x, *sin_x), dim=-1)
 
 def get_pixel_estimator(pm: Model, ray_bins: int):
     z_edges = torch.from_numpy(pm.altitude_bins).to(device)
