@@ -119,7 +119,7 @@ class FMLP(nn.Module):
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((x, *cos_x, *sin_x), dim=-1)
 
-def get_pixel_estimator(pm: Model, ray_bins: int):
+def get_pixel_estimator(net: nn.Module, pm: Model, ray_bins: int):
     z_edges = torch.from_numpy(pm.altitude_bins).to(device)
     m_mat = torch.from_numpy(pm.emission_matrix).to(device)
     box_min = torch.tensor(pm.box_min).to(device)
@@ -151,7 +151,7 @@ def train(net: nn.Module, pm: Model, ro: torch.Tensor, rd: torch.Tensor, tn: tor
 
     loss_list = []
 
-    estimate_pixel = get_pixel_estimator(pm, ray_bins)
+    estimate_pixel = get_pixel_estimator(net, pm, ray_bins)
 
     def ray_loss(ro, rd, tn, tf, g_ref):
         g = estimate_pixel(ro, rd, tn, tf)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     plot_total_energy_flux(f, pm, 256, 256)
 
     o_ecef, to_spec_matrix = get_ray_transform(pm)
-    estimate_pixel = get_pixel_estimator(pm, 128)
+    estimate_pixel = get_pixel_estimator(net, pm, 128)
     estimate_pixel = torch.vmap(estimate_pixel, randomness='different')
     def img(cam):
         ro, rd = create_ray(cam, o_ecef, to_spec_matrix)
