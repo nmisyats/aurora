@@ -25,8 +25,9 @@ def plot_camera_views(cam_path: Path):
     plt.show()
 
 def plot_model_matrix(model_path: Path):
-    model = parse_physical_model(model_path)
-    m, x, y = model.emission_matrix, model.altitude_bins, model.energy_bins
+    m = parse_matrix_data(model_path / "M_emis.dat")
+    x = parse_matrix_data(model_path / "altitude.dat")
+    y = parse_matrix_data(model_path / "energy.dat")
     plt.matshow(np.log(m))
     plt.colorbar()
     plt.ylabel("Altitude (z)")

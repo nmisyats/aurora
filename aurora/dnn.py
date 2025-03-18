@@ -111,16 +111,13 @@ class FMLP(nn.Module):
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
         x = F.relu(self.fc5(x))
-        return x
+        return torch.pow(10.0, 10.0*x)
     
     def embed_fourier(self, x: torch.Tensor):
         freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
         cos_x = [torch.cos(f * x) for f in freqs]
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((*cos_x, *sin_x), dim=-1)
-
-def estimate_f(net: nn.Module, xy: torch.Tensor):
-    return torch.pow(10.0, 10.0*net(xy))
 
 def get_pixel_estimator(pm: Model, ray_bins: int):
     z_edges = torch.from_numpy(pm.altitude_bins).to(device)
@@ -138,7 +135,7 @@ def get_pixel_estimator(pm: Model, ray_bins: int):
         xy = (xy - xy_min) / (xy_max - xy_min)
 
         m_i = m_mat[z_idx,:]
-        f = estimate_f(net, xy)
+        f = net(xy)
         l = torch.sum(m_i * f, dim=1)
         d = t[1:] - t[:-1]
         g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
@@ -219,7 +216,7 @@ if __name__ == "__main__":
 
     def f(xy):
         xy = torch.from_numpy(xy).to(device)
-        f_est = estimate_f(net, xy)
+        f_est = net(xy)
         return f_est.detach().cpu().numpy()
     plot_total_energy_flux(f, pm, 256, 256)
 
