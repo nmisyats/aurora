@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
 from typing import Callable
-from aurora.data import parse_matrix_data, parse_physical_model, Model, Camera
+from aurora.data import parse_matrix_data, Model, Camera
 
 def plot_camera_image(cam_path: Path):
     plt.imshow(parse_matrix_data(cam_path / "image.dat"))
