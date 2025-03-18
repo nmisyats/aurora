@@ -221,7 +221,7 @@ if __name__ == "__main__":
         xy = torch.from_numpy(xy).to(device)
         f_est = estimate_f(net, xy)
         return f_est.detach().cpu().numpy()
-    plot_total_energy_flux(f, pm, 128)
+    plot_total_energy_flux(f, pm, 256, 256)
 
     o_ecef, to_spec_matrix = get_ray_transform(pm)
     estimate_pixel = get_pixel_estimator(pm, 128)
@@ -235,7 +235,8 @@ if __name__ == "__main__":
         tf = tf.to(device)
         g = estimate_pixel(ro, rd, tn, tf)
         g = g.detach().cpu().numpy()
-        g = g.reshape(cam.azimuth.shape[0], cam.azimuth.shape[1])
+        h, w = cam.azimuth.shape
+        g = g.reshape(h, w)
         g = np.nan_to_num(g, nan=0.0)
         return g
     plot_reconstructed_images(img, cams)

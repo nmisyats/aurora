@@ -33,19 +33,18 @@ def plot_model_matrix(model_path: Path):
     plt.xlabel("Energy (E)")
     plt.show()
 
-def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res: int):
-    l01 = np.linspace(0.0, 1.0, res, dtype=np.float32)
-    x = l01.reshape(1, res).repeat(res, axis=0)
-    y = l01.reshape(1, res).repeat(res, axis=0).T
+def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int):
+    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32).reshape(1, res_x).repeat(res_y, axis=0)
+    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32).reshape(1, res_y).repeat(res_x, axis=0).T
     xy = np.stack((x, y), axis=-1)
-    f = estimate_f(xy.reshape(res*res, 2))
+    f = estimate_f(xy.reshape(res_x*res_y, 2))
     e = 1.602e-19
     lower_E, upper_E = pm.energy_bins[:-1], pm.energy_bins[1:]
     E = (lower_E + upper_E) / 2.0
     dE = upper_E - lower_E
     q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
     q = np.sum(q, axis=1)
-    q = q.reshape((res, res)).T
+    q = q.reshape((res_x, res_y)).T
 
     if pm.has_ref_q0:
         fig = plt.figure(figsize=(8, 4))
@@ -123,7 +122,7 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
                      nrows_ncols=(2, n_img),
                      axes_pad=0.1,
                      cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
-
+    
     cat = [*imgs, *refs]
     ims = []
     for i, (ax, img) in enumerate(zip(grid, cat)):
@@ -136,5 +135,8 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     
     cbar = grid[0].cax.colorbar(ims[0])
     cbar.set_label("Rayleigh")
+
+    grid[0].set_ylabel("Generated image")
+    grid[n_img].set_ylabel("Reference image")
 
     plt.show()
