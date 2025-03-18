@@ -35,9 +35,10 @@ def plot_model_matrix(model_path: Path):
     plt.show()
 
 def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int):
-    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32).reshape(1, res_x).repeat(res_y, axis=0)
-    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32).reshape(1, res_y).repeat(res_x, axis=0).T
-    xy = np.stack((x, y), axis=-1)
+    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
+    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
+    xx, yy = np.meshgrid(x, y, indexing='ij')
+    xy = np.stack((xx, yy), axis=-1)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
     e = 1.602e-19
     lower_E, upper_E = pm.energy_bins[:-1], pm.energy_bins[1:]
@@ -45,7 +46,7 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
     dE = upper_E - lower_E
     q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
     q = np.sum(q, axis=1)
-    q = q.reshape((res_x, res_y)).T
+    q = q.reshape((res_x, res_y))
 
     if pm.has_ref_q0:
         fig = plt.figure(figsize=(8, 4))
