@@ -39,6 +39,8 @@ def plot_model_matrix(model_path: Path):
 def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
+    x = pm.box_min[0] + x * (pm.box_max[0] - pm.box_min[0])
+    y = pm.box_min[1] + y * (pm.box_max[1] - pm.box_min[1])
     xx, yy = np.meshgrid(x, y, indexing='ij')
     xy = np.stack((xx, yy), axis=-1)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
@@ -149,6 +151,9 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
     z = np.linspace(0.0, 1.0, res_z, dtype=np.float32)
+    x = pm.box_min[0] + x * (pm.box_max[0] - pm.box_min[0])
+    y = pm.box_min[1] + y * (pm.box_max[1] - pm.box_min[1])
+    z = pm.box_min[2] + z * (pm.box_max[2] - pm.box_min[2])
     xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
     xyz = np.stack((xx, yy, zz), axis=-1)
     L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
@@ -165,16 +170,18 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
 
     # Create a custom opacity transfer function
     # This maps density values to opacity
-    opacity = [0, 0, 0.1, 0.3, 0.6, 0.8, 1.0]
+    opacity = [0, 0.1, 0.3, 0.6, 0.8, 1.0, 1.0]
 
     # Create the plotter
     pl = pv.Plotter()
 
     # Add the volume to the plotter with a colormap
-    pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=True)
+    # pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=False)
+    pl.add_volume(grid, scalars="density", cmap="coolwarm", opacity=opacity, shade=False)
 
     # Optional: Add axes for reference
     pl.show_axes()
+    pl.add_bounding_box()
 
     # Display the plot
     pl.show()
