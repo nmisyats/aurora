@@ -233,7 +233,7 @@ if __name__ == "__main__":
         l = l.detach().cpu().numpy()
         return l
 
-    def est_g_np(cam):
+    def gen_img_np(cam):
         ro, rd = create_camera_rays(cam, o_ecef, to_spec_matrix)
         tn, tf = ray_box_intersection(ro, rd, box_min, box_max)
         ro = ro.to(device)
@@ -248,6 +248,6 @@ if __name__ == "__main__":
         return g
 
     plot_total_energy_flux(est_f_np, pm, 256, 256)
-    plot_reconstructed_images(est_g_np, cams)
+    plot_reconstructed_images(gen_img_np, cams)
     plot_volume_emission(est_L_np, pm, 100, 100, 100)
 
