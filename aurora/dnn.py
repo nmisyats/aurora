@@ -95,7 +95,7 @@ def get_estimators(net: nn.Module, pm: Model, ray_bins: int):
     def estimate_f(xy):
         xy = (xy - xy_min) / (xy_max - xy_min)
         log_f = net(xy)
-        return torch.pow(10.0, 10.0*log_f)
+        return torch.pow(10.0, 7.0*log_f)
 
     def estimate_L(p):
         xy, z = p[:,:2], p[:,2]
@@ -115,7 +115,7 @@ def get_estimators(net: nn.Module, pm: Model, ray_bins: int):
         m_z = m_mat[z_idx,:]
         xy = (xy - xy_min) / (xy_max - xy_min)
         log_f = net(xy)
-        f = torch.pow(10.0, 10.0*log_f)
+        f = torch.pow(10.0, 7.0*log_f)
         l = torch.sum(m_z * f, dim=1)
         d = t[1:] - t[:-1]
         g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
@@ -148,7 +148,7 @@ class FMLP(nn.Module):
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
-        x = F.relu(self.fc5(x))
+        x = F.sigmoid(self.fc5(x))
         return x
     
     def embed_fourier(self, x: torch.Tensor):
@@ -159,7 +159,7 @@ class FMLP(nn.Module):
 
 
 def train(estimate_g: Callable, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, g_ref: torch.Tensor, num_iters: int, batch_size: int):
-    optimizer = torch.optim.Adam(net.parameters(), lr=5e-5)
+    optimizer = torch.optim.Adam(net.parameters(), lr=5e-5, weight_decay=1.0)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1)
 
     loss_list = []
@@ -219,7 +219,7 @@ if __name__ == "__main__":
     print(net)
     
     est_f, est_L, est_g = get_estimators(net, pm, 128)
-    loss = train(est_g, ro, rd, tn, tf, g_ref, 1000, 4096)
+    loss = train(est_g, ro, rd, tn, tf, g_ref, 10000, 4096)
     plot_training_loss(loss)
 
     def est_f_np(xy):
