@@ -60,7 +60,7 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
                         cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
         vmin = min(q.min(), pm.ref_q0_image.min())
-        vmax = min(q.max(), pm.ref_q0_image.max())
+        vmax = max(q.max(), pm.ref_q0_image.max())
 
         x_min, x_max = pm.ref_q0_range_min[0], pm.ref_q0_range_max[0]
         y_min, y_max = pm.ref_q0_range_min[1], pm.ref_q0_range_max[1]
