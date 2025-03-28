@@ -198,6 +198,7 @@ def plot_training_loss(loss_list: list[float]):
 if __name__ == "__main__":
     from aurora.data import load_dataset_description
     from aurora.plot import plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission
+    from aurora.save import save_3d_array
     from pathlib import Path
 
     cams, pm = load_dataset_description(Path("./simulation.yaml"))
@@ -249,5 +250,6 @@ if __name__ == "__main__":
 
     plot_total_energy_flux(est_f_np, pm, 256, 256)
     plot_reconstructed_images(gen_img_np, cams)
-    plot_volume_emission(est_L_np, pm, 100, 100, 100)
+    L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
+    save_3d_array(L, "volume_emission_rate.dat")
 

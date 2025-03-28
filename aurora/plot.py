@@ -95,6 +95,8 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
 
     plt.show()
 
+    return f
+
 def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], cams: list[Camera]):
     n_img = len(cams)
     # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
@@ -146,6 +148,7 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     grid[n_img].set_ylabel("Reference image")
 
     plt.show()
+    return imgs
 
 def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int, res_z: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
@@ -185,3 +188,5 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
 
     # Display the plot
     pl.show()
+
+    return L
