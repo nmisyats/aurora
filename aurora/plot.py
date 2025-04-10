@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import matplotlib.patches as patches
 import pyvista as pv
 from pathlib import Path
 import numpy as np
@@ -72,6 +73,10 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
         
         x_min, x_max = pm.box_min[0], pm.box_max[0]
         y_min, y_max = pm.box_min[1], pm.box_max[1]
+
+        rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
+        grid[0].add_patch(rect)
+        
         im = grid[1].imshow(q,
                             interpolation='none',
                             extent=[y_min,y_max,x_max,x_min],
@@ -83,6 +88,9 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
 
         grid[0].set_title("Reference $Q_0$")
         grid[1].set_title("Reconstructed $Q_0$")
+        grid[0].set_xlabel("y (km)")
+        grid[1].set_xlabel("y (km)")
+        grid[0].set_ylabel("x (km)")
     else:
         x_min, x_max = pm.box_min[0], pm.box_max[0]
         y_min, y_max = pm.box_min[1], pm.box_max[1]
