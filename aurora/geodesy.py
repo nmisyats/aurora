@@ -127,3 +127,15 @@ def UNE_basis_ECEF(lat: float, lon: float):
 
 def earth_radius(lat: float, lon: float):
     return 6371.0 # km
+
+def inc_dec_to_UNE(inclination: torch.Tensor, declination: torch.Tensor):
+    # Convert angles from degrees to radians
+    inc_rad = torch.deg2rad(inclination)
+    dec_rad = torch.deg2rad(declination)
+    
+    up = -torch.sin(inc_rad)
+    north = torch.cos(dec_rad) * torch.cos(inc_rad)
+    east = torch.sin(dec_rad) * torch.cos(inc_rad)
+
+    # Return the unit vector in UNE frame
+    return torch.tensor([up, north, east])

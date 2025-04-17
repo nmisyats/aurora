@@ -30,8 +30,8 @@ class Model:
     altitude_bins: np.ndarray
     energy_bins: np.ndarray
     emission_matrix: np.ndarray
-    mag_field_azimuth: float
-    mag_field_elevation: float
+    mag_field_inclination: float
+    mag_field_declination: float
     box_origin_lat: float
     box_origin_lon: float
     box_min: tuple[float, float, float]
@@ -55,8 +55,8 @@ def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], Model]:
             "altitude_bins": And(Use(Path), lambda p: p.exists()),
             "energy_bins": And(Use(Path), lambda p: p.exists()),
             "mag_field": {
-                "azimuth": float,
-                "elevation": float
+                "inclination": float,
+                "declination": float
             },
             "volume": {
                 "origin": {"lat": float, "lon": float},
@@ -160,8 +160,8 @@ def parse_physical_model(desc: dict):
         altitude_bins=altitude_bins,
         energy_bins=energy_bins,
         emission_matrix=m_emis,
-        mag_field_azimuth=desc["mag_field"]["azimuth"],
-        mag_field_elevation=desc["mag_field"]["elevation"],
+        mag_field_inclination=desc["mag_field"]["inclination"],
+        mag_field_declination=desc["mag_field"]["declination"],
         box_origin_lat=vol["origin"]["lat"],
         box_origin_lon=vol["origin"]["lon"],
         box_min=(x["min"], y["min"], z["min"]),

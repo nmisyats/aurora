@@ -4,6 +4,7 @@ import pyvista as pv
 from pathlib import Path
 import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import Callable
 
 from aurora.data import parse_matrix_data, Model, Camera
@@ -198,3 +199,65 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
     pl.show()
 
     return L
+
+def plot_rays(pm: Model, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray, o_ecef, to_spec_matrix):
+    p1 = ro + rd * tn[:, np.newaxis]
+    p2 = ro + rd * tf[:, np.newaxis]
+    p = np.concat([p1, p2], axis=0)
+    # print(p1.shape, p2.shape, p.shape)
+    
+    ax = plt.figure().add_subplot(projection='3d')
+
+    for i in range(ro.shape[0]):
+        xs = [ro[i, 0], p2[i, 0]]
+        ys = [ro[i, 1], p2[i, 1]]
+        zs = [ro[i, 2], p2[i, 2]]
+        ax.plot(xs, ys, zs, color='b', linewidth=1)
+
+    x0, y0, z0 = ro[:, 0], ro[:, 1], ro[:, 2]
+    # x1, y1, z1 = p1[:, 0], p1[:, 1], p1[:, 2]
+    # x2, y2, z2 = p2[:, 0], p2[:, 1], p2[:, 2]
+    xp, yp, zp = p[:, 0], p[:, 1], p[:, 2]
+    ax.scatter(x0, y0, z0, color='g')
+    ax.scatter(xp, yp, zp, color='r')
+    # ax.scatter(x1, y1, z1, color='r')
+    # ax.scatter(x2, y2, z2, color='r')
+
+    draw_bbox(ax, pm.box_min, pm.box_max)
+    
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.set_aspect('equal', adjustable='box')
+    plt.tight_layout()
+    plt.show()
+
+def draw_bbox(ax, mins, maxs, color='cyan', alpha=0.2):
+    xmin, ymin, zmin = mins
+    xmax, ymax, zmax = maxs
+    # Define the 8 corners of the bounding box
+    corners = [
+        [xmin, ymin, zmin],
+        [xmax, ymin, zmin],
+        [xmax, ymax, zmin],
+        [xmin, ymax, zmin],
+        [xmin, ymin, zmax],
+        [xmax, ymin, zmax],
+        [xmax, ymax, zmax],
+        [xmin, ymax, zmax]
+    ]
+
+    # Define the 6 faces (as lists of corners)
+    faces = [
+        [corners[0], corners[1], corners[2], corners[3]],  # bottom
+        [corners[4], corners[5], corners[6], corners[7]],  # top
+        [corners[0], corners[1], corners[5], corners[4]],  # front
+        [corners[2], corners[3], corners[7], corners[6]],  # back
+        [corners[1], corners[2], corners[6], corners[5]],  # right
+        [corners[0], corners[3], corners[7], corners[4]]   # left
+    ]
+
+    # Create a 3D polygon collection and add it to the axis
+    bbox = Poly3DCollection(faces, linewidths=1, edgecolors='r', alpha=alpha)
+    bbox.set_facecolor(color)
+    ax.add_collection3d(bbox)
