@@ -9,6 +9,13 @@ from typing import Callable
 
 from aurora.data import parse_matrix_data, Model, Camera
 
+def plot_training_loss(loss: list[float]):
+    plt.plot(loss)
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.title("Training batch loss")
+    plt.show()
+
 def plot_camera_image(cam_path: Path):
     plt.imshow(parse_matrix_data(cam_path / "image.dat"))
     plt.colorbar()
