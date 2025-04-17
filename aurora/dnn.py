@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    cams, pm = load_dataset_description(Path("./simulation_vertical.yaml"))
+    cams, pm = load_dataset_description(Path("./simulation.yaml"))
 
     net = FMLP(pm, 4).to(device)
     print(net)

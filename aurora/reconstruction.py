@@ -20,9 +20,10 @@ class Reconstruction(ABC):
     def __init__(self, pm: Model, f_net: nn.Module, device: torch.device):
         self.device = device
 
-        o_ecef, ecef_to_field_mat = get_ray_transform(pm, device)
+        o_ecef, ecef_to_field, metric_tensor = get_ray_transform(pm, device)
         self.origin_ecef = o_ecef
-        self.ecef_to_field_mat = ecef_to_field_mat
+        self.ecef_to_field_mat = ecef_to_field
+        self.metric_tensor = metric_tensor
 
         self.f_net = f_net
 
@@ -59,6 +60,7 @@ class Reconstruction(ABC):
             l = self.L(p)
             d = t[1:] - t[:-1]
             g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
+            g *= torch.sqrt(rd @ self.metric_tensor @ rd)
             g /= 10.0
             return g
         return torch.vmap(g1, randomness='different')
@@ -115,6 +117,7 @@ class Reconstruction(ABC):
 def get_ray_transform(pm: Model, device: torch.device):
     o_lat, o_lon = pm.box_origin_lat, pm.box_origin_lon
     o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
+    o_ecef = o_ecef.to(device)
 
     une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
     ecef_to_une = torch.linalg.inv(une_to_ecef)
@@ -129,8 +132,13 @@ def get_ray_transform(pm: Model, device: torch.device):
     )).T
     une_to_field = torch.linalg.inv(field_to_une)
     ecef_to_field = torch.matmul(une_to_field, ecef_to_une)
+    ecef_to_field = ecef_to_field.to(device)
 
-    return o_ecef.to(device), ecef_to_field.to(device)
+    # metric tensor
+    metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
+    metric_tensor = metric_tensor.to(device)
+
+    return o_ecef, ecef_to_field, metric_tensor
 
 def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
     lat, lon = cam.latitude, cam.longitude
