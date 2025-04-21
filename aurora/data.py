@@ -13,75 +13,115 @@ def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
-
 @dataclass
 class Camera:
     name: str
-    longitude: float
     latitude: float
+    longitude: float
     altitude: float
     image: np.ndarray
     azimuth: np.ndarray
     zenith: np.ndarray
 
+    def __repr__(self):
+        return ", ".join(["Camera=(",
+            f"name={self.name}",
+            f"latitude={self.latitude}",
+            f"longitude={self.longitude}",
+            f"altitude={self.altitude}",
+            f"image={type(self.image)}",
+            f"azimuth={type(self.azimuth)}",
+            f"zenith={type(self.zenith)}",
+        ")"])
+    
+    def __str__(self):
+        return self.__repr__(self)
+
+@dataclass
+class Direction:
+    inc: float
+    dec: float
+
+@dataclass
+class XY:
+    x: float
+    y: float
+
+@dataclass
+class XYZ:
+    x: float
+    y: float
+    z: float
+
+@dataclass
+class Volume:
+    lat: float
+    lon: float
+    alt: float
+    min: XYZ
+    max: XYZ
+
+@dataclass
+class Q0:
+    image: np.ndarray
+    min: XY
+    max: XY
 
 @dataclass
 class Model:
     altitude_bins: np.ndarray
     energy_bins: np.ndarray
     emission_matrix: np.ndarray
-    mag_field_inclination: float
-    mag_field_declination: float
-    box_origin_lat: float
-    box_origin_lon: float
-    box_min: tuple[float, float, float]
-    box_max: tuple[float, float, float]
-    has_ref_q0: bool = False
-    ref_q0_image: np.ndarray | None = None
-    ref_q0_range_min: tuple[float, float] | None = None
-    ref_q0_range_max: tuple[float, float] | None = None
-    ref_q0_range_scale: tuple[float, float] | None = None
+    field: Direction
+    volume: Volume
+    q0: Q0 | None = None
 
+
+def to_float_tuple(n):
+    def convert(t):
+        if not isinstance(t, (tuple, list)):
+            raise TypeError("Value must be a tuple or list")
+        if len(t) != n:
+            raise ValueError(f"Tuple must have exactly {n} elements")
+        return tuple(map(float, t))
+    return convert
 
 def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], Model]:
+    minmax = Use(to_float_tuple(2))
+    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid and existing path")
     schema = Schema({
         Optional("name"): str,
         "cameras": {
-            "positions": And(Use(Path), lambda p: p.exists()),
-            "images": And(Use(Path), lambda p: p.exists())
+            "positions": path,
+            "images": path
         },
         "model": {
-            "M_emis": And(Use(Path), lambda p: p.exists()),
-            "altitude_bins": And(Use(Path), lambda p: p.exists()),
-            "energy_bins": And(Use(Path), lambda p: p.exists()),
-            "mag_field": {
-                "inclination": float,
-                "declination": float
+            "altitude_bins": path,
+            "energy_bins": path,
+            "emission_matrix": path,
+            "magnetic_field": {
+                "inclination": Use(float),
+                "declination": Use(float)
             },
-            "volume": {
-                "origin": {"lat": float, "lon": float},
-                "range_x": {"min": float, "max": float},
-                "range_y": {"min": float, "max": float},
-                "range_z": {"min": float, "max": float}
+            "reconstruction_volume": {
+                "latitude": Use(float),
+                "longitude": Use(float),
+                "altitude": Use(float),
+                "range_x": minmax,
+                "range_y": minmax,
+                "range_z": minmax
             },
-            Optional("ref_q0"): {
-                "image": Use(Path),
-                "range_x": {
-                    "min": float,
-                    "max": float,
-                    Optional("scale"): float
-                },
-                "range_y": {
-                    "min": float,
-                    "max": float,
-                    Optional("scale"): float
-                }
+            Optional("reference_q0"): {
+                "image": path,
+                "range_x": minmax,
+                "range_y": minmax
             }
-        }
+        },
     })
     
     with open(yaml_path, "r") as f:
-        desc = schema.validate(load_yaml(f))
+        data = load_yaml(f)
+        desc = schema.validate(data)
     cameras = parse_dataset_cameras(desc["cameras"])
     model = parse_physical_model(desc["model"])
     return cameras, model
@@ -151,28 +191,33 @@ def parse_matrix_data(dat_path: Path):
 
 
 def parse_physical_model(desc: dict):
-    altitude_bins = parse_matrix_data(desc["altitude_bins"]).flatten()
-    energy_bins = parse_matrix_data(desc["energy_bins"]).flatten()
-    m_emis = parse_matrix_data(desc["M_emis"]).T
-    vol = desc["volume"]
-    x, y, z = vol["range_x"], vol["range_y"], vol["range_z"]
+    field = desc["magnetic_field"]
+    vol = desc["reconstruction_volume"]
+    x_min, x_max = vol["range_x"]
+    y_min, y_max = vol["range_y"]
+    z_min, z_max = vol["range_z"]
     pm = Model(
-        altitude_bins=altitude_bins,
-        energy_bins=energy_bins,
-        emission_matrix=m_emis,
-        mag_field_inclination=desc["mag_field"]["inclination"],
-        mag_field_declination=desc["mag_field"]["declination"],
-        box_origin_lat=vol["origin"]["lat"],
-        box_origin_lon=vol["origin"]["lon"],
-        box_min=(x["min"], y["min"], z["min"]),
-        box_max=(x["max"], y["max"], z["max"]),
+        altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
+        energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
+        emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,
+        field=Direction(
+            field["inclination"],
+            field["declination"]),
+        volume=Volume(
+            lat=vol["latitude"],
+            lon=vol["longitude"],
+            alt=vol["altitude"],
+            min=XYZ(x_min, y_min, z_min),
+            max=XYZ(x_max, y_max, z_max)
+        )
     )
-    if "ref_q0" in desc:
-        ref = desc["ref_q0"]
-        x, y = ref["range_x"], ref["range_y"]
-        pm.has_ref_q0 = True
-        pm.ref_q0_image = parse_matrix_data(ref["image"])
-        pm.ref_q0_range_min = (x["min"], y["min"])
-        pm.ref_q0_range_max = (x["max"], y["max"])
-        pm.ref_q0_range_scale = (x.get("scale", 1.0), y.get("scale", 1.0))
+    if "reference_q0" in desc:
+        q0 = desc["reference_q0"]
+        x_min, x_max = q0["range_x"]
+        y_min, y_max = q0["range_y"]
+        pm.q0 = Q0(
+            image=parse_matrix_data(q0["image"]),
+            min=XY(x_min, y_min),
+            max=XY(x_max, y_max)
+        )
     return pm

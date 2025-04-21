@@ -29,9 +29,14 @@ class Reconstruction(ABC):
 
         self.z_edges = torch.from_numpy(pm.altitude_bins).to(self.device)
         self.m_mat = torch.from_numpy(pm.emission_matrix).to(self.device)
-        self.box_min = torch.tensor(pm.box_min).to(self.device)
-        self.box_max = torch.tensor(pm.box_max).to(self.device)
-        self.xy_min, self.xy_max = self.box_min[:2], self.box_max[:2]
+        
+        vol = pm.volume
+        vol_min = (vol.min.x, vol.min.y, vol.min.z)
+        vol_max = (vol.max.x, vol.max.y, vol.max.z)
+        self.vol_min = torch.tensor(vol_min).to(self.device)
+        self.vol_max = torch.tensor(vol_max).to(self.device)
+        self.xy_min = self.vol_min[:2]
+        self.xy_max = self.vol_max[:2]
 
         self._vmap_g_cache = {}
 
@@ -68,7 +73,7 @@ class Reconstruction(ABC):
     def train(self, cams: list[Camera], num_iters: int, batch_size: int, ray_bins: int):
         # Create rays and compute intersections
         ro, rd, g_ref = create_ray_g_pairs(cams, self.origin_ecef, self.ecef_to_field_mat, self.device)
-        tn, tf = ray_box_intersection(ro, rd, self.box_min, self.box_max)
+        tn, tf = ray_box_intersection(ro, rd, self.vol_min, self.vol_max)
         # Get mask for non-NaN values in tn
         valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
         # Apply the mask to all tensors
@@ -108,22 +113,25 @@ class Reconstruction(ABC):
     
     def image(self, cam: Camera, ray_bins: int):
         ro, rd = create_camera_rays(cam, self.origin_ecef, self.ecef_to_field_mat, self.device)
-        tn, tf = ray_box_intersection(ro, rd, self.box_min, self.box_max)
+        tn, tf = ray_box_intersection(ro, rd, self.vol_min, self.vol_max)
         g = self.g(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
         return g.reshape(h, w)
 
 
 def get_ray_transform(pm: Model, device: torch.device):
-    o_lat, o_lon = pm.box_origin_lat, pm.box_origin_lon
-    o_ecef = lat_lon_to_ECEF(o_lat, o_lon)
+    vol = pm.volume
+    o_lat, o_lon, o_alt = vol.lat, vol.lon, vol.alt
+    o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
+    radius = earth_radius(o_lat, o_lon) + o_alt
+    o_ecef = radius * o_ecef_unit
     o_ecef = o_ecef.to(device)
 
     une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
     ecef_to_une = torch.linalg.inv(une_to_ecef)
     field_dir_une = inc_dec_to_UNE(
-        torch.scalar_tensor(pm.mag_field_inclination),
-        torch.scalar_tensor(pm.mag_field_declination)
+        torch.scalar_tensor(pm.field.inc),
+        torch.scalar_tensor(pm.field.dec)
     )
     field_to_une = torch.stack((
         torch.tensor([0.0, -1.0, 0.0]),
@@ -141,7 +149,7 @@ def get_ray_transform(pm: Model, device: torch.device):
     return o_ecef, ecef_to_field, metric_tensor
 
 def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
-    lat, lon = cam.latitude, cam.longitude
+    lat, lon, alt = cam.latitude, cam.longitude, cam.altitude
 
     az = torch.from_numpy(cam.azimuth).flatten().to(device)
     ze = torch.from_numpy(cam.zenith).flatten().to(device)
@@ -149,10 +157,11 @@ def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.T
     rd_ecef = UNE_to_ECEF(rd_une, lat, lon).to(device)
     rd_rel = torch.matmul(rd_ecef, ecef_to_field.T)
 
-    radius = earth_radius(lat, lon) + cam.altitude
-    ro_ecef = lat_lon_to_ECEF(lat, lon).to(device)
-    ro_rel = radius * (ro_ecef - o_ecef)
-    ro_rel = torch.matmul(ro_rel, ecef_to_field.T)
+    ro_ecef_unit = lat_lon_to_ECEF(lat, lon).to(device)
+    radius = earth_radius(lat, lon) + alt
+    ro_ecef = radius * ro_ecef_unit
+    ro_ecef_rel = ro_ecef - o_ecef
+    ro_rel = torch.matmul(ro_ecef_rel, ecef_to_field.T)
     ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
 
     return ro_rel, rd_rel

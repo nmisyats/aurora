@@ -48,8 +48,9 @@ def plot_model_matrix(model_path: Path):
 def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
-    x = pm.box_min[0] + x * (pm.box_max[0] - pm.box_min[0])
-    y = pm.box_min[1] + y * (pm.box_max[1] - pm.box_min[1])
+    vol = pm.volume
+    x = vol.min.x + x * (vol.max.x - vol.min.x)
+    y = vol.min.y + y * (vol.max.y - vol.min.y)
     xx, yy = np.meshgrid(x, y, indexing='ij')
     xy = np.stack((xx, yy), axis=-1)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
@@ -61,26 +62,26 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
     q = np.sum(q, axis=1)
     q = q.reshape((res_x, res_y))
 
-    if pm.has_ref_q0:
+    if pm.q0 is not None:
         fig = plt.figure(figsize=(8, 4))
         grid = ImageGrid(fig, 111,
                         nrows_ncols=(1, 2),
                         axes_pad=0.1,
                         cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
-        vmin = min(q.min(), pm.ref_q0_image.min())
-        vmax = max(q.max(), pm.ref_q0_image.max())
+        vmin = min(q.min(), pm.q0.image.min())
+        vmax = max(q.max(), pm.q0.image.max())
 
-        x_min, x_max = pm.ref_q0_range_min[0], pm.ref_q0_range_max[0]
-        y_min, y_max = pm.ref_q0_range_min[1], pm.ref_q0_range_max[1]
-        grid[0].imshow(pm.ref_q0_image,
+        x_min, x_max = pm.q0.min.x, pm.q0.max.x
+        y_min, y_max = pm.q0.min.y, pm.q0.max.y
+        grid[0].imshow(pm.q0.image,
                        interpolation='none',
                        extent=[y_min,y_max,x_max,x_min],
                        cmap="jet",
                        vmin=vmin, vmax=vmax)
         
-        x_min, x_max = pm.box_min[0], pm.box_max[0]
-        y_min, y_max = pm.box_min[1], pm.box_max[1]
+        x_min, x_max = vol.min.x, vol.max.x
+        y_min, y_max = vol.min.y, vol.max.y
 
         rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
         grid[0].add_patch(rect)
@@ -100,8 +101,8 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
         grid[1].set_xlabel("y (km)")
         grid[0].set_ylabel("x (km)")
     else:
-        x_min, x_max = pm.box_min[0], pm.box_max[0]
-        y_min, y_max = pm.box_min[1], pm.box_max[1]
+        x_min, x_max = vol.min.x, vol.max.x
+        y_min, y_max = vol.min.y, vol.max.y
         plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
         cbar = plt.colorbar(cmap="jet")
         cbar.set_label("mW m$^{-2}$")

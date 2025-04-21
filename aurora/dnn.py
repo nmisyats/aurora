@@ -2,17 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from matplotlib import pyplot as plt
 
 from aurora.data import Model
-from aurora.geodesy import (
-    lat_lon_to_ECEF,
-    az_ze_to_UNE,
-    UNE_to_ECEF,
-    UNE_basis_ECEF,
-    earth_radius,
-    inc_dec_to_UNE
-)
 from aurora.reconstruction import Reconstruction
 
 
@@ -68,7 +59,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    cams, pm = load_dataset_description(Path("./simulation.yaml"))
+    cams, pm = load_dataset_description(Path("./simulation_vertical.yaml"))
 
     net = FMLP(pm, 4).to(device)
     print(net)
@@ -90,13 +81,13 @@ if __name__ == "__main__":
         return l
 
     def img_np(cam):
-        img = recon.image(downsample_camera(cam, 2), 100)
+        img = recon.image(cam, 100)
         img = img.detach().cpu().numpy()
         img = np.nan_to_num(img, nan=0.0)
         return img
 
     plot_total_energy_flux(f_np, pm, 128, 128)
-    plot_reconstructed_images(img_np, cams)
+    # plot_reconstructed_images(img_np, cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")
 
