@@ -7,11 +7,11 @@ from aurora.data import Model
 from aurora.reconstruction import Reconstruction
 
 
-class FMLP(nn.Module):
+class LogResMLP(nn.Module):
     def __init__(self, model: Model, embed_exp: int):
         assert embed_exp >= 1
 
-        super(FMLP, self).__init__()
+        super(LogResMLP, self).__init__()
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size + self.input_size * 2 * embed_exp
@@ -39,9 +39,13 @@ class FMLP(nn.Module):
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((x, *cos_x, *sin_x), dim=-1)
 
-class LogFMLPReconstruction(Reconstruction):
-    def __init__(self, pm, f_net, device):
-        super().__init__(pm, f_net, device)
+class LogMLPReconstruction(Reconstruction):
+    def __init__(self, pm: Model, f_net: nn.Module, device: torch.device):
+        super().__init__(pm, device)
+        self.f_net = f_net
+    
+    def parameters(self):
+        return self.f_net.parameters()
     
     def f(self, xy):
         xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
@@ -59,13 +63,13 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    cams, pm = load_dataset_description(Path("./simulation_vertical.yaml"))
+    cams, pm = load_dataset_description(Path("./simulation.yaml"))
 
-    net = FMLP(pm, 4).to(device)
+    net = LogResMLP(pm, 4).to(device)
     print(net)
 
-    recon = LogFMLPReconstruction(pm, net, device)
-    loss = recon.train(cams, 1000, 4096, 100)
+    recon = LogMLPReconstruction(pm, net, device)
+    loss = recon.train(cams, 5000, 4096, 100)
     
     plot_training_loss(loss)
 
@@ -87,7 +91,8 @@ if __name__ == "__main__":
         return img
 
     plot_total_energy_flux(f_np, pm, 128, 128)
-    # plot_reconstructed_images(img_np, cams)
+    img_np_downsampled = lambda cam: img_np(downsample_camera(cam, 4))
+    plot_reconstructed_images(img_np_downsampled, cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")
 

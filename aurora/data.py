@@ -69,6 +69,7 @@ class Q0:
 
 @dataclass
 class Model:
+    name: str | None
     altitude_bins: np.ndarray
     energy_bins: np.ndarray
     emission_matrix: np.ndarray
@@ -197,6 +198,7 @@ def parse_physical_model(desc: dict):
     y_min, y_max = vol["range_y"]
     z_min, z_max = vol["range_z"]
     pm = Model(
+        name=desc.get("name", "unnamed"),
         altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
         energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
         emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,

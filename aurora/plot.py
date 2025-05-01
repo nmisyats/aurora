@@ -108,7 +108,7 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
         cbar.set_label("mW m$^{-2}$")
         plt.xlabel("y (km)")
         plt.ylabel("x (km)")
-        plt.title("Reconstructed total energy flux")
+        plt.title(f"Reconstructed total energy flux ({pm.name})")
 
     plt.show()
 
