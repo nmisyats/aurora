@@ -73,23 +73,6 @@ if __name__ == "__main__":
     
     plot_training_loss(loss)
 
-    # def f_np(xy):
-    #     xy = torch.from_numpy(xy).to(device)
-    #     f = recon.f(xy)
-    #     return f.detach().cpu().numpy()
-    
-    # def L_np(p):
-    #     p = torch.from_numpy(p).to(device)
-    #     l = recon.L(p)
-    #     l = l.detach().cpu().numpy()
-    #     return l
-
-    # renderer = Renderer(recon.L, recon.frame)
-    # def img_np(cam):
-    #     img = renderer.image(cam, 100)
-    #     img = img.detach().cpu().numpy()
-    #     return img
-
     renderer = Renderer(recon.L, recon.frame)
 
     @numpify(device=device)
