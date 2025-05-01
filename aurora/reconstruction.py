@@ -149,12 +149,14 @@ class Renderer:
             return g
         return torch.vmap(single_ray_g, randomness='different')
     
-    def image(self, cam: Camera, ray_bins: int):
+    def image(self, cam: Camera, ray_bins: int, nan=0.0):
         ro, rd = create_camera_rays(cam, self.frame.origin_ecef, self.frame.ecef_to_field_mat, self.device)
         tn, tf = ray_box_intersection(ro, rd, self.frame.vol_min, self.frame.vol_max)
         g = self.g(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
-        return g.reshape(h, w)
+        img = g.reshape(h, w)
+        img = torch.nan_to_num(img, nan=nan)
+        return img
 
 
 def get_ray_transform(pm: Model, device: torch.device):

@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 from aurora.data import Model
 from aurora.reconstruction import Reconstruction, Renderer
+from aurora.utils import numpify
 
 
 class LogResMLP(nn.Module):
@@ -51,7 +51,7 @@ class LogMLPReconstruction(Reconstruction):
         xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
         log_f = self.f_net(xy)
         f = torch.pow(10.0, 7.0*log_f)
-        return f 
+        return f
 
 
 if __name__ == "__main__":
@@ -73,27 +73,39 @@ if __name__ == "__main__":
     
     plot_training_loss(loss)
 
-    def f_np(xy):
-        xy = torch.from_numpy(xy).to(device)
-        f = recon.f(xy)
-        return f.detach().cpu().numpy()
+    # def f_np(xy):
+    #     xy = torch.from_numpy(xy).to(device)
+    #     f = recon.f(xy)
+    #     return f.detach().cpu().numpy()
     
-    def L_np(p):
-        p = torch.from_numpy(p).to(device)
-        l = recon.L(p)
-        l = l.detach().cpu().numpy()
-        return l
+    # def L_np(p):
+    #     p = torch.from_numpy(p).to(device)
+    #     l = recon.L(p)
+    #     l = l.detach().cpu().numpy()
+    #     return l
+
+    # renderer = Renderer(recon.L, recon.frame)
+    # def img_np(cam):
+    #     img = renderer.image(cam, 100)
+    #     img = img.detach().cpu().numpy()
+    #     return img
 
     renderer = Renderer(recon.L, recon.frame)
-    def img_np(cam):
-        img = renderer.image(cam, 100)
-        img = img.detach().cpu().numpy()
-        img = np.nan_to_num(img, nan=0.0)
-        return img
 
-    plot_total_energy_flux(f_np, pm, 128, 128)
-    img_np_downsampled = lambda cam: img_np(downsample_camera(cam, 4))
-    plot_reconstructed_images(img_np_downsampled, cams)
+    @numpify(device=device)
+    def f(xy):
+        return recon.f(xy)
+    
+    @numpify(device=device)
+    def L(p):
+        return recon.L(p)
+
+    @numpify(device=device)
+    def image(cam):
+        return renderer.image(downsample_camera(cam, 4), 100)
+
+    plot_total_energy_flux(f, pm, 128, 128)
+    plot_reconstructed_images(image, cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")
 

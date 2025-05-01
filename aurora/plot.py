@@ -208,7 +208,7 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
 
     return L
 
-def plot_rays(pm: Model, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray, o_ecef, to_spec_matrix):
+def plot_rays(pm: Model, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
     p1 = ro + rd * tn[:, np.newaxis]
     p2 = ro + rd * tf[:, np.newaxis]
     p = np.concat([p1, p2], axis=0)

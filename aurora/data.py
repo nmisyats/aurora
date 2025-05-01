@@ -29,9 +29,9 @@ class Camera:
             f"latitude={self.latitude}",
             f"longitude={self.longitude}",
             f"altitude={self.altitude}",
-            f"image={type(self.image)}",
-            f"azimuth={type(self.azimuth)}",
-            f"zenith={type(self.zenith)}",
+            f"image={type(self.image)} {self.image.shape}",
+            f"azimuth={type(self.azimuth)} {self.azimuth.shape}",
+            f"zenith={type(self.zenith)} {self.zenith.shape}",
         ")"])
     
     def __str__(self):
