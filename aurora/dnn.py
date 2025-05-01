@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from aurora.data import Model
-from aurora.reconstruction import Reconstruction
+from aurora.reconstruction import Reconstruction, Renderer
 
 
 class LogResMLP(nn.Module):
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     print(net)
 
     recon = LogMLPReconstruction(pm, net, device)
-    loss = recon.train(cams, 5000, 4096, 100)
+    loss = recon.train(cams, 1000, 4096, 100)
     
     plot_training_loss(loss)
 
@@ -84,8 +84,9 @@ if __name__ == "__main__":
         l = l.detach().cpu().numpy()
         return l
 
+    renderer = Renderer(recon.L, recon.frame)
     def img_np(cam):
-        img = recon.image(cam, 100)
+        img = renderer.image(cam, 100)
         img = img.detach().cpu().numpy()
         img = np.nan_to_num(img, nan=0.0)
         return img
