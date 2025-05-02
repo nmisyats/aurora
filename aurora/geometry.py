@@ -1,5 +1,88 @@
 import torch
 
+from aurora.data import Camera, Model
+from aurora.geodesy import (
+    lat_lon_to_ECEF,
+    az_ze_to_UNE,
+    UNE_to_ECEF,
+    UNE_basis_ECEF,
+    earth_radius,
+    inc_dec_to_UNE
+)
+
+def get_frame_transform(pm: Model, device: torch.device):
+    vol = pm.volume
+    o_lat, o_lon, o_alt = vol.lat, vol.lon, vol.alt
+    o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
+    radius = earth_radius(o_lat, o_lon) + o_alt
+    o_ecef = radius * o_ecef_unit
+    o_ecef = o_ecef.to(device)
+
+    une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
+    ecef_to_une = torch.linalg.inv(une_to_ecef)
+    field_dir_une = inc_dec_to_UNE(
+        torch.scalar_tensor(pm.field.inc),
+        torch.scalar_tensor(pm.field.dec)
+    )
+    field_to_une = torch.stack((
+        torch.tensor([0.0, -1.0, 0.0]),
+        torch.tensor([0.0,  0.0, 1.0]),
+        -field_dir_une
+    )).T
+    une_to_field = torch.linalg.inv(field_to_une)
+    ecef_to_field = torch.matmul(une_to_field, ecef_to_une)
+    ecef_to_field = ecef_to_field.to(device)
+
+    # metric tensor
+    metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
+    metric_tensor = metric_tensor.to(device)
+
+    return o_ecef, ecef_to_field, metric_tensor
+
+def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
+    lat, lon, alt = cam.latitude, cam.longitude, cam.altitude
+
+    az = torch.from_numpy(cam.azimuth).flatten().to(device)
+    ze = torch.from_numpy(cam.zenith).flatten().to(device)
+    rd_une = az_ze_to_UNE(az, ze).to(device)
+    rd_ecef = UNE_to_ECEF(rd_une, lat, lon).to(device)
+    rd_rel = torch.matmul(rd_ecef, ecef_to_field.T)
+
+    ro_ecef_unit = lat_lon_to_ECEF(lat, lon).to(device)
+    radius = earth_radius(lat, lon) + alt
+    ro_ecef = radius * ro_ecef_unit
+    ro_ecef_rel = ro_ecef - o_ecef
+    ro_rel = torch.matmul(ro_ecef_rel, ecef_to_field.T)
+    ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
+
+    return ro_rel, rd_rel
+
+def create_ray_g_pairs(cams: list[Camera], o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
+    ro_list, rd_list, g_ref_list = [], [], []
+    for cam in cams:
+        ro_rel, rd_rel = create_camera_rays(cam, o_ecef, ecef_to_field, device)
+        ro_list.append(ro_rel)
+        rd_list.append(rd_rel)
+        
+        g = torch.from_numpy(cam.image).flatten().to(device)
+        g_ref_list.append(g)
+    
+    ro = torch.cat(ro_list)
+    rd = torch.cat(rd_list)
+    g_ref = torch.cat(g_ref_list)
+    
+    return ro, rd, g_ref
+
+def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float, num_bins: int, device: torch.device):
+    bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=device) # num_bins + 1 edges
+    # Lower and upper edges of each bin
+    lower_edges = bin_edges[:-1]
+    upper_edges = bin_edges[1:]
+    # Generate random values in each bin
+    t = lower_edges + torch.rand(num_bins, device=device) * (upper_edges - lower_edges)
+    # Create points
+    return t, ro + t.reshape(t.shape[0], 1) * rd
+
 def ray_box_intersection(ro: torch.Tensor, rd: torch.Tensor, box_min: torch.Tensor, box_max: torch.Tensor):
     """
     Compute the intersection distances t_n (near) and t_f (far) of multiple rays with an axis-aligned bounding box.

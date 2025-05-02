@@ -75,7 +75,7 @@ if __name__ == "__main__":
     
     plot_training_loss(loss)
 
-    renderer = Renderer(recon.L, recon.frame)
+    renderer = Renderer(recon.L, recon.frame, device)
 
     @numpify(device=device)
     def f(xy):
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
     @numpify(device=device)
     def image(cam):
-        return renderer.image(downsample_camera(cam, 4), 100)
+        return renderer.image(cam, 100)
 
     plot_total_energy_flux(f, pm, 128, 128)
     plot_reconstructed_images(image, cams)
