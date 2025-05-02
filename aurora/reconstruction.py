@@ -93,8 +93,8 @@ class Reconstruction(ABC):
         tn = tn[valid_mask].contiguous()
         tf = tf[valid_mask].contiguous()
 
-        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5, weight_decay=1.0)
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1)
+        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5, weight_decay=1.0) # change to -4
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.1) # step size 500
 
         renderer = Renderer(self.L, self.frame)
 

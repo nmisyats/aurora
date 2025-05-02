@@ -4,7 +4,6 @@ from aurora.plot import plot_camera_image, plot_camera_views, plot_model_matrix
 
 def main():
     parser = argparse.ArgumentParser(prog="aurora")
-    # parser.add_argument("dataset", type=Path)
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -16,6 +15,9 @@ def main():
     plot_views_parser.add_argument("path", type=Path)
     plot_model_parser = plot_subparsers.add_parser("model")
     plot_model_parser.add_argument("path", type=Path)
+
+    recon_parser = subparsers.add_parser("reconstruct")
+    recon_parser.add_argument("path", type=Path)
 
     args = parser.parse_args()
 

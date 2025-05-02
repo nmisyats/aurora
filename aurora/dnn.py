@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pathlib import Path
 
 from aurora.data import Model
 from aurora.reconstruction import Reconstruction, Renderer
@@ -8,14 +9,14 @@ from aurora.utils import numpify
 
 
 class LogResMLP(nn.Module):
-    def __init__(self, model: Model, embed_exp: int):
+    def __init__(self, output_size: int, embed_exp: int):
         assert embed_exp >= 1
 
         super(LogResMLP, self).__init__()
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size + self.input_size * 2 * embed_exp
-        self.output_size = len(model.energy_bins) - 1
+        self.output_size = output_size
         
         self.fc1 = nn.Linear(self.embed_size, 128)
         self.fc2 = nn.Linear(128, 128)
@@ -38,6 +39,7 @@ class LogResMLP(nn.Module):
         cos_x = [torch.cos(f * x) for f in freqs]
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((x, *cos_x, *sin_x), dim=-1)
+
 
 class LogMLPReconstruction(Reconstruction):
     def __init__(self, pm: Model, f_net: nn.Module, device: torch.device):
@@ -65,11 +67,11 @@ if __name__ == "__main__":
 
     cams, pm = load_dataset_description(Path("./simulation.yaml"))
 
-    net = LogResMLP(pm, 4).to(device)
+    net = LogResMLP(len(pm.energy_bins) - 1, 4).to(device)
     print(net)
 
     recon = LogMLPReconstruction(pm, net, device)
-    loss = recon.train(cams, 1000, 4096, 100)
+    loss = recon.train(cams, 2000, 4096, 100)
     
     plot_training_loss(loss)
 
