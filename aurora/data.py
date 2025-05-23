@@ -1,81 +1,17 @@
 from pathlib import Path
-import os
 import numpy as np
-from dataclasses import dataclass
 from schema import Schema, Optional, And, Use
 import yaml
 try:
     from yaml import CLoader as Loader
 except ImportError:
     from yaml import Loader
+from aurora.camera import Camera
+from aurora.model import PhysicalModel, Direction, Volume, XYZ, XY
 
 def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
-
-@dataclass
-class Camera:
-    name: str
-    latitude: float
-    longitude: float
-    altitude: float
-    image: np.ndarray
-    azimuth: np.ndarray
-    zenith: np.ndarray
-
-    def __repr__(self):
-        return ", ".join(["Camera=(",
-            f"name={self.name}",
-            f"latitude={self.latitude}",
-            f"longitude={self.longitude}",
-            f"altitude={self.altitude}",
-            f"image={type(self.image)} {self.image.shape}",
-            f"azimuth={type(self.azimuth)} {self.azimuth.shape}",
-            f"zenith={type(self.zenith)} {self.zenith.shape}",
-        ")"])
-    
-    def __str__(self):
-        return self.__repr__(self)
-
-@dataclass
-class Direction:
-    inc: float
-    dec: float
-
-@dataclass
-class XY:
-    x: float
-    y: float
-
-@dataclass
-class XYZ:
-    x: float
-    y: float
-    z: float
-
-@dataclass
-class Volume:
-    lat: float
-    lon: float
-    alt: float
-    min: XYZ
-    max: XYZ
-
-@dataclass
-class Q0:
-    image: np.ndarray
-    min: XY
-    max: XY
-
-@dataclass
-class Model:
-    name: str | None
-    altitude_bins: np.ndarray
-    energy_bins: np.ndarray
-    emission_matrix: np.ndarray
-    field: Direction
-    volume: Volume
-    q0: Q0 | None = None
 
 
 def to_float_tuple(n):
@@ -87,7 +23,7 @@ def to_float_tuple(n):
         return tuple(map(float, t))
     return convert
 
-def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], Model]:
+def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModel]:
     minmax = Use(to_float_tuple(2))
     path = And(Use(Path), lambda p: p.exists(), error="Must be a valid and existing path")
     schema = Schema({
@@ -107,16 +43,15 @@ def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], Model]:
             "reconstruction_volume": {
                 "latitude": Use(float),
                 "longitude": Use(float),
-                "altitude": Use(float),
                 "range_x": minmax,
                 "range_y": minmax,
                 "range_z": minmax
             },
-            Optional("reference_q0"): {
-                "image": path,
-                "range_x": minmax,
-                "range_y": minmax
-            }
+            # Optional("reference_q0"): {
+            #     "image": path,
+            #     "range_x": minmax,
+            #     "range_y": minmax
+            # }
         },
     })
     
@@ -197,29 +132,29 @@ def parse_physical_model(desc: dict):
     x_min, x_max = vol["range_x"]
     y_min, y_max = vol["range_y"]
     z_min, z_max = vol["range_z"]
-    pm = Model(
+    pm = PhysicalModel(
         name=desc.get("name", "unnamed"),
         altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
         energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
         emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,
-        field=Direction(
+        mag_field_direction=Direction(
             field["inclination"],
             field["declination"]),
-        volume=Volume(
-            lat=vol["latitude"],
-            lon=vol["longitude"],
-            alt=vol["altitude"],
-            min=XYZ(x_min, y_min, z_min),
-            max=XYZ(x_max, y_max, z_max)
+        reconstruction_volume=Volume(
+            latitude=vol["latitude"],
+            longitude=vol["longitude"],
+            base_altitude=z_min,
+            box_min=XYZ(x_min, y_min, 0.0),
+            box_max=XYZ(x_max, y_max, z_max - z_min)
         )
     )
-    if "reference_q0" in desc:
-        q0 = desc["reference_q0"]
-        x_min, x_max = q0["range_x"]
-        y_min, y_max = q0["range_y"]
-        pm.q0 = Q0(
-            image=parse_matrix_data(q0["image"]),
-            min=XY(x_min, y_min),
-            max=XY(x_max, y_max)
-        )
+    # if "reference_q0" in desc:
+    #     q0 = desc["reference_q0"]
+    #     x_min, x_max = q0["range_x"]
+    #     y_min, y_max = q0["range_y"]
+    #     pm.q0 = Q0(
+    #         image=parse_matrix_data(q0["image"]),
+    #         min=XY(x_min, y_min),
+    #         max=XY(x_max, y_max)
+    #     )
     return pm

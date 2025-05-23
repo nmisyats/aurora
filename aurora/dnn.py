@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pathlib import Path
 
-from aurora.data import Model
-from aurora.reconstruction import Reconstruction, Renderer
+from aurora.model import PhysicalModel
+from aurora.reconstruction import Reconstruction
 from aurora.utils import numpify
 
 
@@ -42,7 +42,7 @@ class LogResMLP(nn.Module):
 
 
 class LogMLPReconstruction(Reconstruction):
-    def __init__(self, pm: Model, f_net: nn.Module, device: torch.device):
+    def __init__(self, pm: PhysicalModel, f_net: nn.Module, device: torch.device):
         super().__init__(pm, device)
         self.f_net = f_net
     
@@ -60,7 +60,6 @@ if __name__ == "__main__":
     from aurora.data import load_dataset_description
     from aurora.plot import plot_training_loss, plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission, plot_rays
     from aurora.save import save_3d_array
-    from aurora.utils import downsample_camera
     from pathlib import Path
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -75,8 +74,6 @@ if __name__ == "__main__":
     
     plot_training_loss(loss)
 
-    renderer = Renderer(recon.L, recon.frame, device)
-
     @numpify(device=device)
     def f(xy):
         return recon.f(xy)
@@ -87,7 +84,7 @@ if __name__ == "__main__":
 
     @numpify(device=device)
     def image(cam):
-        return renderer.image(cam, 100)
+        return recon.image(cam, 100)
 
     plot_total_energy_flux(f, pm, 128, 128)
     plot_reconstructed_images(image, cams)

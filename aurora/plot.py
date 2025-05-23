@@ -7,7 +7,9 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import Callable
 
-from aurora.data import parse_matrix_data, Model, Camera
+from aurora.data import parse_matrix_data
+from aurora.camera import Camera
+from aurora.model import PhysicalModel
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -45,12 +47,12 @@ def plot_model_matrix(model_path: Path):
     plt.xlabel("Energy (E)")
     plt.show()
 
-def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int):
+def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: PhysicalModel, res_x: int, res_y: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
-    vol = pm.volume
-    x = vol.min.x + x * (vol.max.x - vol.min.x)
-    y = vol.min.y + y * (vol.max.y - vol.min.y)
+    vol = pm.reconstruction_volume
+    x = vol.box_min.x + x * (vol.box_max.x - vol.box_min.x)
+    y = vol.box_min.y + y * (vol.box_max.y - vol.box_min.y)
     xx, yy = np.meshgrid(x, y, indexing='ij')
     xy = np.stack((xx, yy), axis=-1)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
@@ -62,53 +64,53 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: M
     q = np.sum(q, axis=1)
     q = q.reshape((res_x, res_y))
 
-    if pm.q0 is not None:
-        fig = plt.figure(figsize=(8, 4))
-        grid = ImageGrid(fig, 111,
-                        nrows_ncols=(1, 2),
-                        axes_pad=0.1,
-                        cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
+    # if pm.q0 is not None:
+    #     fig = plt.figure(figsize=(8, 4))
+    #     grid = ImageGrid(fig, 111,
+    #                     nrows_ncols=(1, 2),
+    #                     axes_pad=0.1,
+    #                     cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
-        vmin = min(q.min(), pm.q0.image.min())
-        vmax = max(q.max(), pm.q0.image.max())
+    #     vmin = min(q.min(), pm.q0.image.min())
+    #     vmax = max(q.max(), pm.q0.image.max())
 
-        x_min, x_max = pm.q0.min.x, pm.q0.max.x
-        y_min, y_max = pm.q0.min.y, pm.q0.max.y
-        grid[0].imshow(pm.q0.image,
-                       interpolation='none',
-                       extent=[y_min,y_max,x_max,x_min],
-                       cmap="jet",
-                       vmin=vmin, vmax=vmax)
+    #     x_min, x_max = pm.q0.min.x, pm.q0.max.x
+    #     y_min, y_max = pm.q0.min.y, pm.q0.max.y
+    #     grid[0].imshow(pm.q0.image,
+    #                    interpolation='none',
+    #                    extent=[y_min,y_max,x_max,x_min],
+    #                    cmap="jet",
+    #                    vmin=vmin, vmax=vmax)
         
-        x_min, x_max = vol.min.x, vol.max.x
-        y_min, y_max = vol.min.y, vol.max.y
+    #     x_min, x_max = vol.min.x, vol.max.x
+    #     y_min, y_max = vol.min.y, vol.max.y
 
-        rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
-        grid[0].add_patch(rect)
+    #     rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
+    #     grid[0].add_patch(rect)
         
-        im = grid[1].imshow(q,
-                            interpolation='none',
-                            extent=[y_min,y_max,x_max,x_min],
-                            cmap="jet",
-                            vmin=vmin, vmax=vmax)
+    #     im = grid[1].imshow(q,
+    #                         interpolation='none',
+    #                         extent=[y_min,y_max,x_max,x_min],
+    #                         cmap="jet",
+    #                         vmin=vmin, vmax=vmax)
 
-        cbar = grid[0].cax.colorbar(im, cmap="jet")
-        cbar.set_label("mW m$^{-2}$")
+    #     cbar = grid[0].cax.colorbar(im, cmap="jet")
+    #     cbar.set_label("mW m$^{-2}$")
 
-        grid[0].set_title("Reference $Q_0$")
-        grid[1].set_title("Reconstructed $Q_0$")
-        grid[0].set_xlabel("y (km)")
-        grid[1].set_xlabel("y (km)")
-        grid[0].set_ylabel("x (km)")
-    else:
-        x_min, x_max = vol.min.x, vol.max.x
-        y_min, y_max = vol.min.y, vol.max.y
-        plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
-        cbar = plt.colorbar(cmap="jet")
-        cbar.set_label("mW m$^{-2}$")
-        plt.xlabel("y (km)")
-        plt.ylabel("x (km)")
-        plt.title(f"Reconstructed total energy flux ({pm.name})")
+    #     grid[0].set_title("Reference $Q_0$")
+    #     grid[1].set_title("Reconstructed $Q_0$")
+    #     grid[0].set_xlabel("y (km)")
+    #     grid[1].set_xlabel("y (km)")
+    #     grid[0].set_ylabel("x (km)")
+    # else:
+    x_min, x_max = vol.box_min.x, vol.box_max.x
+    y_min, y_max = vol.box_min.y, vol.box_max.y
+    plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
+    cbar = plt.colorbar(cmap="jet")
+    cbar.set_label("mW m$^{-2}$")
+    plt.xlabel("y (km)")
+    plt.ylabel("x (km)")
+    plt.title(f"Reconstructed total energy flux ({pm.name})")
 
     plt.show()
 
@@ -167,7 +169,7 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     plt.show()
     return imgs
 
-def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Model, res_x: int, res_y: int, res_z: int):
+def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: PhysicalModel, res_x: int, res_y: int, res_z: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
     z = np.linspace(0.0, 1.0, res_z, dtype=np.float32)
@@ -208,7 +210,7 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Mod
 
     return L
 
-def plot_rays(pm: Model, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
+def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
     p1 = ro + rd * tn[:, np.newaxis]
     p2 = ro + rd * tf[:, np.newaxis]
     p = np.concat([p1, p2], axis=0)

@@ -1,6 +1,7 @@
 import torch
 
-from aurora.data import Camera, Model
+from aurora.camera import Camera
+from aurora.model import Volume, Direction
 from aurora.geodesy import (
     lat_lon_to_ECEF,
     az_ze_to_UNE,
@@ -10,9 +11,8 @@ from aurora.geodesy import (
     inc_dec_to_UNE
 )
 
-def get_frame_transform(pm: Model, device: torch.device):
-    vol = pm.volume
-    o_lat, o_lon, o_alt = vol.lat, vol.lon, vol.alt
+def get_frame_transform(volume: Volume, mag_field_dir: Direction, device: torch.device):
+    o_lat, o_lon, o_alt = volume.latitude, volume.longitude, volume.base_altitude
     o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
     radius = earth_radius(o_lat, o_lon) + o_alt
     o_ecef = radius * o_ecef_unit
@@ -21,8 +21,8 @@ def get_frame_transform(pm: Model, device: torch.device):
     une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
     ecef_to_une = torch.linalg.inv(une_to_ecef)
     field_dir_une = inc_dec_to_UNE(
-        torch.scalar_tensor(pm.field.inc),
-        torch.scalar_tensor(pm.field.dec)
+        torch.scalar_tensor(mag_field_dir.inclination),
+        torch.scalar_tensor(mag_field_dir.declination)
     )
     field_to_une = torch.stack((
         torch.tensor([0.0, -1.0, 0.0]),
