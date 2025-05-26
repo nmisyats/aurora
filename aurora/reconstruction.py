@@ -123,6 +123,9 @@ class Reconstruction(ABC):
     @abstractmethod
     def parameters() -> Iterable[nn.Parameter]:
         ...
+    
+    def numpy(self):
+        return NumpyReconstruction(self)
 
     @abstractmethod
     def f(self, xy: torch.Tensor) -> torch.Tensor:
@@ -176,11 +179,8 @@ class Reconstruction(ABC):
         return img
 
     def image_renderer(self, ray_bins: int, nan=0.0):
-        def render(cam: Camera):
-            img = self.image(cam, ray_bins, nan)
-            return img
-        return render
-
+        return lambda cam: self.image(cam, ray_bins, nan)
+    
     def train(self,
             dataset: ReconstructionDataset,
             num_iters: int,
@@ -220,26 +220,25 @@ class Reconstruction(ABC):
 
         return losses
 
-    def numpy(self):
-        class NumpyReconstruction:
-            def __init__(self, parent: Reconstruction):
-                self.parent = parent
-            
-            def f(self, xy: np.ndarray) -> np.ndarray:
-                xy = torch.tensor(xy, dtype=torch.float32, device=self.parent.device)
-                return self.parent.f(xy).detach().cpu().numpy()
-            
-            def L(self, p: torch.Tensor) -> np.ndarray:
-                p = torch.tensor(p, dtype=torch.float32, device=self.parent.device)
-                return self.parent.L(p).detach().cpu().numpy()
-            
-            def image(self, cam: Camera, ray_bins: int, nan=0.0) -> np.ndarray:
-                img = self.parent.image(cam, ray_bins, nan)
-                return img.detach().cpu().numpy()
-            
-            def image_renderer(self, ray_bins: int, nan=0.0):
-                def render(cam: Camera):
-                    img = self.image(cam, ray_bins, nan)
-                    return img
-                return render
-        return NumpyReconstruction(self)
+
+class NumpyReconstruction:
+    def __init__(self, recon: Reconstruction):
+        self.internal = recon
+        self.device = recon.device
+    
+    def f(self, xy: np.ndarray):
+        xy = torch.tensor(xy, dtype=torch.float32, device=self.device)
+        out = self.internal.f(xy)
+        return out.detach().cpu().numpy()
+    
+    def L(self, p: torch.Tensor):
+        p = torch.tensor(p, dtype=torch.float32, device=self.device)
+        out = self.internal.L(p)
+        return out.detach().cpu().numpy()
+    
+    def image(self, cam: Camera, ray_bins: int, nan=0.0):
+        img = self.internal.image(cam, ray_bins, nan)
+        return img.detach().cpu().numpy()
+    
+    def image_renderer(self, ray_bins: int, nan=0.0):
+        return lambda cam: self.image(cam, ray_bins, nan)
