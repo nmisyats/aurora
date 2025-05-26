@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from pathlib import Path
 
 from aurora.reconstruction import PhysicalModel, Reconstruction, RayDataset
-from aurora.utils import numpify
 
 
 class LogResMLP(nn.Module):
@@ -64,14 +63,13 @@ class LogMLPReconstruction(Reconstruction):
 
 if __name__ == "__main__":
     from aurora.data import load_dataset_description
-    from aurora.plot import plot_training_loss, plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission, plot_rays
-    from aurora.save import save_3d_array
+    from aurora.plot import plot_training_loss, plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission
     from pathlib import Path
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
 
-    cams, pm_desc, ref_flux = load_dataset_description(Path("./simulation.yaml"))
+    cams, pm_desc, ref = load_dataset_description(Path("./simulation.yaml"))
     pm = PhysicalModel(pm_desc, device)
     dataset = RayDataset(cams, pm, device)
 
@@ -86,8 +84,6 @@ if __name__ == "__main__":
     plot_training_loss(loss)
 
     recon.eval_mode()
-    plot_total_energy_flux(recon.f, pm, 128, 128)
+    plot_total_energy_flux(recon.f, pm, 128, 128, ref)
     plot_reconstructed_images(recon.image_renderer(100), cams)
     plot_volume_emission(recon.L, pm, 100, 100, 50)
-    # save_3d_array(L, "volume_emission_rate.dat")
-

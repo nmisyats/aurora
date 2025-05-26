@@ -49,60 +49,68 @@ def plot_model_matrix(model_path: Path):
     plt.xlabel("Energy (E)")
     plt.show()
 
-def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, ref_flux: ReferenceFlux | None = None):
+def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, ref: ReferenceFlux | None = None):    
     xy = pm.frame.xy_grid(res_x, res_y)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
     q = pm.q0(f)
     q = q.reshape((res_x, res_y))
     q = q.detach().cpu().numpy()
 
-    # if pm.q0 is not None:
-    #     fig = plt.figure(figsize=(8, 4))
-    #     grid = ImageGrid(fig, 111,
-    #                     nrows_ncols=(1, 2),
-    #                     axes_pad=0.1,
-    #                     cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
+    xy_min = pm.frame.xy_min.cpu()
+    xy_max = pm.frame.xy_max.cpu()
+
+    if ref is not None:
+        fig = plt.figure(figsize=(8, 4))
+        grid = ImageGrid(fig, 111,
+                        nrows_ncols=(1, 2),
+                        axes_pad=0.1,
+                        cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
-    #     vmin = min(q.min(), pm.q0.image.min())
-    #     vmax = max(q.max(), pm.q0.image.max())
+        ref_flux = torch.from_numpy(ref.flux).to(pm.device)
+        h, w, bins = ref_flux.shape
+        ref_q = pm.q0(ref_flux.reshape(h*w, bins))
+        ref_q = ref_q.detach().cpu().numpy()
+        ref_q = ref_q.reshape((h, w))
 
-    #     x_min, x_max = pm.q0.min.x, pm.q0.max.x
-    #     y_min, y_max = pm.q0.min.y, pm.q0.max.y
-    #     grid[0].imshow(pm.q0.image,
-    #                    interpolation='none',
-    #                    extent=[y_min,y_max,x_max,x_min],
-    #                    cmap="jet",
-    #                    vmin=vmin, vmax=vmax)
+        vmin = min(q.min(), ref_q.min())
+        vmax = max(q.max(), ref_q.max())
+
+        x_min, x_max = ref.oblique_range_x
+        y_min, y_max = ref.oblique_range_y
+        grid[0].imshow(ref_q,
+                       interpolation='none',
+                       extent=[y_min,y_max,x_max,x_min],
+                       cmap="jet",
+                       vmin=vmin, vmax=vmax)
+
+        x_min, x_max = xy_min[0], xy_max[0]
+        y_min, y_max = xy_min[1], xy_max[1]
+        rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
+        grid[0].add_patch(rect)
         
-    #     x_min, x_max = vol.min.x, vol.max.x
-    #     y_min, y_max = vol.min.y, vol.max.y
+        im = grid[1].imshow(q,
+                            interpolation='none',
+                            extent=[y_min,y_max,x_max,x_min],
+                            cmap="jet",
+                            vmin=vmin, vmax=vmax)
 
-    #     rect = patches.Rectangle((y_min, x_min), y_max - y_min, x_max - x_min, linewidth=1, edgecolor='r', facecolor='none')
-    #     grid[0].add_patch(rect)
-        
-    #     im = grid[1].imshow(q,
-    #                         interpolation='none',
-    #                         extent=[y_min,y_max,x_max,x_min],
-    #                         cmap="jet",
-    #                         vmin=vmin, vmax=vmax)
+        cbar = grid[0].cax.colorbar(im, cmap="jet")
+        cbar.set_label("mW m$^{-2}$")
 
-    #     cbar = grid[0].cax.colorbar(im, cmap="jet")
-    #     cbar.set_label("mW m$^{-2}$")
-
-    #     grid[0].set_title("Reference $Q_0$")
-    #     grid[1].set_title("Reconstructed $Q_0$")
-    #     grid[0].set_xlabel("y (km)")
-    #     grid[1].set_xlabel("y (km)")
-    #     grid[0].set_ylabel("x (km)")
-    # else:
-    x_min, x_max = pm.frame.xy_min[0].cpu(), pm.frame.xy_max[0].cpu()
-    y_min, y_max = pm.frame.xy_min[1].cpu(), pm.frame.xy_max[1].cpu()
-    plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
-    cbar = plt.colorbar(cmap="jet")
-    cbar.set_label("mW m$^{-2}$")
-    plt.xlabel("y (km)")
-    plt.ylabel("x (km)")
-    plt.title(f"Reconstructed total energy flux")
+        grid[0].set_title("Reference $Q_0$")
+        grid[1].set_title("Reconstructed $Q_0$")
+        grid[0].set_xlabel("y (km)")
+        grid[1].set_xlabel("y (km)")
+        grid[0].set_ylabel("x (km)")
+    else:
+        x_min, x_max = xy_min[0], xy_max[0]
+        y_min, y_max = xy_min[1], xy_max[1]
+        plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
+        cbar = plt.colorbar(cmap="jet")
+        cbar.set_label("mW m$^{-2}$")
+        plt.xlabel("y (km)")
+        plt.ylabel("x (km)")
+        plt.title(f"Reconstructed total energy flux")
 
     plt.show()
 
