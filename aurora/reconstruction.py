@@ -51,7 +51,7 @@ class ReferenceFrame:
 
 class PhysicalModel:
     def __init__(self, pm_desc: PhysicalModelDescription, device: torch.device):
-        self.physical_model_desc = pm_desc
+        self.original_description = pm_desc
         self.device = device
         self.frame = ReferenceFrame(
             pm_desc.reference_frame,

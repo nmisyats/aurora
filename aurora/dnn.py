@@ -23,6 +23,11 @@ class LogResMLP(nn.Module):
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
+    @classmethod
+    def from_physical_model(cls, pm: PhysicalModel, embed_exp: int):
+        output_size = len(pm.original_description.energy_bins) - 1
+        return cls(output_size, embed_exp)
+    
     def forward(self, x: torch.Tensor):
         x = self.embed_fourier(x)
         x0 = x
@@ -70,7 +75,7 @@ if __name__ == "__main__":
     dataset = ReconstructionDataset(cams, pm, device)
 
 
-    net = LogResMLP(len(pm_desc.energy_bins) - 1, 4).to(device)
+    net = LogResMLP.from_physical_model(pm, 4).to(device)
     print(net)
     
     recon = LogMLPReconstruction(pm, net, device)
@@ -80,7 +85,6 @@ if __name__ == "__main__":
     plot_training_loss(loss)
 
     recon = recon.numpy()
-
     plot_total_energy_flux(recon.f, pm_desc, 128, 128)
     plot_reconstructed_images(recon.image_renderer(100), cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
