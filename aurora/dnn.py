@@ -8,25 +8,20 @@ from aurora.utils import numpify
 
 
 class LogResMLP(nn.Module):
-    def __init__(self, output_size: int, embed_exp: int):
+    def __init__(self, pm: PhysicalModel, embed_exp: int):
         assert embed_exp >= 1
 
         super(LogResMLP, self).__init__()
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size + self.input_size * 2 * embed_exp
-        self.output_size = output_size
+        self.output_size = len(pm.original_description.energy_bins) - 1
         
         self.fc1 = nn.Linear(self.embed_size, 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128 + self.embed_size, 128)
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
-    
-    @classmethod
-    def from_physical_model(cls, pm: PhysicalModel, embed_exp: int):
-        output_size = len(pm.original_description.energy_bins) - 1
-        return cls(output_size, embed_exp)
     
     def forward(self, x: torch.Tensor):
         x = self.embed_fourier(x)
@@ -75,13 +70,13 @@ if __name__ == "__main__":
     dataset = ReconstructionDataset(cams, pm, device)
 
 
-    net = LogResMLP.from_physical_model(pm, 4).to(device)
+    net = LogResMLP(pm, 4).to(device)
     print(net)
     
     recon = LogMLPReconstruction(pm, net, device)
 
     loss = recon.train(dataset, 2000, 4096, 100)
-    
+
     plot_training_loss(loss)
 
     recon = recon.numpy()
