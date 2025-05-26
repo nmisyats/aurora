@@ -6,26 +6,60 @@ try:
     from yaml import CLoader as Loader
 except ImportError:
     from yaml import Loader
+from dataclasses import dataclass
+from typing import NamedTuple
+
 from aurora.camera import Camera
-from aurora.model import PhysicalModel, Direction, Volume, XYZ, XY
 
 def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
 
-def to_float_tuple(n):
-    def convert(t):
-        if not isinstance(t, (tuple, list)):
-            raise TypeError("Value must be a tuple or list")
-        if len(t) != n:
-            raise ValueError(f"Tuple must have exactly {n} elements")
-        return tuple(map(float, t))
-    return convert
+class MinMax(NamedTuple):
+    min: float
+    max: float
 
-def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModel]:
-    minmax = Use(to_float_tuple(2))
-    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid and existing path")
+def to_minmax(lst):
+    if not isinstance(lst, (list, tuple)):
+        raise TypeError("Value must be a list or tuple")
+    if len(lst) != 2:
+        raise ValueError("List must have exactly two elements")
+    return MinMax(float(lst[0]), float(lst[1]))
+
+@dataclass
+class ReferenceFrameDescription:
+    origin_latitude: float
+    origin_longitude: float
+    origin_altitude: float
+    field_inclination: float
+    field_declination: float
+
+@dataclass
+class VolumeDescription:
+    oblique_range_x: MinMax
+    oblique_range_y: MinMax
+    oblique_height: float
+
+@dataclass
+class PhysicalModelDescription:
+    altitude_bins: np.ndarray
+    energy_bins: np.ndarray
+    emission_matrix: np.ndarray
+    reference_frame: ReferenceFrameDescription
+    reconstruction_volume: VolumeDescription
+
+@dataclass
+class ReferenceFlux:
+    image: np.ndarray
+    oblique_range_x: MinMax
+    oblique_range_y: MinMax
+
+
+def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModelDescription]:
+    minmax = Use(to_minmax)
+    as_float = Use(float)
+    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
     schema = Schema({
         Optional("name"): str,
         "cameras": {
@@ -36,30 +70,31 @@ def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalMod
             "altitude_bins": path,
             "energy_bins": path,
             "emission_matrix": path,
-            "magnetic_field": {
-                "inclination": Use(float),
-                "declination": Use(float)
+            "reference_frame": {
+                "origin_latitude": as_float,
+                "origin_longitude": as_float,
+                "origin_altitude": as_float,
+                "field_inclination": as_float,
+                "field_declination": as_float
             },
             "reconstruction_volume": {
-                "latitude": Use(float),
-                "longitude": Use(float),
-                "range_x": minmax,
-                "range_y": minmax,
-                "range_z": minmax
+                "oblique_range_x": minmax,
+                "oblique_range_y": minmax,
+                "oblique_height": as_float
             },
-            # Optional("reference_q0"): {
-            #     "image": path,
-            #     "range_x": minmax,
-            #     "range_y": minmax
-            # }
         },
+        Optional("reference_flux"): {
+            "image": path,
+            "oblique_range_x": minmax,
+            "oblique_range_y": minmax
+        }
     })
     
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
         desc = schema.validate(data)
     cameras = parse_dataset_cameras(desc["cameras"])
-    model = parse_physical_model(desc["model"])
+    model = parse_physical_model_description(desc["model"])
     return cameras, model
 
 def parse_dataset_cameras(desc: dict) -> list[Camera]:
@@ -67,21 +102,17 @@ def parse_dataset_cameras(desc: dict) -> list[Camera]:
     images_dir = desc["images"]
     cameras = []
     for cam_name, cam_pos in camera_positions.items():
-        image = parse_matrix_data(images_dir / cam_name / "image.dat")
-        azimuth = parse_matrix_data(images_dir / cam_name / "az_cam.dat")
-        zenith = parse_matrix_data(images_dir / cam_name / "ze_cam.dat")
         camera = Camera(
             name=cam_name,
             longitude=cam_pos["longitude"],
             latitude=cam_pos["latitude"],
             altitude=cam_pos["altitude"],
-            image=image,
-            azimuth=azimuth,
-            zenith=zenith,
+            image=parse_matrix_data(images_dir / cam_name / "image.dat"),
+            azimuth=parse_matrix_data(images_dir / cam_name / "az_cam.dat"),
+            zenith=parse_matrix_data(images_dir / cam_name / "ze_cam.dat"),
         )
         cameras.append(camera)
     return cameras
-
 
 def parse_camera_positions(set_path: Path) -> dict[str, dict]:
     with open(set_path, "r") as f:
@@ -117,44 +148,32 @@ def parse_camera_positions(set_path: Path) -> dict[str, dict]:
 
 
 def parse_matrix_data(dat_path: Path):
-    img = []
+    mat = []
     with open(dat_path, "r") as f:
         for line in f:
             row = [float(num) for num in line.strip().split()]
-            img.append(row)
-    img = np.array(img, dtype=np.float32)
-    return img
+            mat.append(row)
+    mat = np.array(mat, dtype=np.float32)
+    return mat
 
 
-def parse_physical_model(desc: dict):
-    field = desc["magnetic_field"]
-    vol = desc["reconstruction_volume"]
-    x_min, x_max = vol["range_x"]
-    y_min, y_max = vol["range_y"]
-    z_min, z_max = vol["range_z"]
-    pm = PhysicalModel(
-        name=desc.get("name", "unnamed"),
+def parse_physical_model_description(desc: dict):
+    frame = desc["reference_frame"]
+    volume = desc["reconstruction_volume"]
+    return PhysicalModelDescription(
         altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
         energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
         emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,
-        mag_field_direction=Direction(
-            field["inclination"],
-            field["declination"]),
-        reconstruction_volume=Volume(
-            latitude=vol["latitude"],
-            longitude=vol["longitude"],
-            base_altitude=z_min,
-            box_min=XYZ(x_min, y_min, 0.0),
-            box_max=XYZ(x_max, y_max, z_max - z_min)
+        reference_frame=ReferenceFrameDescription(
+            origin_latitude=frame["origin_latitude"],
+            origin_longitude=frame["origin_longitude"],
+            origin_altitude=frame["origin_altitude"],
+            field_inclination=frame["field_inclination"],
+            field_declination=frame["field_declination"]
+        ),
+        reconstruction_volume=VolumeDescription(
+            oblique_range_x=volume["oblique_range_x"],
+            oblique_range_y=volume["oblique_range_y"],
+            oblique_height=volume["oblique_height"]
         )
     )
-    # if "reference_q0" in desc:
-    #     q0 = desc["reference_q0"]
-    #     x_min, x_max = q0["range_x"]
-    #     y_min, y_max = q0["range_y"]
-    #     pm.q0 = Q0(
-    #         image=parse_matrix_data(q0["image"]),
-    #         min=XY(x_min, y_min),
-    #         max=XY(x_max, y_max)
-    #     )
-    return pm

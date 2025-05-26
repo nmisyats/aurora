@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pathlib import Path
 
-from aurora.model import PhysicalModel
-from aurora.reconstruction import Reconstruction
+from aurora.reconstruction import PhysicalModel, Reconstruction, ReconstructionDataset
 from aurora.utils import numpify
 
 
@@ -50,7 +49,8 @@ class LogMLPReconstruction(Reconstruction):
         return self.f_net.parameters()
     
     def f(self, xy):
-        xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
+        xy_min, xy_max = self.frame.xy_min, self.frame.xy_max
+        xy = (xy - xy_min) / (xy_max - xy_min)
         log_f = self.f_net(xy)
         f = torch.pow(10.0, 7.0*log_f)
         return f
@@ -63,14 +63,19 @@ if __name__ == "__main__":
     from pathlib import Path
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")
 
-    cams, pm = load_dataset_description(Path("./simulation.yaml"))
+    cams, pm_desc = load_dataset_description(Path("./simulation.yaml"))
+    pm = PhysicalModel(pm_desc, device)
+    dataset = ReconstructionDataset(cams, pm, device)
 
-    net = LogResMLP(len(pm.energy_bins) - 1, 4).to(device)
+
+    net = LogResMLP(len(pm_desc.energy_bins) - 1, 4).to(device)
     print(net)
-
+    
     recon = LogMLPReconstruction(pm, net, device)
-    loss = recon.train(cams, 2000, 4096, 100)
+
+    loss = recon.train(dataset, 2000, 4096, 100)
     
     plot_training_loss(loss)
 
@@ -86,7 +91,7 @@ if __name__ == "__main__":
     def image(cam):
         return recon.image(cam, 100)
 
-    plot_total_energy_flux(f, pm, 128, 128)
+    plot_total_energy_flux(f, pm_desc, 128, 128)
     plot_reconstructed_images(image, cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")

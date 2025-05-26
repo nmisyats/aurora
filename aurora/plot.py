@@ -9,7 +9,7 @@ from typing import Callable
 
 from aurora.data import parse_matrix_data
 from aurora.camera import Camera
-from aurora.model import PhysicalModel
+from aurora.data import PhysicalModelDescription
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -47,17 +47,19 @@ def plot_model_matrix(model_path: Path):
     plt.xlabel("Energy (E)")
     plt.show()
 
-def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: PhysicalModel, res_x: int, res_y: int):
+def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm_desc: PhysicalModelDescription, res_x: int, res_y: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
-    vol = pm.reconstruction_volume
-    x = vol.box_min.x + x * (vol.box_max.x - vol.box_min.x)
-    y = vol.box_min.y + y * (vol.box_max.y - vol.box_min.y)
+    vol = pm_desc.reconstruction_volume
+    x_min, x_max = vol.oblique_range_x
+    y_min, y_max = vol.oblique_range_y
+    x = x_min + x * (x_max - x_min)
+    y = y_min + y * (y_max - y_min)
     xx, yy = np.meshgrid(x, y, indexing='ij')
     xy = np.stack((xx, yy), axis=-1)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
     e = 1.602e-19
-    lower_E, upper_E = pm.energy_bins[:-1], pm.energy_bins[1:]
+    lower_E, upper_E = pm_desc.energy_bins[:-1], pm_desc.energy_bins[1:]
     E = (lower_E + upper_E) / 2.0
     dE = upper_E - lower_E
     q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
@@ -103,14 +105,12 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm: P
     #     grid[1].set_xlabel("y (km)")
     #     grid[0].set_ylabel("x (km)")
     # else:
-    x_min, x_max = vol.box_min.x, vol.box_max.x
-    y_min, y_max = vol.box_min.y, vol.box_max.y
     plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
     cbar = plt.colorbar(cmap="jet")
     cbar.set_label("mW m$^{-2}$")
     plt.xlabel("y (km)")
     plt.ylabel("x (km)")
-    plt.title(f"Reconstructed total energy flux ({pm.name})")
+    plt.title(f"Reconstructed total energy flux")
 
     plt.show()
 
@@ -169,10 +169,15 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     plt.show()
     return imgs
 
-def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: PhysicalModel, res_x: int, res_y: int, res_z: int):
+def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm_desc: PhysicalModelDescription, res_x: int, res_y: int, res_z: int):
     x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
     y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
     z = np.linspace(0.0, 1.0, res_z, dtype=np.float32)
+    vol = pm_desc.reconstruction_volume
+    frame = pm_desc.reference_frame
+    x_min, x_max = vol.oblique_range_x
+    y_min, y_max = vol.oblique_range_y
+    z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
     x = pm.box_min[0] + x * (pm.box_max[0] - pm.box_min[0])
     y = pm.box_min[1] + y * (pm.box_max[1] - pm.box_min[1])
     z = pm.box_min[2] + z * (pm.box_max[2] - pm.box_min[2])
@@ -210,7 +215,7 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm: Phy
 
     return L
 
-def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
+def plot_rays(pm: PhysicalModelDescription, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
     p1 = ro + rd * tn[:, np.newaxis]
     p2 = ro + rd * tf[:, np.newaxis]
     p = np.concat([p1, p2], axis=0)

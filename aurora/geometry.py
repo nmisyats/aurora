@@ -1,7 +1,6 @@
 import torch
 
 from aurora.camera import Camera
-from aurora.model import Volume, Direction
 from aurora.geodesy import (
     lat_lon_to_ECEF,
     az_ze_to_UNE,
@@ -11,8 +10,7 @@ from aurora.geodesy import (
     inc_dec_to_UNE
 )
 
-def get_frame_transform(volume: Volume, mag_field_dir: Direction, device: torch.device):
-    o_lat, o_lon, o_alt = volume.latitude, volume.longitude, volume.base_altitude
+def get_frame_transform(o_lat: float, o_lon: float, o_alt: float, field_inc: float, field_dec: float, device: torch.device):
     o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
     radius = earth_radius(o_lat, o_lon) + o_alt
     o_ecef = radius * o_ecef_unit
@@ -21,8 +19,8 @@ def get_frame_transform(volume: Volume, mag_field_dir: Direction, device: torch.
     une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
     ecef_to_une = torch.linalg.inv(une_to_ecef)
     field_dir_une = inc_dec_to_UNE(
-        torch.scalar_tensor(mag_field_dir.inclination),
-        torch.scalar_tensor(mag_field_dir.declination)
+        torch.scalar_tensor(field_inc),
+        torch.scalar_tensor(field_dec)
     )
     field_to_une = torch.stack((
         torch.tensor([0.0, -1.0, 0.0]),
@@ -56,22 +54,6 @@ def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.T
     ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
 
     return ro_rel, rd_rel
-
-def create_ray_g_pairs(cams: list[Camera], o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
-    ro_list, rd_list, g_ref_list = [], [], []
-    for cam in cams:
-        ro_rel, rd_rel = create_camera_rays(cam, o_ecef, ecef_to_field, device)
-        ro_list.append(ro_rel)
-        rd_list.append(rd_rel)
-        
-        g = torch.from_numpy(cam.image).flatten().to(device)
-        g_ref_list.append(g)
-    
-    ro = torch.cat(ro_list)
-    rd = torch.cat(rd_list)
-    g_ref = torch.cat(g_ref_list)
-    
-    return ro, rd, g_ref
 
 def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float, num_bins: int, device: torch.device):
     bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=device) # num_bins + 1 edges
