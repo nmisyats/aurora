@@ -178,9 +178,9 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm_desc
     x_min, x_max = vol.oblique_range_x
     y_min, y_max = vol.oblique_range_y
     z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
-    x = pm.box_min[0] + x * (pm.box_max[0] - pm.box_min[0])
-    y = pm.box_min[1] + y * (pm.box_max[1] - pm.box_min[1])
-    z = pm.box_min[2] + z * (pm.box_max[2] - pm.box_min[2])
+    x = x_min + x * (x_max - x_min)
+    y = y_min + y * (y_max - y_min)
+    z = z_min + z * (z_max - z_min)
     xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
     xyz = np.stack((xx, yy, zz), axis=-1)
     L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
@@ -215,7 +215,7 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm_desc
 
     return L
 
-def plot_rays(pm: PhysicalModelDescription, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
+def plot_rays(pm_desc: PhysicalModelDescription, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
     p1 = ro + rd * tn[:, np.newaxis]
     p2 = ro + rd * tf[:, np.newaxis]
     p = np.concat([p1, p2], axis=0)
@@ -238,7 +238,14 @@ def plot_rays(pm: PhysicalModelDescription, ro: np.ndarray, rd: np.ndarray, tn: 
     # ax.scatter(x1, y1, z1, color='r')
     # ax.scatter(x2, y2, z2, color='r')
 
-    draw_bbox(ax, pm.box_min, pm.box_max)
+    vol = pm_desc.reconstruction_volume
+    frame = pm_desc.reference_frame
+    x_min, x_max = vol.oblique_range_x
+    y_min, y_max = vol.oblique_range_y
+    z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
+    box_min = (x_min, y_min, z_min)
+    box_max = (x_max, y_max, z_max)
+    draw_bbox(ax, box_min, box_max)
     
     ax.set_xlabel('x')
     ax.set_ylabel('y')

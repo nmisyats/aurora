@@ -79,20 +79,10 @@ if __name__ == "__main__":
     
     plot_training_loss(loss)
 
-    @numpify(device=device)
-    def f(xy):
-        return recon.f(xy)
-    
-    @numpify(device=device)
-    def L(p):
-        return recon.L(p)
+    recon = recon.numpy()
 
-    @numpify(device=device)
-    def image(cam):
-        return recon.image(cam, 100)
-
-    plot_total_energy_flux(f, pm_desc, 128, 128)
-    plot_reconstructed_images(image, cams)
+    plot_total_energy_flux(recon.f, pm_desc, 128, 128)
+    plot_reconstructed_images(recon.image_renderer(100), cams)
     # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")
 

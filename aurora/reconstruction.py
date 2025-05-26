@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
-from torch.utils.data import Dataset
+import numpy as np
 import tqdm
 from abc import ABC, abstractmethod
 from typing import Iterable
@@ -90,11 +90,14 @@ class ReconstructionDataset:
                 self.device)
             ro_list.append(ro_rel)
             rd_list.append(rd_rel)
+            
             g = torch.from_numpy(cam.image).flatten().to(self.device)
             g_ref_list.append(g)
+        
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
+        
         return ro, rd, g_ref
 
     def __len__(self):
@@ -135,7 +138,14 @@ class Reconstruction(ABC):
         l = torch.sum(m_z * f, dim=1)
         return l
     
-    def g(self, ro: torch.Tensor, rd: torch.Tensor, tn: torch.Tensor, tf: torch.Tensor, ray_bins: int):
+    def g(
+            self, 
+            ro: torch.Tensor, 
+            rd: torch.Tensor, 
+            tn: torch.Tensor, 
+            tf: torch.Tensor, 
+            ray_bins: int
+        ) -> torch.Tensor:
         if ray_bins not in self._vmap_g_cache:
             self._vmap_g_cache[ray_bins] = self._make_vmapped_g(ray_bins)
         vmap_g = self._vmap_g_cache[ray_bins]
@@ -152,7 +162,7 @@ class Reconstruction(ABC):
             return g
         return torch.vmap(single_ray_g, randomness='different')
     
-    def image(self, cam: Camera, ray_bins: int, nan=0.0):
+    def image(self, cam: Camera, ray_bins: int, nan=0.0) -> torch.Tensor:
         ro, rd = create_camera_rays(
             cam,
             self.frame.origin_ecef,
@@ -164,7 +174,13 @@ class Reconstruction(ABC):
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)
         return img
-    
+
+    def image_renderer(self, ray_bins: int, nan=0.0):
+        def render(cam: Camera):
+            img = self.image(cam, ray_bins, nan)
+            return img
+        return render
+
     def train(self,
             dataset: ReconstructionDataset,
             num_iters: int,
@@ -204,3 +220,26 @@ class Reconstruction(ABC):
 
         return losses
 
+    def numpy(self):
+        class NumpyReconstruction:
+            def __init__(self, parent: Reconstruction):
+                self.parent = parent
+            
+            def f(self, xy: np.ndarray) -> np.ndarray:
+                xy = torch.tensor(xy, dtype=torch.float32, device=self.parent.device)
+                return self.parent.f(xy).detach().cpu().numpy()
+            
+            def L(self, p: torch.Tensor) -> np.ndarray:
+                p = torch.tensor(p, dtype=torch.float32, device=self.parent.device)
+                return self.parent.L(p).detach().cpu().numpy()
+            
+            def image(self, cam: Camera, ray_bins: int, nan=0.0) -> np.ndarray:
+                img = self.parent.image(cam, ray_bins, nan)
+                return img.detach().cpu().numpy()
+            
+            def image_renderer(self, ray_bins: int, nan=0.0):
+                def render(cam: Camera):
+                    img = self.image(cam, ray_bins, nan)
+                    return img
+                return render
+        return NumpyReconstruction(self)
