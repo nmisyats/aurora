@@ -81,7 +81,7 @@ if __name__ == "__main__":
     
     recon = LogMLPReconstruction(pm, net, device)
 
-    loss = recon.train(dataset, 100, 4096, 100)
+    loss = recon.train(dataset, 2000, 4096, 100)
 
     plot_training_loss(loss)
 
