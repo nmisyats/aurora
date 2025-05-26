@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pathlib import Path
 
-from aurora.reconstruction import PhysicalModel, Reconstruction, ReconstructionDataset
+from aurora.reconstruction import PhysicalModel, Reconstruction, RayDataset
 from aurora.utils import numpify
 
 
@@ -15,7 +15,7 @@ class LogResMLP(nn.Module):
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size + self.input_size * 2 * embed_exp
-        self.output_size = len(pm.original_description.energy_bins) - 1
+        self.output_size = len(pm.E_edges) - 1
         
         self.fc1 = nn.Linear(self.embed_size, 128)
         self.fc2 = nn.Linear(128, 128)
@@ -45,6 +45,12 @@ class LogMLPReconstruction(Reconstruction):
         super().__init__(pm, device)
         self.f_net = f_net
     
+    def eval_mode(self):
+        return self.f_net.eval()
+    
+    def train_mode(self):
+        return self.f_net.train()
+    
     def parameters(self):
         return self.f_net.parameters()
     
@@ -65,9 +71,9 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
 
-    cams, pm_desc = load_dataset_description(Path("./simulation.yaml"))
+    cams, pm_desc, ref_flux = load_dataset_description(Path("./simulation.yaml"))
     pm = PhysicalModel(pm_desc, device)
-    dataset = ReconstructionDataset(cams, pm, device)
+    dataset = RayDataset(cams, pm, device)
 
 
     net = LogResMLP(pm, 4).to(device)
@@ -75,13 +81,13 @@ if __name__ == "__main__":
     
     recon = LogMLPReconstruction(pm, net, device)
 
-    loss = recon.train(dataset, 2000, 4096, 100)
+    loss = recon.train(dataset, 100, 4096, 100)
 
     plot_training_loss(loss)
 
-    recon = recon.numpy()
-    plot_total_energy_flux(recon.f, pm_desc, 128, 128)
+    recon.eval_mode()
+    plot_total_energy_flux(recon.f, pm, 128, 128)
     plot_reconstructed_images(recon.image_renderer(100), cams)
-    # L = plot_volume_emission(est_L_np, pm, 100, 100, 50)
+    plot_volume_emission(recon.L, pm, 100, 100, 50)
     # save_3d_array(L, "volume_emission_rate.dat")
 

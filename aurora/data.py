@@ -42,21 +42,21 @@ class VolumeDescription:
     oblique_height: float
 
 @dataclass
-class PhysicalModelDescription:
+class PhysicalModelData:
     altitude_bins: np.ndarray
     energy_bins: np.ndarray
     emission_matrix: np.ndarray
     reference_frame: ReferenceFrameDescription
-    reconstruction_volume: VolumeDescription
+    bounding_volume: VolumeDescription
 
 @dataclass
 class ReferenceFlux:
-    image: np.ndarray
+    flux: np.ndarray
     oblique_range_x: MinMax
     oblique_range_y: MinMax
 
 
-def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModelDescription]:
+def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModelData]:
     minmax = Use(to_minmax)
     as_float = Use(float)
     path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
@@ -84,7 +84,7 @@ def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalMod
             },
         },
         Optional("reference_flux"): {
-            "image": path,
+            "flux": path,
             "oblique_range_x": minmax,
             "oblique_range_y": minmax
         }
@@ -94,8 +94,11 @@ def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalMod
         data = load_yaml(f)
         desc = schema.validate(data)
     cameras = parse_dataset_cameras(desc["cameras"])
-    model = parse_physical_model_description(desc["model"])
-    return cameras, model
+    model = parse_physical_model_data(desc["model"])
+    ref_flux = None
+    if "reference_flux" in desc:
+        ref_flux = parse_reference_flux(desc["reference_flux"])
+    return cameras, model, ref_flux
 
 def parse_dataset_cameras(desc: dict) -> list[Camera]:
     camera_positions = parse_camera_positions(desc["positions"])
@@ -156,24 +159,47 @@ def parse_matrix_data(dat_path: Path):
     mat = np.array(mat, dtype=np.float32)
     return mat
 
+def parse_grid_array(dat_path: Path):
+    data = np.loadtxt(dat_path)
+    indices = data[:, :3].astype(int)
+    values = data[:, 3]
+    # Determine array shape from max index values
+    ni, nj, nk = indices.max(axis=0) + 1
+    array = np.zeros((ni, nj, nk), dtype=values.dtype)
+    # Assign values
+    array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
+    return array
 
-def parse_physical_model_description(desc: dict):
+def parse_reference_frame_description(desc: dict):
+    return ReferenceFrameDescription(
+        origin_latitude=desc["origin_latitude"],
+        origin_longitude=desc["origin_longitude"],
+        origin_altitude=desc["origin_altitude"],
+        field_inclination=desc["field_inclination"],
+        field_declination=desc["field_declination"]
+    )
+
+def parse_volume_description(desc: dict):
+    return VolumeDescription(
+        oblique_range_x=desc["oblique_range_x"],
+        oblique_range_y=desc["oblique_range_y"],
+        oblique_height=float(desc["oblique_height"])
+    )
+
+def parse_physical_model_data(desc: dict):
     frame = desc["reference_frame"]
     volume = desc["reconstruction_volume"]
-    return PhysicalModelDescription(
+    return PhysicalModelData(
         altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
         energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
         emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,
-        reference_frame=ReferenceFrameDescription(
-            origin_latitude=frame["origin_latitude"],
-            origin_longitude=frame["origin_longitude"],
-            origin_altitude=frame["origin_altitude"],
-            field_inclination=frame["field_inclination"],
-            field_declination=frame["field_declination"]
-        ),
-        reconstruction_volume=VolumeDescription(
-            oblique_range_x=volume["oblique_range_x"],
-            oblique_range_y=volume["oblique_range_y"],
-            oblique_height=volume["oblique_height"]
-        )
+        reference_frame=parse_reference_frame_description(frame),
+        bounding_volume=parse_volume_description(volume)
+    )
+
+def parse_reference_flux(desc: dict):
+    return ReferenceFlux(
+        flux=parse_grid_array(desc["flux"]),
+        oblique_range_x=desc["oblique_range_x"],
+        oblique_range_y=desc["oblique_range_y"]
     )

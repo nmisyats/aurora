@@ -6,10 +6,12 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import Callable
+import torch
 
 from aurora.data import parse_matrix_data
 from aurora.camera import Camera
-from aurora.data import PhysicalModelDescription
+from aurora.reconstruction import PhysicalModel
+from aurora.data import ReferenceFlux
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -47,24 +49,12 @@ def plot_model_matrix(model_path: Path):
     plt.xlabel("Energy (E)")
     plt.show()
 
-def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm_desc: PhysicalModelDescription, res_x: int, res_y: int):
-    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
-    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
-    vol = pm_desc.reconstruction_volume
-    x_min, x_max = vol.oblique_range_x
-    y_min, y_max = vol.oblique_range_y
-    x = x_min + x * (x_max - x_min)
-    y = y_min + y * (y_max - y_min)
-    xx, yy = np.meshgrid(x, y, indexing='ij')
-    xy = np.stack((xx, yy), axis=-1)
+def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, ref_flux: ReferenceFlux | None = None):
+    xy = pm.frame.xy_grid(res_x, res_y)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
-    e = 1.602e-19
-    lower_E, upper_E = pm_desc.energy_bins[:-1], pm_desc.energy_bins[1:]
-    E = (lower_E + upper_E) / 2.0
-    dE = upper_E - lower_E
-    q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
-    q = np.sum(q, axis=1)
+    q = pm.q0(f)
     q = q.reshape((res_x, res_y))
+    q = q.detach().cpu().numpy()
 
     # if pm.q0 is not None:
     #     fig = plt.figure(figsize=(8, 4))
@@ -105,6 +95,8 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm_de
     #     grid[1].set_xlabel("y (km)")
     #     grid[0].set_ylabel("x (km)")
     # else:
+    x_min, x_max = pm.frame.xy_min[0].cpu(), pm.frame.xy_max[0].cpu()
+    y_min, y_max = pm.frame.xy_min[1].cpu(), pm.frame.xy_max[1].cpu()
     plt.imshow(q, interpolation='none', extent=[y_min,y_max,x_max,x_min], cmap="jet")
     cbar = plt.colorbar(cmap="jet")
     cbar.set_label("mW m$^{-2}$")
@@ -116,7 +108,7 @@ def plot_total_energy_flux(estimate_f: Callable[[np.ndarray], np.ndarray], pm_de
 
     return f
 
-def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], cams: list[Camera]):
+def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], cams: list[Camera]):
     n_img = len(cams)
     # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
     # plt.subplots_adjust(wspace=0.05, hspace=0.05)
@@ -132,7 +124,7 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     # First pass to get min and max values across all images
     for i in range(n_img):
         print(f"Generating image {i+1}/{n_img}")
-        img = generate_image(cams[i])
+        img = render_image(cams[i]).detach().cpu().numpy()
         ref = cams[i].image
         imgs.append(img)
         refs.append(ref)
@@ -169,22 +161,11 @@ def plot_reconstructed_images(generate_image: Callable[[Camera], np.ndarray], ca
     plt.show()
     return imgs
 
-def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm_desc: PhysicalModelDescription, res_x: int, res_y: int, res_z: int):
-    x = np.linspace(0.0, 1.0, res_x, dtype=np.float32)
-    y = np.linspace(0.0, 1.0, res_y, dtype=np.float32)
-    z = np.linspace(0.0, 1.0, res_z, dtype=np.float32)
-    vol = pm_desc.reconstruction_volume
-    frame = pm_desc.reference_frame
-    x_min, x_max = vol.oblique_range_x
-    y_min, y_max = vol.oblique_range_y
-    z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
-    x = x_min + x * (x_max - x_min)
-    y = y_min + y * (y_max - y_min)
-    z = z_min + z * (z_max - z_min)
-    xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
-    xyz = np.stack((xx, yy, zz), axis=-1)
+def plot_volume_emission(estimate_L: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, res_z: int):
+    xyz = pm.frame.xyz_grid(res_x, res_y, res_z)
     L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
     L = L.reshape(res_x, res_y, res_z)
+    L = L.detach().cpu().numpy()
     
     grid = pv.ImageData()
     grid.dimensions = np.array(L.shape) + 1  # Add 1 because dimensions are number of points
@@ -215,7 +196,7 @@ def plot_volume_emission(estimate_L: Callable[[np.ndarray], np.ndarray], pm_desc
 
     return L
 
-def plot_rays(pm_desc: PhysicalModelDescription, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
+def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
     p1 = ro + rd * tn[:, np.newaxis]
     p2 = ro + rd * tf[:, np.newaxis]
     p = np.concat([p1, p2], axis=0)

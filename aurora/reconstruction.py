@@ -8,7 +8,7 @@ from typing import Iterable
 
 from aurora.camera import Camera
 from aurora.data import (
-    PhysicalModelDescription,
+    PhysicalModelData,
     ReferenceFrameDescription,
     VolumeDescription
 )
@@ -48,28 +48,55 @@ class ReferenceFrame:
         # TODO: scale by oblicity of reference frame z axis
         z_offset = frame_desc.origin_altitude
         self.z_offset = torch.scalar_tensor(z_offset, device=device)
+    
+    def xy_grid(self, res_x: int, res_y: int) -> torch.Tensor:
+        xy_min = self.xy_min
+        xy_max = self.xy_max
+        x = torch.linspace(xy_min[0], xy_max[0], res_x, device=self.device)
+        y = torch.linspace(xy_min[1], xy_max[1], res_y, device=self.device)
+        xx, yy = torch.meshgrid(x, y, indexing='ij')
+        xy = torch.stack((xx, yy), dim=-1).reshape(-1, 2)
+        return xy
+    
+    def xyz_grid(self, res_x: int, res_y: int, res_z: int) -> torch.Tensor:
+        xyz_min = self.box_min
+        xyz_max = self.box_max
+        x = torch.linspace(xyz_min[0], xyz_max[0], res_x, device=self.device)
+        y = torch.linspace(xyz_min[1], xyz_max[1], res_y, device=self.device)
+        z = torch.linspace(xyz_min[2], xyz_max[2], res_z, device=self.device)
+        xx, yy, zz = torch.meshgrid(x, y, z, indexing='ij')
+        xyz = torch.stack((xx, yy, zz), dim=-1).reshape(-1, 3)
+        return xyz
 
 class PhysicalModel:
-    def __init__(self, pm_desc: PhysicalModelDescription, device: torch.device):
-        self.original_description = pm_desc
+    def __init__(self, pm_data: PhysicalModelData, device: torch.device):
         self.device = device
         self.frame = ReferenceFrame(
-            pm_desc.reference_frame,
-            pm_desc.reconstruction_volume,
+            pm_data.reference_frame,
+            pm_data.bounding_volume,
             device
         )
-        self.z_edges = torch.from_numpy(pm_desc.altitude_bins).to(self.device)
-        self.m_mat = torch.from_numpy(pm_desc.emission_matrix).to(self.device)
+        self.z_edges = torch.from_numpy(pm_data.altitude_bins).to(self.device)
+        self.m_mat = torch.from_numpy(pm_data.emission_matrix).to(self.device)
+        self.E_edges = torch.from_numpy(pm_data.energy_bins).to(self.device)
+    
+    def q0(self, f: torch.Tensor) -> torch.Tensor:
+        e = 1.602e-19
+        lower_E, upper_E = self.E_edges[:-1], self.E_edges[1:]
+        E = (lower_E + upper_E) / 2.0
+        dE = upper_E - lower_E
+        q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
+        q = torch.sum(q, dim=1)
+        return q
 
-class ReconstructionDataset:
-    def __init__(self, cameras: list[Camera], pm: PhysicalModel, device: torch.device):
-        self.cameras = cameras
+class RayDataset:
+    def __init__(self, cams: list[Camera], pm: PhysicalModel, device: torch.device):
         self.physical_model = pm
         self.frame = pm.frame
         self.device = device
 
         # Create rays and compute intersections
-        ro, rd, g_ref = self._create_ray_g_pairs()
+        ro, rd, g_ref = self._create_ray_g_pairs(cams)
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
         # Get mask for non-NaN values in tn
         valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
@@ -80,9 +107,9 @@ class ReconstructionDataset:
         self.tn = tn[valid_mask].contiguous()
         self.tf = tf[valid_mask].contiguous()
 
-    def _create_ray_g_pairs(self):
+    def _create_ray_g_pairs(self, cams: list[Camera]):
         ro_list, rd_list, g_ref_list = [], [], []
-        for cam in self.cameras:
+        for cam in cams:
             ro_rel, rd_rel = create_camera_rays(
                 cam,
                 self.frame.origin_ecef,
@@ -105,11 +132,7 @@ class ReconstructionDataset:
     
     def __getitem__(self, idx):
         return (
-            self.ro[idx],
-            self.rd[idx],
-            self.g_ref[idx],
-            self.tn[idx],
-            self.tf[idx]
+            self.ro[idx], self.rd[idx], self.g_ref[idx], self.tn[idx], self.tf[idx]
         )
 
 class Reconstruction(ABC):
@@ -119,18 +142,23 @@ class Reconstruction(ABC):
         self.device = device
 
         self._vmap_g_cache = {}
+    
+    @abstractmethod
+    def eval_mode(self):
+        ...
+    
+    @abstractmethod
+    def train_mode(self):
+        ...
 
     @abstractmethod
     def parameters() -> Iterable[nn.Parameter]:
         ...
-    
-    def numpy(self):
-        return NumpyReconstruction(self)
 
     @abstractmethod
     def f(self, xy: torch.Tensor) -> torch.Tensor:
         ...
-    
+
     def L(self, p: torch.Tensor) -> torch.Tensor:
         xy, z = p[:,:2], p[:,2]
         z = z + self.frame.z_offset
@@ -182,7 +210,7 @@ class Reconstruction(ABC):
         return lambda cam: self.image(cam, ray_bins, nan)
     
     def train(self,
-            dataset: ReconstructionDataset,
+            dataset: RayDataset,
             num_iters: int,
             batch_size: int,
             ray_bins: int = 100,
@@ -219,26 +247,3 @@ class Reconstruction(ABC):
         tq.close()
 
         return losses
-
-
-class NumpyReconstruction:
-    def __init__(self, recon: Reconstruction):
-        self.internal = recon
-        self.device = recon.device
-    
-    def f(self, xy: np.ndarray):
-        xy = torch.tensor(xy, dtype=torch.float32, device=self.device)
-        out = self.internal.f(xy)
-        return out.detach().cpu().numpy()
-    
-    def L(self, p: torch.Tensor):
-        p = torch.tensor(p, dtype=torch.float32, device=self.device)
-        out = self.internal.L(p)
-        return out.detach().cpu().numpy()
-    
-    def image(self, cam: Camera, ray_bins: int, nan=0.0):
-        img = self.internal.image(cam, ray_bins, nan)
-        return img.detach().cpu().numpy()
-    
-    def image_renderer(self, ray_bins: int, nan=0.0):
-        return lambda cam: self.image(cam, ray_bins, nan)
