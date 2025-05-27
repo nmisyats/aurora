@@ -1,6 +1,14 @@
-import numpy as np
 import torch
 from dataclasses import dataclass
+
+from aurora.physics import ReferenceFrame
+from aurora.geodesy import (
+    lat_lon_to_ECEF,
+    az_ze_to_UNE,
+    UNE_to_ECEF,
+    earth_radius,
+)
+from aurora.utils import downsample_image
 
 @dataclass
 class Camera:
@@ -25,36 +33,34 @@ class Camera:
     
     def __str__(self):
         return self.__repr__(self)
-
-def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
-    """
-    Downsamples a 2D or 3D image (e.g., grayscale or RGB) by picking every `factor`-th pixel.
     
-    Parameters:
-        image (np.ndarray): Input image matrix. Can be 2D (grayscale) or 3D (RGB).
-        factor (int): Downsampling factor. Must be >= 1.
-        
-    Returns:
-        np.ndarray: Downsampled image.
-    """
-    if factor < 1:
-        raise ValueError("Downsampling factor must be >= 1")
-    
-    # Handle 2D (grayscale) or 3D (color) images
-    if image.ndim == 2:
-        return image[::factor, ::factor]
-    else:
-        return image[::factor, ::factor, :]
+    def create_rays(self, frame: ReferenceFrame, device: torch.device):
+        lat, lon, alt = self.latitude, self.longitude, self.altitude
+        o_ecef = frame.origin_ecef
+        ecef_to_field = frame.ecef_to_field_mat
 
-def downsample_camera(camera: Camera, factor: int) -> Camera:
-    """
-    Downsamples the image, azimuth, and zenith of a Camera object by a given factor."""
-    return Camera(
-        name=camera.name,
-        longitude=camera.longitude,
-        latitude=camera.latitude,
-        altitude=camera.altitude,
-        image=downsample_image(camera.image, factor),
-        azimuth=downsample_image(camera.azimuth, factor),
-        zenith=downsample_image(camera.zenith, factor)
-    )
+        az = self.azimuth.flatten().to(device)
+        ze = self.zenith.flatten().to(device)
+        rd_une = az_ze_to_UNE(az, ze).to(device)
+        rd_ecef = UNE_to_ECEF(rd_une, lat, lon).to(device)
+        rd_rel = torch.matmul(rd_ecef, ecef_to_field.T)
+
+        ro_ecef_unit = lat_lon_to_ECEF(lat, lon).to(device)
+        radius = earth_radius(lat, lon) + alt
+        ro_ecef = radius * ro_ecef_unit
+        ro_ecef_rel = ro_ecef - o_ecef
+        ro_rel = torch.matmul(ro_ecef_rel, ecef_to_field.T)
+        ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
+
+        return ro_rel, rd_rel
+
+    def downsample(self, factor: int) -> 'Camera':
+        return Camera(
+            name=self.name,
+            longitude=self.longitude,
+            latitude=self.latitude,
+            altitude=self.altitude,
+            image=downsample_image(self.image, factor),
+            azimuth=downsample_image(self.azimuth, factor),
+            zenith=downsample_image(self.zenith, factor)
+        )

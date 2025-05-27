@@ -1,7 +1,12 @@
 import torch
 import numpy as np
 from aurora.utils import MinMax
-from aurora.geometry import get_frame_transform
+from aurora.geodesy import (
+    lat_lon_to_ECEF,
+    UNE_basis_ECEF,
+    earth_radius,
+    inc_dec_to_UNE
+)
 
 class ReferenceFlux:
     def __init__(self, flux: torch.Tensor, oblique_range_x: MinMax, oblique_range_y: MinMax, device: torch.device):
@@ -25,20 +30,38 @@ class ReferenceFrame:
         device: torch.device
     ):
         self.device = device
-
+        
         # Get the frame transform
-        o_ecef, ecef_to_field, metric_tensor = get_frame_transform(
-            origin_latitude,
-            origin_longitude,
-            origin_altitude,
-            field_inclination,
-            field_declination,
-            device
+        o_lat, o_lon, o_alt = origin_latitude, origin_longitude, origin_altitude
+        o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
+        radius = earth_radius(o_lat, o_lon) + o_alt
+        o_ecef = radius * o_ecef_unit
+        o_ecef = o_ecef.to(device)
+
+        une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
+        ecef_to_une = torch.linalg.inv(une_to_ecef)
+        field_dir_une = inc_dec_to_UNE(
+            torch.scalar_tensor(field_inclination),
+            torch.scalar_tensor(field_declination)
         )
+        field_to_une = torch.stack((
+            torch.tensor([0.0, -1.0, 0.0]),
+            torch.tensor([0.0,  0.0, 1.0]),
+            -field_dir_une
+        )).T
+        une_to_field = torch.linalg.inv(field_to_une)
+        ecef_to_field = torch.matmul(une_to_field, ecef_to_une)
+        ecef_to_field = ecef_to_field.to(device)
+
+        metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
+        metric_tensor = metric_tensor.to(device)
+
+        # Store the reference frame parameters
         self.origin_ecef = o_ecef
         self.ecef_to_field_mat = ecef_to_field
         self.metric_tensor = metric_tensor
         
+        # Define the oblique reference frame bounding box
         x_min, x_max = oblique_range_x
         y_min, y_max = oblique_range_y
         h = oblique_height

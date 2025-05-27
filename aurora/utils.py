@@ -100,3 +100,23 @@ def xyz_grid(
     xx, yy, zz = torch.meshgrid(x, y, z, indexing='ij')
     xyz = torch.stack((xx, yy, zz), dim=-1).reshape(-1, 3)
     return xyz
+
+def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
+    """
+    Downsamples a 2D or 3D image (e.g., grayscale or RGB) by picking every `factor`-th pixel.
+    
+    Parameters:
+        image (torch.Tensor): Input image matrix. Can be 2D (grayscale) or 3D (RGB).
+        factor (int): Downsampling factor. Must be >= 1.
+        
+    Returns:
+        torch.Tensor: Downsampled image.
+    """
+    if factor < 1:
+        raise ValueError("Downsampling factor must be >= 1")
+    
+    # Handle 2D (grayscale) or 3D (color) images
+    if image.ndim == 2:
+        return image[::factor, ::factor]
+    else:
+        return image[::factor, ::factor, :]

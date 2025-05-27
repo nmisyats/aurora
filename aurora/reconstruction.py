@@ -8,7 +8,6 @@ from pathlib import Path
 
 from aurora.camera import Camera
 from aurora.geometry import (
-    create_camera_rays,
     create_ray_points,
     ray_box_intersection
 )
@@ -35,21 +34,14 @@ class RayDataset:
     def _create_ray_g_pairs(self, cams: list[Camera]):
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in cams:
-            ro_rel, rd_rel = create_camera_rays(
-                cam,
-                self.frame.origin_ecef,
-                self.frame.ecef_to_field_mat,
-                self.device)
-            ro_list.append(ro_rel)
-            rd_list.append(rd_rel)
-            
-            g = cam.image.flatten().to(self.device)
-            g_ref_list.append(g)
-        
+            cam_ro, cam_rd = cam.create_rays(self.frame, self.device)
+            cam_g_ref = cam.image.flatten().to(self.device)
+            ro_list.append(cam_ro)
+            rd_list.append(cam_rd)
+            g_ref_list.append(cam_g_ref)
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
-        
         return ro, rd, g_ref
 
     def __len__(self):
@@ -111,12 +103,8 @@ class Reconstruction(ABC):
             return self.physical_model.integrate_g(rd, t, p, f)
         return torch.vmap(single_ray_g, randomness='different')
     
-    def image(self, cam: Camera, ray_bins: int, nan=0.0) -> torch.Tensor:
-        ro, rd = create_camera_rays(
-            cam,
-            self.frame.origin_ecef,
-            self.frame.ecef_to_field_mat,
-            self.device)
+    def image(self, cam: Camera, ray_bins: int, nan=0.0):
+        ro, rd = cam.create_rays(self.frame, self.device)
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
         g = self.g(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
