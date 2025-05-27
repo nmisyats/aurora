@@ -47,10 +47,10 @@ class LogMLPReconstruction(Reconstruction):
         return self.f_net.parameters()
     
     def eval_mode(self):
-        return self.f_net.eval()
+        self.f_net.eval()
     
     def train_mode(self):
-        return self.f_net.train()
+        self.f_net.train()
     
     def f(self, xy):
         xy_min, xy_max = self.frame.xy_min, self.frame.xy_max
