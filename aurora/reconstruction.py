@@ -35,13 +35,16 @@ class RayDataset:
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in cams:
             cam_ro, cam_rd = cam.create_rays(self.frame, self.device)
-            cam_g_ref = cam.image.flatten().to(self.device)
             ro_list.append(cam_ro)
             rd_list.append(cam_rd)
+
+            cam_g_ref = cam.image.flatten().to(self.device)
             g_ref_list.append(cam_g_ref)
+        
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
+        
         return ro, rd, g_ref
 
     def __len__(self):
@@ -51,6 +54,12 @@ class RayDataset:
         return (
             self.ro[idx], self.rd[idx], self.g_ref[idx], self.tn[idx], self.tf[idx]
         )
+    
+    def sample(self, num_samples: int):
+        if num_samples > len(self):
+            raise ValueError("Number of samples exceeds dataset size.")
+        idxs = torch.randint(0, len(self), (num_samples,))
+        return self[idxs]
 
 
 class Reconstruction(ABC):
@@ -134,8 +143,7 @@ class Reconstruction(ABC):
         for iter in tq:
             optimizer.zero_grad()
 
-            idxs = torch.randint(0, len(dataset), (batch_size,))
-            ro, rd, g_ref, tn, tf = dataset[idxs]
+            ro, rd, g_ref, tn, tf = dataset.sample(batch_size)
             g = self.g(ro, rd, tn, tf, ray_bins)
             loss = (g - g_ref)**2
             loss = loss.sum() / batch_size
