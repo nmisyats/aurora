@@ -8,14 +8,6 @@ from aurora.geodesy import (
     inc_dec_to_UNE
 )
 
-class ReferenceFlux:
-    def __init__(self, flux: torch.Tensor, oblique_range_x: MinMax, oblique_range_y: MinMax, device: torch.device):
-        self.flux = flux.to(device)
-        x_min, x_max = oblique_range_x
-        y_min, y_max = oblique_range_y
-        self.xy_min = torch.tensor([x_min, y_min], device=device)
-        self.xy_max = torch.tensor([x_max, y_max], device=device)
-
 
 class ReferenceFrame:
     def __init__(self,

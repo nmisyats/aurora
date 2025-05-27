@@ -8,7 +8,8 @@ except ImportError:
 import torch
 
 from aurora.camera import Camera
-from aurora.physics import PhysicalModel, ReferenceFrame, ReferenceFlux
+from aurora.physics import PhysicalModel, ReferenceFrame
+from aurora.reconstruction import ReferenceFlux
 from aurora.utils import load_matrix_data, load_3d_grid_data, to_minmax
 
 def load_yaml(stream):
@@ -69,7 +70,7 @@ def load_physical_model(yaml_path: Path | str, device: torch.device):
     if "reference_flux" in desc:
         flux_desc = desc["reference_flux"]
         ref_flux = ReferenceFlux(
-            flux=load_3d_grid_data(flux_desc["flux"]),
+            image=load_3d_grid_data(flux_desc["flux"]),
             oblique_range_x=flux_desc["oblique_range_x"],   
             oblique_range_y=flux_desc["oblique_range_y"],
             device=device

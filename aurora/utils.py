@@ -120,3 +120,18 @@ def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
         return image[::factor, ::factor]
     else:
         return image[::factor, ::factor, :]
+
+def mean_absolute_error(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Mean Absolute Error (MAE) between predicted and target tensors.
+    
+    Parameters:
+        pred (torch.Tensor): Predicted values.
+        target (torch.Tensor): Target values.
+        
+    Returns:
+        torch.Tensor: Mean Absolute Error.
+    """
+    if pred.shape != target.shape:
+        raise ValueError("Predicted and target tensors must have the same shape")
+    return torch.mean(torch.abs(pred - target))

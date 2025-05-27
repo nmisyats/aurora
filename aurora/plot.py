@@ -67,7 +67,7 @@ def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], p
                         axes_pad=0.1,
                         cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
-        ref_flux = ref.flux
+        ref_flux = ref.image
         h, w, bins = ref_flux.shape
         ref_q = pm.q0(ref_flux.reshape(h*w, bins))
         ref_q = ref_q.detach().cpu().numpy()

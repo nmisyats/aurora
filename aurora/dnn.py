@@ -2,18 +2,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from aurora.reconstruction import PhysicalModel, Reconstruction, RayDataset
+from aurora.reconstruction import PhysicalModel, Reconstruction, RayDataset, TrainableFluxModel
 
 
-class LogResMLP(nn.Module):
-    def __init__(self, pm: PhysicalModel, embed_exp: int):
+class LogResMLP(TrainableFluxModel):
+    def __init__(self, pm: PhysicalModel, embed_exp: int, log_scale=7.0):
         assert embed_exp >= 1
 
         super(LogResMLP, self).__init__()
+
+        self.xy_min = pm.frame.xy_min
+        self.xy_max = pm.frame.xy_max
         self.input_size = 2
         self.embed_exp = embed_exp
         self.embed_size = self.input_size + self.input_size * 2 * embed_exp
         self.output_size = len(pm.E_edges) - 1
+        self.log_scale = log_scale
         
         self.fc1 = nn.Linear(self.embed_size, 128)
         self.fc2 = nn.Linear(128, 128)
@@ -21,14 +25,17 @@ class LogResMLP(nn.Module):
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
-    def forward(self, x: torch.Tensor):
-        x = self.embed_fourier(x)
+    def forward(self, xy: torch.Tensor):
+        xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
+        x = self.embed_fourier(xy)
         x0 = x
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
         x = F.sigmoid(self.fc5(x))
+        x = x * self.log_scale
+        x = torch.pow(10.0, x)
         return x
     
     def embed_fourier(self, x: torch.Tensor):
@@ -36,40 +43,6 @@ class LogResMLP(nn.Module):
         cos_x = [torch.cos(f * x) for f in freqs]
         sin_x = [torch.sin(f * x) for f in freqs]
         return torch.cat((x, *cos_x, *sin_x), dim=-1)
-
-
-class LogMLPReconstruction(Reconstruction):
-    def __init__(self, pm: PhysicalModel, f_net: nn.Module, device: torch.device):
-        super().__init__(pm, device)
-        self.f_net = f_net
-    
-    def parameters(self):
-        return self.f_net.parameters()
-    
-    def eval_mode(self):
-        self.f_net.eval()
-    
-    def train_mode(self):
-        self.f_net.train()
-    
-    def f(self, xy):
-        xy_min, xy_max = self.frame.xy_min, self.frame.xy_max
-        xy = (xy - xy_min) / (xy_max - xy_min)
-        log_f = self.f_net(xy)
-        f = torch.pow(10.0, 7.0*log_f)
-        return f
-    
-    def to_dict(self):
-        return {
-            "f_net": self.f_net,
-            "pm": self.physical_model
-        }
-    
-    @classmethod
-    def from_dict(cls, model_dict: dict, device: torch.device):
-        f_net = model_dict["f_net"]
-        pm = model_dict["pm"]
-        return cls(pm, f_net.to(device), device)
 
 
 if __name__ == "__main__":
@@ -84,9 +57,9 @@ if __name__ == "__main__":
     
     net = LogResMLP(pm, 4).to(device)
     print(net)
-    recon = LogMLPReconstruction(pm, net, device)
+    recon = Reconstruction(pm, net, device)
     
-    # recon = LogMLPReconstruction.load("./log_mlp_recon.pth", device)
+    # recon = Reconstruction.load("./log_mlp_recon.pth", device)
 
     dataset = RayDataset(cams, pm.frame, device)
     loss = recon.train(dataset, 2000, 4096, 100)
