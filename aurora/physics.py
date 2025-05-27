@@ -75,7 +75,7 @@ class PhysicalModel:
         l = torch.sum(m_z * f, dim=1)
         return l
     
-    def g(self,
+    def integrate_g(self,
           rd: torch.Tensor,
           t: torch.Tensor,
           p: torch.Tensor,

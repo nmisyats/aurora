@@ -108,7 +108,7 @@ class Reconstruction(ABC):
             t, p = create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
             xy = p[:,:2]
             f = self.f(xy)
-            return self.physical_model.g(rd, t, p, f)
+            return self.physical_model.integrate_g(rd, t, p, f)
         return torch.vmap(single_ray_g, randomness='different')
     
     def image(self, cam: Camera, ray_bins: int, nan=0.0) -> torch.Tensor:
