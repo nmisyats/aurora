@@ -12,6 +12,7 @@ from aurora.data import parse_matrix_data
 from aurora.camera import Camera
 from aurora.reconstruction import PhysicalModel
 from aurora.data import ReferenceFlux
+from aurora.utils import xy_grid, xyz_grid
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -50,7 +51,7 @@ def plot_model_matrix(model_path: Path):
     plt.show()
 
 def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, ref: ReferenceFlux | None = None):    
-    xy = pm.frame.xy_grid(res_x, res_y)
+    xy = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
     f = estimate_f(xy.reshape(res_x*res_y, 2))
     q = pm.q0(f)
     q = q.reshape((res_x, res_y))
@@ -170,7 +171,7 @@ def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], ca
     return imgs
 
 def plot_volume_emission(estimate_L: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, res_z: int):
-    xyz = pm.frame.xyz_grid(res_x, res_y, res_z)
+    xyz = xyz_grid(pm.frame.box_min, pm.frame.box_max, res_x, res_y, res_z)
     L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
     L = L.reshape(res_x, res_y, res_z)
     L = L.detach().cpu().numpy()

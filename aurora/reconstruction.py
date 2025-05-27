@@ -48,25 +48,6 @@ class ReferenceFrame:
         # TODO: scale by oblicity of reference frame z axis
         z_offset = frame_desc.origin_altitude
         self.z_offset = torch.scalar_tensor(z_offset, device=device)
-    
-    def xy_grid(self, res_x: int, res_y: int) -> torch.Tensor:
-        xy_min = self.xy_min
-        xy_max = self.xy_max
-        x = torch.linspace(xy_min[0], xy_max[0], res_x, device=self.device)
-        y = torch.linspace(xy_min[1], xy_max[1], res_y, device=self.device)
-        xx, yy = torch.meshgrid(x, y, indexing='ij')
-        xy = torch.stack((xx, yy), dim=-1).reshape(-1, 2)
-        return xy
-    
-    def xyz_grid(self, res_x: int, res_y: int, res_z: int) -> torch.Tensor:
-        xyz_min = self.box_min
-        xyz_max = self.box_max
-        x = torch.linspace(xyz_min[0], xyz_max[0], res_x, device=self.device)
-        y = torch.linspace(xyz_min[1], xyz_max[1], res_y, device=self.device)
-        z = torch.linspace(xyz_min[2], xyz_max[2], res_z, device=self.device)
-        xx, yy, zz = torch.meshgrid(x, y, z, indexing='ij')
-        xyz = torch.stack((xx, yy, zz), dim=-1).reshape(-1, 3)
-        return xyz
 
 class PhysicalModel:
     def __init__(self, pm_data: PhysicalModelData, device: torch.device):
