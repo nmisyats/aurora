@@ -44,14 +44,14 @@ class LogMLPReconstruction(Reconstruction):
         super().__init__(pm, device)
         self.f_net = f_net
     
+    def parameters(self):
+        return self.f_net.parameters()
+    
     def eval_mode(self):
         return self.f_net.eval()
     
     def train_mode(self):
         return self.f_net.train()
-    
-    def parameters(self):
-        return self.f_net.parameters()
     
     def f(self, xy):
         xy_min, xy_max = self.frame.xy_min, self.frame.xy_max
@@ -59,20 +59,30 @@ class LogMLPReconstruction(Reconstruction):
         log_f = self.f_net(xy)
         f = torch.pow(10.0, 7.0*log_f)
         return f
+    
+    def to_dict(self):
+        return {
+            "f_net": self.f_net,
+            "pm": self.physical_model
+        }
+    
+    @classmethod
+    def from_dict(cls, model_dict: dict, device: torch.device):
+        f_net = model_dict["f_net"]
+        pm = model_dict["pm"]
+        return cls(pm, f_net.to(device), device)
 
 
 if __name__ == "__main__":
     from aurora.data import load_dataset_description
     from aurora.plot import plot_training_loss, plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission
-    from pathlib import Path
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
 
-    cams, pm_desc, ref = load_dataset_description(Path("./simulation.yaml"))
+    cams, pm_desc, ref = load_dataset_description("./simulation.yaml")
     pm = PhysicalModel(pm_desc, device)
     dataset = RayDataset(cams, pm, device)
-
 
     net = LogResMLP(pm, 4).to(device)
     print(net)
@@ -82,6 +92,8 @@ if __name__ == "__main__":
     loss = recon.train(dataset, 2000, 4096, 100)
 
     plot_training_loss(loss)
+
+    # recon.save("./log_mlp_recon.pth")
 
     recon.eval_mode()
     plot_total_energy_flux(recon.f, pm, 128, 128, ref)

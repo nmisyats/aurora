@@ -56,7 +56,7 @@ class ReferenceFlux:
     oblique_range_y: MinMax
 
 
-def load_dataset_description(yaml_path: Path) -> tuple[list[Camera], PhysicalModelData]:
+def load_dataset_description(yaml_path: Path | str) -> tuple[list[Camera], PhysicalModelData]:
     minmax = Use(to_minmax)
     as_float = Use(float)
     path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")

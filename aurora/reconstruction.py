@@ -5,6 +5,7 @@ import numpy as np
 import tqdm
 from abc import ABC, abstractmethod
 from typing import Iterable
+from pathlib import Path
 
 from aurora.camera import Camera
 from aurora.data import (
@@ -231,3 +232,20 @@ class Reconstruction(ABC):
         tq.close()
 
         return losses
+    
+    @abstractmethod
+    def to_dict(self) -> dict:
+        ...
+    
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, recon_dict: dict, device: torch.device) -> 'Reconstruction':
+        ...
+    
+    def save(self, path: Path | str):
+        torch.save(self.to_dict(), path)
+    
+    @classmethod
+    def load(cls, path: Path | str, device: torch.device):
+        recon_dict = torch.load(path, map_location=device, weights_only=False)
+        return cls.from_dict(recon_dict, device)
