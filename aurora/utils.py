@@ -1,8 +1,39 @@
 import numpy as np
 from functools import wraps
 import torch
+from pathlib import Path
+from typing import NamedTuple
 
-from aurora.data import Camera
+class MinMax(NamedTuple):
+    min: float
+    max: float
+
+def to_minmax(lst):
+    if not isinstance(lst, (list, tuple)):
+        raise TypeError("Value must be a list or tuple")
+    if len(lst) != 2:
+        raise ValueError("List must have exactly two elements")
+    return MinMax(float(lst[0]), float(lst[1]))
+
+def load_matrix_data(dat_path: Path | str):
+    mat = []
+    with open(dat_path, "r") as f:
+        for line in f:
+            row = [float(num) for num in line.strip().split()]
+            mat.append(row)
+    mat = torch.tensor(mat, dtype=torch.float32)
+    return mat
+
+def load_3d_grid_data(dat_path: Path | str):
+    data = np.loadtxt(dat_path)
+    indices = data[:, :3].astype(int)
+    values = data[:, 3]
+    # Determine array shape from max index values
+    ni, nj, nk = indices.max(axis=0) + 1
+    array = np.zeros((ni, nj, nk), dtype=values.dtype)
+    # Assign values
+    array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
+    return torch.from_numpy(array).to(torch.float32)
 
 def numpify(func=None, *, device="cpu"):
     if func is None:

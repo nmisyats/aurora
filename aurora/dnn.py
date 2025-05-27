@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pathlib import Path
 
 from aurora.reconstruction import PhysicalModel, Reconstruction, RayDataset
 
@@ -74,23 +73,23 @@ class LogMLPReconstruction(Reconstruction):
 
 
 if __name__ == "__main__":
-    from aurora.data import load_dataset_description
+    from aurora.data import load_physical_model, load_cameras
     from aurora.plot import plot_training_loss, plot_total_energy_flux, plot_reconstructed_images, plot_volume_emission
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
 
-    cams, pm_desc, ref = load_dataset_description("./simulation.yaml")
-    pm = PhysicalModel(pm_desc, device)
-    dataset = RayDataset(cams, pm, device)
-
+    pm, ref = load_physical_model("./physical_model.yaml", device)
+    cams = load_cameras("./simulation.yaml")
+    
     net = LogResMLP(pm, 4).to(device)
     print(net)
-    
     recon = LogMLPReconstruction(pm, net, device)
+    
+    # recon = LogMLPReconstruction.load("./log_mlp_recon.pth", device)
 
+    dataset = RayDataset(cams, pm.frame, device)
     loss = recon.train(dataset, 2000, 4096, 100)
-
     plot_training_loss(loss)
 
     # recon.save("./log_mlp_recon.pth")

@@ -40,8 +40,8 @@ def get_frame_transform(o_lat: float, o_lon: float, o_alt: float, field_inc: flo
 def create_camera_rays(cam: Camera, o_ecef: torch.Tensor, ecef_to_field: torch.Tensor, device: torch.device):
     lat, lon, alt = cam.latitude, cam.longitude, cam.altitude
 
-    az = torch.from_numpy(cam.azimuth).flatten().to(device)
-    ze = torch.from_numpy(cam.zenith).flatten().to(device)
+    az = cam.azimuth.flatten().to(device)
+    ze = cam.zenith.flatten().to(device)
     rd_une = az_ze_to_UNE(az, ze).to(device)
     rd_ecef = UNE_to_ECEF(rd_une, lat, lon).to(device)
     rd_rel = torch.matmul(rd_ecef, ecef_to_field.T)

@@ -1,87 +1,40 @@
 from pathlib import Path
-import numpy as np
 from schema import Schema, Optional, And, Use
 import yaml
 try:
     from yaml import CLoader as Loader
 except ImportError:
     from yaml import Loader
-from dataclasses import dataclass
-from typing import NamedTuple
+import torch
 
 from aurora.camera import Camera
+from aurora.physics import PhysicalModel, ReferenceFrame, ReferenceFlux
+from aurora.utils import load_matrix_data, load_3d_grid_data, to_minmax
 
 def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
-
-class MinMax(NamedTuple):
-    min: float
-    max: float
-
-def to_minmax(lst):
-    if not isinstance(lst, (list, tuple)):
-        raise TypeError("Value must be a list or tuple")
-    if len(lst) != 2:
-        raise ValueError("List must have exactly two elements")
-    return MinMax(float(lst[0]), float(lst[1]))
-
-@dataclass
-class ReferenceFrameDescription:
-    origin_latitude: float
-    origin_longitude: float
-    origin_altitude: float
-    field_inclination: float
-    field_declination: float
-
-@dataclass
-class VolumeDescription:
-    oblique_range_x: MinMax
-    oblique_range_y: MinMax
-    oblique_height: float
-
-@dataclass
-class PhysicalModelData:
-    altitude_bins: np.ndarray
-    energy_bins: np.ndarray
-    emission_matrix: np.ndarray
-    reference_frame: ReferenceFrameDescription
-    bounding_volume: VolumeDescription
-
-@dataclass
-class ReferenceFlux:
-    flux: np.ndarray
-    oblique_range_x: MinMax
-    oblique_range_y: MinMax
-
-
-def load_dataset_description(yaml_path: Path | str) -> tuple[list[Camera], PhysicalModelData]:
+def load_physical_model(yaml_path: Path | str, device: torch.device):
     minmax = Use(to_minmax)
     as_float = Use(float)
     path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
     schema = Schema({
         Optional("name"): str,
-        "cameras": {
-            "positions": path,
-            "images": path
+        "reference_frame": {
+            "origin_latitude": as_float,
+            "origin_longitude": as_float,
+            "origin_altitude": as_float,
+            "field_inclination": as_float,
+            "field_declination": as_float
         },
-        "model": {
-            "altitude_bins": path,
-            "energy_bins": path,
-            "emission_matrix": path,
-            "reference_frame": {
-                "origin_latitude": as_float,
-                "origin_longitude": as_float,
-                "origin_altitude": as_float,
-                "field_inclination": as_float,
-                "field_declination": as_float
-            },
-            "reconstruction_volume": {
-                "oblique_range_x": minmax,
-                "oblique_range_y": minmax,
-                "oblique_height": as_float
-            },
+        "altitude_bins": path,
+        "energy_bins": path,
+        "emission_matrix": path,
+        "reconstruction_volume": {
+            "oblique_range_x": minmax,
+            "oblique_range_y": minmax,
+            "oblique_height": as_float
         },
         Optional("reference_flux"): {
             "flux": path,
@@ -89,35 +42,68 @@ def load_dataset_description(yaml_path: Path | str) -> tuple[list[Camera], Physi
             "oblique_range_y": minmax
         }
     })
-    
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
         desc = schema.validate(data)
-    cameras = parse_dataset_cameras(desc["cameras"])
-    model = parse_physical_model_data(desc["model"])
+    frame_desc = desc["reference_frame"]
+    vol_desc = desc["reconstruction_volume"]
+    frame = ReferenceFrame(
+        origin_latitude=frame_desc["origin_latitude"],
+        origin_longitude=frame_desc["origin_longitude"],
+        origin_altitude=frame_desc["origin_altitude"],
+        field_inclination=frame_desc["field_inclination"],
+        field_declination=frame_desc["field_declination"],
+        oblique_range_x=vol_desc["oblique_range_x"],
+        oblique_range_y=vol_desc["oblique_range_y"],
+        oblique_height=vol_desc["oblique_height"],
+        device=device
+    )
+    pm = PhysicalModel(
+        altitude_bins=load_matrix_data(desc["altitude_bins"]).flatten(),
+        energy_bins=load_matrix_data(desc["energy_bins"]).flatten(),
+        emission_matrix=load_matrix_data(desc["emission_matrix"]).T,
+        frame=frame,
+        device=device
+    )
     ref_flux = None
     if "reference_flux" in desc:
-        ref_flux = parse_reference_flux(desc["reference_flux"])
-    return cameras, model, ref_flux
+        flux_desc = desc["reference_flux"]
+        ref_flux = ReferenceFlux(
+            flux=load_3d_grid_data(flux_desc["flux"]),
+            oblique_range_x=flux_desc["oblique_range_x"],   
+            oblique_range_y=flux_desc["oblique_range_y"],
+            device=device
+        )
+    return pm, ref_flux
 
-def parse_dataset_cameras(desc: dict) -> list[Camera]:
-    camera_positions = parse_camera_positions(desc["positions"])
+def load_cameras(yaml_path: Path | str) -> list[Camera]:
+    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
+    schema = Schema({
+        Optional("name"): str,
+        "positions": path,
+        "images": path
+    })
+    with open(yaml_path, "r") as f:
+        data = load_yaml(f)
+        desc = schema.validate(data)
+    positions = load_camera_positions(desc["positions"])
     images_dir = desc["images"]
     cameras = []
-    for cam_name, cam_pos in camera_positions.items():
-        camera = Camera(
+    for cam_name, cam_pos in positions.items():
+        cam_dir = images_dir / cam_name
+        cam = Camera(
             name=cam_name,
             longitude=cam_pos["longitude"],
             latitude=cam_pos["latitude"],
             altitude=cam_pos["altitude"],
-            image=parse_matrix_data(images_dir / cam_name / "image.dat"),
-            azimuth=parse_matrix_data(images_dir / cam_name / "az_cam.dat"),
-            zenith=parse_matrix_data(images_dir / cam_name / "ze_cam.dat"),
+            image=load_matrix_data(cam_dir / "image.dat"),
+            azimuth=load_matrix_data(cam_dir / "az_cam.dat"),
+            zenith=load_matrix_data(cam_dir / "ze_cam.dat"),
         )
-        cameras.append(camera)
+        cameras.append(cam)
     return cameras
 
-def parse_camera_positions(set_path: Path) -> dict[str, dict]:
+def load_camera_positions(set_path: Path) -> dict[str, dict]:
     with open(set_path, "r") as f:
         data = f.read()
     # Split the data into sections for each camera
@@ -148,58 +134,3 @@ def parse_camera_positions(set_path: Path) -> dict[str, dict]:
             print(f"Error parsing camera data: {e}")
             continue
     return positions
-
-
-def parse_matrix_data(dat_path: Path):
-    mat = []
-    with open(dat_path, "r") as f:
-        for line in f:
-            row = [float(num) for num in line.strip().split()]
-            mat.append(row)
-    mat = np.array(mat, dtype=np.float32)
-    return mat
-
-def parse_grid_array(dat_path: Path):
-    data = np.loadtxt(dat_path)
-    indices = data[:, :3].astype(int)
-    values = data[:, 3]
-    # Determine array shape from max index values
-    ni, nj, nk = indices.max(axis=0) + 1
-    array = np.zeros((ni, nj, nk), dtype=values.dtype)
-    # Assign values
-    array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
-    return array
-
-def parse_reference_frame_description(desc: dict):
-    return ReferenceFrameDescription(
-        origin_latitude=desc["origin_latitude"],
-        origin_longitude=desc["origin_longitude"],
-        origin_altitude=desc["origin_altitude"],
-        field_inclination=desc["field_inclination"],
-        field_declination=desc["field_declination"]
-    )
-
-def parse_volume_description(desc: dict):
-    return VolumeDescription(
-        oblique_range_x=desc["oblique_range_x"],
-        oblique_range_y=desc["oblique_range_y"],
-        oblique_height=float(desc["oblique_height"])
-    )
-
-def parse_physical_model_data(desc: dict):
-    frame = desc["reference_frame"]
-    volume = desc["reconstruction_volume"]
-    return PhysicalModelData(
-        altitude_bins=parse_matrix_data(desc["altitude_bins"]).flatten(),
-        energy_bins=parse_matrix_data(desc["energy_bins"]).flatten(),
-        emission_matrix=parse_matrix_data(desc["emission_matrix"]).T,
-        reference_frame=parse_reference_frame_description(frame),
-        bounding_volume=parse_volume_description(volume)
-    )
-
-def parse_reference_flux(desc: dict):
-    return ReferenceFlux(
-        flux=parse_grid_array(desc["flux"]),
-        oblique_range_x=desc["oblique_range_x"],
-        oblique_range_y=desc["oblique_range_y"]
-    )

@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from dataclasses import dataclass
 
 @dataclass
@@ -7,9 +8,9 @@ class Camera:
     latitude: float
     longitude: float
     altitude: float
-    image: np.ndarray
-    azimuth: np.ndarray
-    zenith: np.ndarray
+    image: torch.Tensor
+    azimuth: torch.Tensor
+    zenith: torch.Tensor
 
     def __repr__(self):
         return ", ".join(["Camera=(",
@@ -25,7 +26,7 @@ class Camera:
     def __str__(self):
         return self.__repr__(self)
 
-def downsample_image(image: np.ndarray, factor: int) -> np.ndarray:
+def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
     """
     Downsamples a 2D or 3D image (e.g., grayscale or RGB) by picking every `factor`-th pixel.
     

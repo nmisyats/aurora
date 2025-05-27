@@ -8,7 +8,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import Callable
 import torch
 
-from aurora.data import parse_matrix_data
+from aurora.utils import load_matrix_data
 from aurora.camera import Camera
 from aurora.reconstruction import PhysicalModel
 from aurora.data import ReferenceFlux
@@ -22,7 +22,7 @@ def plot_training_loss(loss: list[float]):
     plt.show()
 
 def plot_camera_image(cam_path: Path):
-    plt.imshow(parse_matrix_data(cam_path / "image.dat"))
+    plt.imshow(load_matrix_data(cam_path / "image.dat"))
     plt.colorbar()
     plt.title(cam_path.stem)
     plt.show()
@@ -30,20 +30,20 @@ def plot_camera_image(cam_path: Path):
 def plot_camera_views(cam_path: Path):
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(8, 4), layout='compressed')
     
-    im1 = ax1.imshow(parse_matrix_data(cam_path / "az_cam.dat"))
+    im1 = ax1.imshow(load_matrix_data(cam_path / "az_cam.dat"))
     ax1.set_title("azimuth")
     fig.colorbar(im1, orientation='vertical')
 
-    im2 = ax2.imshow(parse_matrix_data(cam_path / "ze_cam.dat"))
+    im2 = ax2.imshow(load_matrix_data(cam_path / "ze_cam.dat"))
     ax2.set_title("zenith")
     fig.colorbar(im2, orientation='vertical')
 
     plt.show()
 
 def plot_model_matrix(model_path: Path):
-    m = parse_matrix_data(model_path / "M_emis.dat")
-    x = parse_matrix_data(model_path / "altitude.dat")
-    y = parse_matrix_data(model_path / "energy.dat")
+    m = load_matrix_data(model_path / "M_emis.dat")
+    x = load_matrix_data(model_path / "altitude.dat")
+    y = load_matrix_data(model_path / "energy.dat")
     plt.matshow(np.log(m))
     plt.colorbar()
     plt.ylabel("Altitude (z)")
@@ -57,8 +57,8 @@ def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], p
     q = q.reshape((res_x, res_y))
     q = q.detach().cpu().numpy()
 
-    xy_min = pm.frame.xy_min.cpu()
-    xy_max = pm.frame.xy_max.cpu()
+    xy_min = pm.frame.xy_min.cpu().numpy()
+    xy_max = pm.frame.xy_max.cpu().numpy()
 
     if ref is not None:
         fig = plt.figure(figsize=(8, 4))
@@ -67,7 +67,7 @@ def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], p
                         axes_pad=0.1,
                         cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
         
-        ref_flux = torch.from_numpy(ref.flux).to(pm.device)
+        ref_flux = ref.flux
         h, w, bins = ref_flux.shape
         ref_q = pm.q0(ref_flux.reshape(h*w, bins))
         ref_q = ref_q.detach().cpu().numpy()
@@ -76,8 +76,8 @@ def plot_total_energy_flux(estimate_f: Callable[[torch.Tensor], torch.Tensor], p
         vmin = min(q.min(), ref_q.min())
         vmax = max(q.max(), ref_q.max())
 
-        x_min, x_max = ref.oblique_range_x
-        y_min, y_max = ref.oblique_range_y
+        x_min, x_max = ref.xy_min[0].item(), ref.xy_max[0].item()
+        y_min, y_max = ref.xy_min[1].item(), ref.xy_max[1].item()
         grid[0].imshow(ref_q,
                        interpolation='none',
                        extent=[y_min,y_max,x_max,x_min],
@@ -134,7 +134,7 @@ def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], ca
     for i in range(n_img):
         print(f"Generating image {i+1}/{n_img}")
         img = render_image(cams[i]).detach().cpu().numpy()
-        ref = cams[i].image
+        ref = cams[i].image.cpu().numpy()
         imgs.append(img)
         refs.append(ref)
         
