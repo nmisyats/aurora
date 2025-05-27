@@ -143,9 +143,11 @@ class Reconstruction(ABC):
     def L(self, p: torch.Tensor) -> torch.Tensor:
         xy, z = p[:,:2], p[:,2]
         z = z + self.frame.z_offset
-        z_idx = torch.bucketize(z.contiguous(), self.physical_model.z_edges) - 1
-        z_idx = torch.clamp(z_idx, 0, self.physical_model.m_mat.shape[1]-1)
-        m_z = self.physical_model.m_mat[z_idx,:]
+        z_edges = self.physical_model.z_edges
+        m_mat = self.physical_model.m_mat
+        z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
+        z_idx = torch.clamp(z_idx, 0, m_mat.shape[1]-1)
+        m_z = m_mat[z_idx,:]
         f = self.f(xy)
         l = torch.sum(m_z * f, dim=1)
         return l
@@ -169,7 +171,8 @@ class Reconstruction(ABC):
             l = self.L(p)
             d = t[1:] - t[:-1]
             g = torch.sum(l[1:] * d) + l[0] * (tn - t[0])
-            g *= torch.sqrt(rd @ self.frame.metric_tensor @ rd)
+            met_t = self.frame.metric_tensor
+            g *= torch.sqrt(rd @ met_t @ rd)
             g /= 10.0
             return g
         return torch.vmap(single_ray_g, randomness='different')
