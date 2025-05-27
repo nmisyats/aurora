@@ -106,10 +106,11 @@ class PhysicalModel:
         ) -> torch.Tensor:
         z = p[:, 2]
         l = self.L(z, f)
-        dt = t[1:] - t[:-1]
-        l_lower, l_upper = l[:-1], l[1:]
-        l = (l_lower + l_upper) / 2.0
-        g = torch.sum(l * dt)
+        g = torch.trapezoid(l, t)
+        # dt = t[1:] - t[:-1]
+        # l_lower, l_upper = l[:-1], l[1:]
+        # l = (l_lower + l_upper) / 2.0
+        # g = torch.sum(l * dt)
         g *= torch.sqrt(rd @ self.frame.metric_tensor @ rd)
         g /= 10.0
         return g
