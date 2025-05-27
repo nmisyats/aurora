@@ -35,6 +35,13 @@ def load_3d_grid_data(dat_path: Path | str):
     array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
     return torch.from_numpy(array).to(torch.float32)
 
+def save_3d_grid_data(array: np.ndarray, file_path: Path):
+    ni, nj, nk = array.shape
+    indices = np.indices((ni, nj, nk)).reshape(3, -1).T  # Generate i, j, k indices efficiently
+    values = array.ravel().reshape(-1, 1)  # Flatten array values
+    data = np.hstack((indices, values))  # Combine indices with values
+    np.savetxt(file_path, data, fmt="%d %d %d %.6f")  # Save to file with formatting
+
 def numpify(func=None, *, device="cpu"):
     if func is None:
         return lambda f: numpify(f, device=device)
