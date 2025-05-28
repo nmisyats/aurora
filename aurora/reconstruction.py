@@ -1,71 +1,19 @@
 import torch
-import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
-from abc import ABC, abstractmethod
-from typing import Iterable
 from pathlib import Path
 
 from aurora.camera import Camera
+from aurora.physics import (
+    ReferenceFrame,
+    PhysicalModel,
+    ElectronFluxModel,
+    TrainableFluxModel
+)
 from aurora.geometry import (
     create_ray_points,
     ray_box_intersection
 )
-from aurora.physics import ReferenceFrame, PhysicalModel
-from aurora.utils import MinMax
-
-
-class ElectronFluxModel(ABC):
-    @abstractmethod
-    def f_at(self, xy: torch.Tensor) -> torch.Tensor:
-        ...
-
-
-class TrainableFluxModel(ElectronFluxModel, nn.Module):
-    def f_at(self, xy: torch.Tensor):
-        return self.forward(xy)
-
-
-class ReferenceFlux(ElectronFluxModel):
-    def __init__(self, image: torch.Tensor, oblique_range_x: MinMax, oblique_range_y: MinMax, device: torch.device):
-        self.image = image.to(device)
-        self.device = device
-        x_min, x_max = oblique_range_x
-        y_min, y_max = oblique_range_y
-        self.xy_min = torch.tensor([x_min, y_min], device=device)
-        self.xy_max = torch.tensor([x_max, y_max], device=device)
-    
-    def f_at(self, xy: torch.Tensor) -> torch.Tensor:
-        # xy: (N, 2) coordinates within xy_min and xy_max
-        # self.image: (H, W, B)
-        # Output: (N, B) sampled flux at each xy
-
-        H, W, B = self.image.shape
-
-        # Normalize xy to [0, 1]
-        norm_xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
-        norm_xy = torch.clamp(norm_xy, 0, 1)
-
-        # Scale to image pixel coordinates
-        y_idx = norm_xy[:, 1] * (H - 1)
-        x_idx = norm_xy[:, 0] * (W - 1)
-
-        # Create grid for grid_sample
-        grid = torch.stack((x_idx, y_idx), dim=1).unsqueeze(0).unsqueeze(2)  # (1, N, 1, 2)
-        grid = 2 * grid / torch.tensor([W - 1, H - 1], device=self.device) - 1
-        grid = grid[..., [1, 0]]  # switch x, y -> y, x
-        grid = grid.expand(B, -1, -1, -1)  # Expand to match flux shape
-
-        # Prepare input image tensor for grid_sample
-        flux = self.image.permute(2, 0, 1).unsqueeze(1)  # (B, 1, H, W)
-
-        # Perform bilinear sampling
-        sampled = torch.nn.functional.grid_sample(
-            flux, grid, mode='bilinear', align_corners=True
-        )  # (B, 1, N, 1)
-
-        # Reshape result to (N, B)
-        return sampled.squeeze(3).squeeze(1).T  # (N, B)
 
 
 class RayDataset:
@@ -208,12 +156,10 @@ class Reconstruction:
 
         return losses
     
-    @abstractmethod
     def eval_mode(self):
         if isinstance(self.f_model, TrainableFluxModel):
             self.f_model.eval()
     
-    @abstractmethod
     def train_mode(self):
         if isinstance(self.f_model, TrainableFluxModel):
             self.f_model.train()

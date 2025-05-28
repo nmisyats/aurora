@@ -9,7 +9,7 @@ import torch
 
 from aurora.camera import Camera
 from aurora.physics import PhysicalModel, ReferenceFrame
-from aurora.reconstruction import ReferenceFlux
+from aurora.models import ReferenceFlux
 from aurora.utils import load_matrix_data, load_3d_grid_data, to_minmax
 
 def load_yaml(stream):

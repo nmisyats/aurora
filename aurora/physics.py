@@ -1,5 +1,8 @@
 import torch
+import torch.nn as nn
 import numpy as np
+from abc import ABC, abstractmethod
+
 from aurora.utils import MinMax
 from aurora.geodesy import (
     lat_lon_to_ECEF,
@@ -111,3 +114,13 @@ class PhysicalModel:
         q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
         q = torch.sum(q, dim=1)
         return q
+
+
+class ElectronFluxModel(ABC):
+    @abstractmethod
+    def f_at(self, xy: torch.Tensor) -> torch.Tensor:
+        ...
+
+class TrainableFluxModel(ElectronFluxModel, nn.Module):
+    def f_at(self, xy: torch.Tensor):
+        return self.forward(xy)
