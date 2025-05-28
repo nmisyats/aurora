@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import numpy as np
 from abc import ABC, abstractmethod
 
 from aurora.utils import MinMax
@@ -111,7 +110,7 @@ class PhysicalModel:
         lower_E, upper_E = self.E_edges[:-1], self.E_edges[1:]
         E = (lower_E + upper_E) / 2.0
         dE = upper_E - lower_E
-        q = (10**3) * e * (10**4) * np.pi * (f * E * dE)
+        q = (10**3) * e * (10**4) * torch.pi * (f * E * dE)
         q = torch.sum(q, dim=1)
         return q
 
