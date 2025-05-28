@@ -39,14 +39,28 @@ def plot_camera_views(cam_path: Path):
 
     plt.show()
 
-def plot_model_matrix(model_path: Path):
-    m = load_matrix_data(model_path / "M_emis.dat")
-    x = load_matrix_data(model_path / "altitude.dat")
-    y = load_matrix_data(model_path / "energy.dat")
-    plt.matshow(np.log(m))
-    plt.colorbar()
-    plt.ylabel("Altitude (z)")
-    plt.xlabel("Energy (E)")
+def plot_model_matrix(pm: PhysicalModel):
+    m = pm.m_mat.cpu().numpy()  # shape (50, 50)
+    z_edges = pm.z_edges.cpu().numpy()  # shape (51,) - Altitude
+    E_edges = pm.E_edges.cpu().numpy()  # shape (51,) - Energy
+
+    plt.figure(figsize=(8, 6))
+
+    # Plot with pcolormesh using log scale for m
+    log_m = np.log10(m)
+    log_m = np.nan_to_num(log_m, neginf=np.min(log_m[log_m != -np.inf]))
+    mesh = plt.pcolormesh(E_edges, z_edges, log_m, shading='auto', cmap='jet')
+    
+    # Set x to log scale
+    plt.xscale('log')
+
+    # Axis labels and colorbar
+    plt.xlabel(r"$E$ [eV]")
+    plt.ylabel(r"$z$ [km]")
+    plt.title(r"$\mathbf{M}$")
+    plt.colorbar(mesh, label=r"$\log_{10}(m)$")
+
+    plt.tight_layout()
     plt.show()
 
 def plot_total_energy_flux(
@@ -232,71 +246,71 @@ def plot_volume_emission(estimate_L: Callable[[torch.Tensor], torch.Tensor], pm:
 
     return L
 
-def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
-    p1 = ro + rd * tn[:, np.newaxis]
-    p2 = ro + rd * tf[:, np.newaxis]
-    p = np.concat([p1, p2], axis=0)
-    # print(p1.shape, p2.shape, p.shape)
+# def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
+#     p1 = ro + rd * tn[:, np.newaxis]
+#     p2 = ro + rd * tf[:, np.newaxis]
+#     p = np.concat([p1, p2], axis=0)
+#     # print(p1.shape, p2.shape, p.shape)
     
-    ax = plt.figure().add_subplot(projection='3d')
+#     ax = plt.figure().add_subplot(projection='3d')
 
-    for i in range(ro.shape[0]):
-        xs = [ro[i, 0], p2[i, 0]]
-        ys = [ro[i, 1], p2[i, 1]]
-        zs = [ro[i, 2], p2[i, 2]]
-        ax.plot(xs, ys, zs, color='b', linewidth=1)
+#     for i in range(ro.shape[0]):
+#         xs = [ro[i, 0], p2[i, 0]]
+#         ys = [ro[i, 1], p2[i, 1]]
+#         zs = [ro[i, 2], p2[i, 2]]
+#         ax.plot(xs, ys, zs, color='b', linewidth=1)
 
-    x0, y0, z0 = ro[:, 0], ro[:, 1], ro[:, 2]
-    # x1, y1, z1 = p1[:, 0], p1[:, 1], p1[:, 2]
-    # x2, y2, z2 = p2[:, 0], p2[:, 1], p2[:, 2]
-    xp, yp, zp = p[:, 0], p[:, 1], p[:, 2]
-    ax.scatter(x0, y0, z0, color='g')
-    ax.scatter(xp, yp, zp, color='r')
-    # ax.scatter(x1, y1, z1, color='r')
-    # ax.scatter(x2, y2, z2, color='r')
+#     x0, y0, z0 = ro[:, 0], ro[:, 1], ro[:, 2]
+#     # x1, y1, z1 = p1[:, 0], p1[:, 1], p1[:, 2]
+#     # x2, y2, z2 = p2[:, 0], p2[:, 1], p2[:, 2]
+#     xp, yp, zp = p[:, 0], p[:, 1], p[:, 2]
+#     ax.scatter(x0, y0, z0, color='g')
+#     ax.scatter(xp, yp, zp, color='r')
+#     # ax.scatter(x1, y1, z1, color='r')
+#     # ax.scatter(x2, y2, z2, color='r')
 
-    vol = pm_desc.reconstruction_volume
-    frame = pm_desc.reference_frame
-    x_min, x_max = vol.oblique_range_x
-    y_min, y_max = vol.oblique_range_y
-    z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
-    box_min = (x_min, y_min, z_min)
-    box_max = (x_max, y_max, z_max)
-    draw_bbox(ax, box_min, box_max)
+#     vol = pm_desc.reconstruction_volume
+#     frame = pm_desc.reference_frame
+#     x_min, x_max = vol.oblique_range_x
+#     y_min, y_max = vol.oblique_range_y
+#     z_min, z_max = frame.origin_altitude, frame + vol.oblique_height
+#     box_min = (x_min, y_min, z_min)
+#     box_max = (x_max, y_max, z_max)
+#     draw_bbox(ax, box_min, box_max)
     
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_zlabel('z')
-    ax.set_aspect('equal', adjustable='box')
-    plt.tight_layout()
-    plt.show()
+#     ax.set_xlabel('x')
+#     ax.set_ylabel('y')
+#     ax.set_zlabel('z')
+#     ax.set_aspect('equal', adjustable='box')
+#     plt.tight_layout()
+#     plt.show()
 
-def draw_bbox(ax, mins, maxs, color='cyan', alpha=0.2):
-    xmin, ymin, zmin = mins
-    xmax, ymax, zmax = maxs
-    # Define the 8 corners of the bounding box
-    corners = [
-        [xmin, ymin, zmin],
-        [xmax, ymin, zmin],
-        [xmax, ymax, zmin],
-        [xmin, ymax, zmin],
-        [xmin, ymin, zmax],
-        [xmax, ymin, zmax],
-        [xmax, ymax, zmax],
-        [xmin, ymax, zmax]
-    ]
+# def draw_bbox(ax, mins, maxs, color='cyan', alpha=0.2):
+#     xmin, ymin, zmin = mins
+#     xmax, ymax, zmax = maxs
+#     # Define the 8 corners of the bounding box
+#     corners = [
+#         [xmin, ymin, zmin],
+#         [xmax, ymin, zmin],
+#         [xmax, ymax, zmin],
+#         [xmin, ymax, zmin],
+#         [xmin, ymin, zmax],
+#         [xmax, ymin, zmax],
+#         [xmax, ymax, zmax],
+#         [xmin, ymax, zmax]
+#     ]
 
-    # Define the 6 faces (as lists of corners)
-    faces = [
-        [corners[0], corners[1], corners[2], corners[3]],  # bottom
-        [corners[4], corners[5], corners[6], corners[7]],  # top
-        [corners[0], corners[1], corners[5], corners[4]],  # front
-        [corners[2], corners[3], corners[7], corners[6]],  # back
-        [corners[1], corners[2], corners[6], corners[5]],  # right
-        [corners[0], corners[3], corners[7], corners[4]]   # left
-    ]
+#     # Define the 6 faces (as lists of corners)
+#     faces = [
+#         [corners[0], corners[1], corners[2], corners[3]],  # bottom
+#         [corners[4], corners[5], corners[6], corners[7]],  # top
+#         [corners[0], corners[1], corners[5], corners[4]],  # front
+#         [corners[2], corners[3], corners[7], corners[6]],  # back
+#         [corners[1], corners[2], corners[6], corners[5]],  # right
+#         [corners[0], corners[3], corners[7], corners[4]]   # left
+#     ]
 
-    # Create a 3D polygon collection and add it to the axis
-    bbox = Poly3DCollection(faces, linewidths=1, edgecolors='r', alpha=alpha)
-    bbox.set_facecolor(color)
-    ax.add_collection3d(bbox)
+#     # Create a 3D polygon collection and add it to the axis
+#     bbox = Poly3DCollection(faces, linewidths=1, edgecolors='r', alpha=alpha)
+#     bbox.set_facecolor(color)
+#     ax.add_collection3d(bbox)

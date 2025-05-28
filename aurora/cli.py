@@ -2,11 +2,12 @@ import typer
 from dataclasses import fields
 import torch
 import inspect
+from pathlib import Path
 
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, RayDataset
 from aurora.data import load_physical_model, load_cameras
-from aurora.plot import plot_total_energy_flux
+from aurora.plot import plot_total_energy_flux, plot_model_matrix
 
 app = typer.Typer()
 
@@ -14,8 +15,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     """Dynamically create a train command for a specific model"""
     
     def train_command(
-        physical_model_path: str = typer.Argument(..., help="Path to physical model configuration file"),
-        camera_dataset_path: str = typer.Argument(..., help="Path to camera dataset configuration file"),
+        physical_model_path: Path = typer.Argument(..., help="Path to physical model configuration file"),
+        camera_dataset_path: Path = typer.Argument(..., help="Path to camera dataset configuration file"),
         gpu: bool = typer.Option(True, help="Use GPU if available"),
         iters: int = typer.Option(2000, help="Number of training iterations"),
         batch_size: int = typer.Option(4096, help="Batch size"),
@@ -143,3 +144,14 @@ def train_main(ctx: typer.Context):
             typer.echo(f"  {model_name}")
         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
 
+
+
+# Create subcommand for plotting
+plot_app = typer.Typer(help="Plotting utilities")
+app.add_typer(plot_app, name="plot")
+
+@plot_app.command("m-emis")
+def plot_physical_model_matrix(physical_model_path: Path):
+    pm, _ = load_physical_model(physical_model_path, torch.device("cpu"))
+    plot_model_matrix(pm)
+    
