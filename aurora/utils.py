@@ -1,5 +1,4 @@
 import numpy as np
-from functools import wraps
 import torch
 from pathlib import Path
 from typing import NamedTuple, Union, Tuple, List
@@ -15,85 +14,42 @@ def to_minmax(lst):
         raise ValueError("List must have exactly two elements")
     return MinMax(float(lst[0]), float(lst[1]))
 
-CoordLike = Union[Tuple[float, float], List[float], torch.Tensor]
+Coord2DLike = Union[Tuple[float, float], List[float], torch.Tensor]
+Coord3DLike = Union[Tuple[float, float, float], List[float], torch.Tensor]
 
-def bounds_to_tuple(min_point: CoordLike, max_point: CoordLike) -> Tuple[float, float, float, float]:
+def bounds2d_to_tuple(min_point: Coord2DLike, max_point: Coord2DLike) -> Tuple[float, float, float, float]:
     """
     Converts ((x_min, y_min), (x_max, y_max)) to (x_min, x_max, y_min, y_max).
-
-    Args:
-        min_point: A 2-element tuple, list, or tensor for the minimum bound.
-        max_point: A 2-element tuple, list, or tensor for the maximum bound.
-
-    Returns:
-        A tuple (x_min, x_max, y_min, y_max) as floats.
     """
     x_min, y_min = float(min_point[0]), float(min_point[1])
     x_max, y_max = float(max_point[0]), float(max_point[1])
     return x_min, x_max, y_min, y_max
 
 
-def ranges_to_tuple(x_range: CoordLike, y_range: CoordLike) -> Tuple[float, float, float, float]:
+def ranges2d_to_tuple(x_range: Coord2DLike, y_range: Coord2DLike) -> Tuple[float, float, float, float]:
     """
     Converts ((x_min, x_max), (y_min, y_max)) to (x_min, x_max, y_min, y_max).
-
-    Args:
-        x_range: A 2-element tuple, list, or tensor for the x-axis range.
-        y_range: A 2-element tuple, list, or tensor for the y-axis range.
-
-    Returns:
-        A tuple (x_min, x_max, y_min, y_max) as floats.
     """
     x_min, x_max = float(x_range[0]), float(x_range[1])
     y_min, y_max = float(y_range[0]), float(y_range[1])
     return x_min, x_max, y_min, y_max
 
-def intervals_to_bounds(x_range: CoordLike, y_range: CoordLike) -> Tuple[CoordLike, CoordLike]:
+def bounds3d_to_tuple(min_point: Coord3DLike, max_point: Coord3DLike) -> Tuple[float, float, float, float, float, float]:
     """
-    Converts from ((x_min, x_max), (y_min, y_max)) format to ((x_min, y_min), (x_max, y_max)) format.
-
-    Args:
-        x_range: A 2-element tuple, list, or torch.Tensor for the x-axis range.
-        y_range: A 2-element tuple, list, or torch.Tensor for the y-axis range.
-
-    Returns:
-        A tuple: (min_point, max_point), each in the same type as inputs.
+    Converts ((x_min, y_min, z_min), (x_max, y_max, z_max)) to (x_min, x_max, y_min, y_max, z_min, z_max).
     """
-    x_min, x_max = x_range
-    y_min, y_max = y_range
+    x_min, y_min, z_min = float(min_point[0]), float(min_point[1]), float(min_point[2])
+    x_max, y_max, z_max = float(max_point[0]), float(max_point[1]), float(max_point[2])
+    return x_min, x_max, y_min, y_max, z_min, z_max
 
-    if isinstance(x_range, torch.Tensor):
-        min_point = torch.tensor([x_min, y_min], dtype=x_range.dtype)
-        max_point = torch.tensor([x_max, y_max], dtype=x_range.dtype)
-    else:
-        min_point = type(x_range)([x_min, y_min])
-        max_point = type(x_range)([x_max, y_max])
-
-    return min_point, max_point
-
-
-def bounds_to_intervals(min_point: CoordLike, max_point: CoordLike) -> Tuple[CoordLike, CoordLike]:
+def ranges3d_to_tuple(x_range: Coord2DLike, y_range: Coord2DLike, z_range: Coord2DLike) -> Tuple[float, float, float, float, float, float]:
     """
-    Converts from ((x_min, y_min), (x_max, y_max)) format to ((x_min, x_max), (y_min, y_max)) format.
-
-    Args:
-        min_point: A 2-element tuple, list, or torch.Tensor representing the minimum bounds.
-        max_point: A 2-element tuple, list, or torch.Tensor representing the maximum bounds.
-
-    Returns:
-        A tuple: (x_range, y_range), each in the same type as inputs.
+    Converts ((x_min, x_max), (y_min, y_max), (z_min, z_max)) to (x_min, x_max, y_min, y_max, z_min, z_max).
     """
-    x_min, y_min = min_point
-    x_max, y_max = max_point
-
-    if isinstance(min_point, torch.Tensor):
-        x_range = torch.tensor([x_min, x_max], dtype=min_point.dtype)
-        y_range = torch.tensor([y_min, y_max], dtype=min_point.dtype)
-    else:
-        x_range = type(min_point)([x_min, x_max])
-        y_range = type(min_point)([y_min, y_max])
-
-    return x_range, y_range
+    x_min, x_max = float(x_range[0]), float(x_range[1])
+    y_min, y_max = float(y_range[0]), float(y_range[1])
+    z_min, z_max = float(z_range[0]), float(z_range[1])
+    return x_min, x_max, y_min, y_max, z_min, z_max
 
 def load_matrix_data(dat_path: Path | str):
     mat = []

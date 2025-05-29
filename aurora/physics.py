@@ -85,15 +85,13 @@ class PhysicalModel:
         self.E_edges = energy_bins.to(self.device)
 
     def L(self, z: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
-        assert z.shape == f.shape[:-1]
-        orig_shape = z.shape
-        z = z.flatten()
         z = z + self.frame.z_offset
         z_idx = torch.bucketize(z.contiguous(), self.z_edges) - 1
         z_idx = torch.clamp(z_idx, 0, self.m_mat.shape[1]-1)
-        m_z = self.m_mat[z_idx,:]
-        l = torch.sum(m_z * f, dim=1)
-        return l.reshape(orig_shape)
+        m_z = self.m_mat[z_idx.flatten(),:]
+        m_z = m_z.reshape(*z_idx.shape, m_z.shape[-1])
+        l = torch.sum(m_z * f, dim=-1)
+        return l
     
     def integrate_g(self,
           rd: torch.Tensor,

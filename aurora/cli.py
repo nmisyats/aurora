@@ -7,11 +7,12 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import matplotlib.patches as patches
+import pyvista as pv
 
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, RayDataset
 from aurora.data import load_physical_model, load_cameras
-from aurora.utils import xy_grid, xyz_grid, bounds_to_tuple
+from aurora.utils import xy_grid, xyz_grid, bounds2d_to_tuple, bounds3d_to_tuple
 
 app = typer.Typer()
 
@@ -287,7 +288,7 @@ def plot_physical_model_flux(
     q0 = pm.q0(ref.image)
     
     fig, ax = plt.subplots(figsize=(8, 6))
-    x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
+    x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
     im = ax.imshow(q0.cpu(),
                 interpolation='none',
                 extent=[y_min, y_max, x_max, x_min],
@@ -309,7 +310,7 @@ gen_app = typer.Typer(help="Generation utilities")
 app.add_typer(gen_app, name="gen")
 
 @gen_app.command("flux")
-def generate_reconstruction_flux(
+def generate_reconstructed_flux(
     path: Path = typer.Argument(..., help="Path to reconstruction"),
     res_x: int = typer.Option(128),
     res_y: int = typer.Option(128),
@@ -328,7 +329,7 @@ def generate_reconstruction_flux(
     if plot:
         q0 = pm.q0(f)
         fig, ax = plt.subplots(figsize=(8, 6))
-        x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
+        x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
         im = ax.imshow(q0.cpu(),
                     interpolation='none',
                     extent=[y_min, y_max, x_max, x_min],
@@ -342,3 +343,70 @@ def generate_reconstruction_flux(
         ax.set_ylabel("x (km)")
         ax.set_title("$Q_0$")
         plt.show()
+
+@gen_app.command("emis")
+def generate_volume_emission(
+    path: Path = typer.Argument(..., help="Path to reconstruction or physical model"),
+    res_x: int = typer.Option(100),
+    res_y: int = typer.Option(100),
+    res_z: int = typer.Option(50),
+    gpu: bool = typer.Option(True),
+    plot: bool = typer.Option(True)
+):
+    device = choose_best_device(gpu)
+    if path.suffix == ".pth":
+        recon = Reconstruction.load(path, device)
+        recon.eval_mode()
+        pm = recon.physical_model
+        xyz_min = pm.frame.box_min
+        xyz_max = pm.frame.box_max
+        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        l = recon.L(xyz).detach().cpu()
+    else:
+        pm, ref = load_physical_model(path, device)
+        if ref is None:
+            typer.echo("The specified physical model does not have a reference flux.")
+            typer.Exit(1)
+        z_min = pm.frame.box_min[2]
+        z_max = pm.frame.box_max[2]
+        xyz_min = torch.tensor([*ref.xy_min, z_min]).to(device)
+        xyz_max = torch.tensor([*ref.xy_max, z_max]).to(device)
+        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        xy, z = xyz[...,:2], xyz[...,2]
+        f = ref.f_at(xy)
+        l = pm.L(z, f).cpu()
+    
+    if plot:
+        l = l.numpy()
+        grid = pv.ImageData()
+        grid.dimensions = (res_x+1, res_y+1, res_z+1)  # Add 1 because dimensions are number of points
+        
+        x_min, x_max, y_min, y_max, z_min, z_max = bounds3d_to_tuple(xyz_min, xyz_max)
+        x_scale = (x_max - x_min) / (z_max - z_min)
+        y_scale = (y_max - y_min) / (z_max - z_min)
+        z_scale = 1
+        
+        grid.spacing = (x_scale, y_scale, z_scale)  # Voxel spacing
+        grid.origin = (0, 0, 0)   # Origin of the grid
+
+        # Add the density data to the grid as a cell array
+        # Need to flatten the numpy array to match PyVista's expected format
+        grid.cell_data["density"] = l.flatten(order="F")
+
+        # Create a custom opacity transfer function
+        # This maps density values to opacity
+        opacity = [0, 0.1, 0.3, 0.6, 0.8, 1.0, 1.0]
+
+        # Create the plotter
+        pl = pv.Plotter()
+
+        # Add the volume to the plotter with a colormap
+        # pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=False)
+        pl.add_volume(grid, scalars="density", cmap="coolwarm", opacity=opacity, shade=False)
+
+        # Optional: Add axes for reference
+        pl.show_axes()
+        pl.add_bounding_box()
+
+        # Display the plot
+        pl.show()

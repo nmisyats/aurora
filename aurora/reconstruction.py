@@ -77,7 +77,7 @@ class Reconstruction:
         return self.f_model.f_at(xy)
 
     def L(self, p: torch.Tensor) -> torch.Tensor:
-        xy, z = p[:,:2], p[:,2]
+        xy, z = p[...,:2], p[...,2]
         f = self.f(xy)
         return self.physical_model.L(z, f)
     

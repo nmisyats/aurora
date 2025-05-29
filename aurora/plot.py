@@ -11,7 +11,7 @@ import torch
 from aurora.camera import Camera
 from aurora.reconstruction import PhysicalModel
 from aurora.data import ReferenceFlux
-from aurora.utils import load_matrix_data, xy_grid, xyz_grid, mean_absolute_error, CoordLike, bounds_to_tuple
+from aurora.utils import load_matrix_data, xy_grid, xyz_grid, mean_absolute_error, Coord2DLike, bounds2d_to_tuple
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
