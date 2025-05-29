@@ -85,12 +85,15 @@ class PhysicalModel:
         self.E_edges = energy_bins.to(self.device)
 
     def L(self, z: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
+        assert z.shape == f.shape[:-1]
+        orig_shape = z.shape
+        z = z.flatten()
         z = z + self.frame.z_offset
         z_idx = torch.bucketize(z.contiguous(), self.z_edges) - 1
         z_idx = torch.clamp(z_idx, 0, self.m_mat.shape[1]-1)
         m_z = self.m_mat[z_idx,:]
         l = torch.sum(m_z * f, dim=1)
-        return l
+        return l.reshape(orig_shape)
     
     def integrate_g(self,
           rd: torch.Tensor,
@@ -111,7 +114,7 @@ class PhysicalModel:
         E = (lower_E + upper_E) / 2.0
         dE = upper_E - lower_E
         q = (10**3) * e * (10**4) * torch.pi * (f * E * dE)
-        q = torch.sum(q, dim=1)
+        q = torch.sum(q, dim=-1)
         return q
 
 
@@ -122,4 +125,8 @@ class ElectronFluxModel(ABC):
 
 class TrainableFluxModel(ElectronFluxModel, nn.Module):
     def f_at(self, xy: torch.Tensor):
-        return self.forward(xy)
+        orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
+        xy = xy.reshape(-1, 2) # (N, 2)
+        f = self.forward(xy) # (N, n_bins)
+        n_bins = f.shape[-1]
+        return f.reshape(*orig_shape, n_bins)

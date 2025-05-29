@@ -16,36 +16,38 @@ def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
-def load_physical_model(yaml_path: Path | str, device: torch.device):
-    minmax = Use(to_minmax)
-    as_float = Use(float)
-    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
-    schema = Schema({
-        Optional("name"): str,
-        "reference_frame": {
-            "origin_latitude": as_float,
-            "origin_longitude": as_float,
-            "origin_altitude": as_float,
-            "field_inclination": as_float,
-            "field_declination": as_float
-        },
-        "altitude_bins": path,
-        "energy_bins": path,
-        "emission_matrix": path,
-        "reconstruction_volume": {
-            "oblique_range_x": minmax,
-            "oblique_range_y": minmax,
-            "oblique_height": as_float
-        },
-        Optional("reference_flux"): {
-            "flux": path,
-            "oblique_range_x": minmax,
-            "oblique_range_y": minmax
-        }
-    })
-    with open(yaml_path, "r") as f:
-        data = load_yaml(f)
-        desc = schema.validate(data)
+_minmax = Use(to_minmax)
+_float = Use(float)
+_path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
+
+_pm_model_data_schema = Schema({
+    Optional("name"): str,
+    "reference_frame": {
+        "origin_latitude": _float,
+        "origin_longitude": _float,
+        "origin_altitude": _float,
+        "field_inclination": _float,
+        "field_declination": _float
+    },
+    "altitude_bins": _path,
+    "energy_bins": _path,
+    "emission_matrix": _path,
+    "reconstruction_volume": {
+        "oblique_range_x": _minmax,
+        "oblique_range_y": _minmax,
+        "oblique_height": _float
+    },
+    Optional("reference_flux"): {
+        "flux": _path,
+        "oblique_range_x": _minmax,
+        "oblique_range_y": _minmax
+    }
+})
+
+def validate_pm_data_schema(data: dict) -> dict:
+    return _pm_model_data_schema.validate(data)
+
+def parse_physical_model(desc: dict, device: torch.device):
     frame_desc = desc["reference_frame"]
     vol_desc = desc["reconstruction_volume"]
     frame = ReferenceFrame(
@@ -76,6 +78,12 @@ def load_physical_model(yaml_path: Path | str, device: torch.device):
             device=device
         )
     return pm, ref_flux
+
+def load_physical_model(yaml_path: Path | str, device: torch.device):
+    with open(yaml_path, "r") as f:
+        data = load_yaml(f)
+        desc = validate_pm_data_schema(data)
+    return parse_physical_model(desc, device)
 
 def load_cameras(yaml_path: Path | str) -> list[Camera]:
     path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")

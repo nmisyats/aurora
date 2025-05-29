@@ -11,7 +11,7 @@ import torch
 from aurora.camera import Camera
 from aurora.reconstruction import PhysicalModel
 from aurora.data import ReferenceFlux
-from aurora.utils import load_matrix_data, xy_grid, xyz_grid, mean_absolute_error
+from aurora.utils import load_matrix_data, xy_grid, xyz_grid, mean_absolute_error, CoordLike, bounds_to_tuple
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -39,124 +39,101 @@ def plot_camera_views(cam_path: Path):
 
     plt.show()
 
-def plot_model_matrix(pm: PhysicalModel):
-    m = pm.m_mat.cpu().numpy()  # shape (50, 50)
-    z_edges = pm.z_edges.cpu().numpy()  # shape (51,) - Altitude
-    E_edges = pm.E_edges.cpu().numpy()  # shape (51,) - Energy
 
-    plt.figure(figsize=(8, 6))
+# def plot_total_energy_flux(
+#     estimate_f: Callable[[torch.Tensor], torch.Tensor],
+#     pm: PhysicalModel,
+#     res_x: int,
+#     res_y: int,
+#     reference: ReferenceFlux | None = None
+# ):
+#     # === Generate xy grid and estimate flux ===
+#     xy_grid_tensor = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
+#     estimated_flux = estimate_f(xy_grid_tensor.reshape(res_x * res_y, 2))
+#     estimated_q0 = pm.q0(estimated_flux).reshape((res_x, res_y)).detach().cpu()
 
-    # Plot with pcolormesh using log scale for m
-    log_m = np.log10(m)
-    log_m = np.nan_to_num(log_m, neginf=np.min(log_m[log_m != -np.inf]))
-    mesh = plt.pcolormesh(E_edges, z_edges, log_m, shading='auto', cmap='jet')
-    
-    # Set x to log scale
-    plt.xscale('log')
+#     x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
+#     x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
 
-    # Axis labels and colorbar
-    plt.xlabel(r"$E$ [eV]")
-    plt.ylabel(r"$z$ [km]")
-    plt.title(r"$\mathbf{M}$")
-    plt.colorbar(mesh, label=r"$\log_{10}(m)$")
+#     if reference is not None:
+#         # === Setup figure with 2 subplots and shared colorbar ===
+#         fig = plt.figure(figsize=(8, 4))
+#         grid = ImageGrid(fig, 111,
+#                          nrows_ncols=(1, 2),
+#                          axes_pad=0.1,
+#                          cbar_location="right",
+#                          cbar_mode="single",
+#                          cbar_size="7%",
+#                          cbar_pad="10%")
 
-    plt.tight_layout()
-    plt.show()
+#         # === Process reference flux ===
+#         reference_flux_tensor = reference.image  # shape: (h, w, bins)
+#         h, w, n_bins = reference_flux_tensor.shape
+#         reference_flux_flat = reference_flux_tensor.reshape(h * w, n_bins)
+#         reference_full_q0 = pm.q0(reference_flux_flat).reshape((h, w)).detach().cpu()
 
-def plot_total_energy_flux(
-    estimate_f: Callable[[torch.Tensor], torch.Tensor],
-    pm: PhysicalModel,
-    res_x: int,
-    res_y: int,
-    reference: ReferenceFlux | None = None
-):
-    # === Generate xy grid and estimate flux ===
-    xy_grid_tensor = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
-    estimated_flux = estimate_f(xy_grid_tensor.reshape(res_x * res_y, 2))
-    estimated_q0 = pm.q0(estimated_flux).reshape((res_x, res_y)).detach().cpu()
+#         # === Determine color range ===
+#         vmin = min(estimated_q0.min(), reference_full_q0.min())
+#         vmax = max(estimated_q0.max(), reference_full_q0.max())
 
-    x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
-    x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
+#         # === Plot reference flux ===
+#         x_ref_min, y_ref_min = reference.xy_min.cpu()
+#         x_ref_max, y_ref_max = reference.xy_max.cpu()
 
-    if reference is not None:
-        # === Setup figure with 2 subplots and shared colorbar ===
-        fig = plt.figure(figsize=(8, 4))
-        grid = ImageGrid(fig, 111,
-                         nrows_ncols=(1, 2),
-                         axes_pad=0.1,
-                         cbar_location="right",
-                         cbar_mode="single",
-                         cbar_size="7%",
-                         cbar_pad="10%")
+#         grid[0].imshow(reference_full_q0,
+#                        interpolation='none',
+#                        extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
+#                        cmap="jet",
+#                        vmin=vmin, vmax=vmax)
 
-        # === Process reference flux ===
-        reference_flux_tensor = reference.image  # shape: (h, w, bins)
-        h, w, n_bins = reference_flux_tensor.shape
-        reference_flux_flat = reference_flux_tensor.reshape(h * w, n_bins)
-        reference_full_q0 = pm.q0(reference_flux_flat).reshape((h, w)).detach().cpu()
+#         # Highlight reconstructed area on reference plot
+#         rect = patches.Rectangle((y_rec_min, x_rec_min),
+#                                  y_rec_max - y_rec_min,
+#                                  x_rec_max - x_rec_min,
+#                                  linewidth=1, edgecolor='r', facecolor='none')
+#         grid[0].add_patch(rect)
 
-        # === Determine color range ===
-        vmin = min(estimated_q0.min(), reference_full_q0.min())
-        vmax = max(estimated_q0.max(), reference_full_q0.max())
+#         # === Plot reconstructed flux ===
+#         im = grid[1].imshow(estimated_q0,
+#                             interpolation='none',
+#                             extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
+#                             cmap="jet",
+#                             vmin=vmin, vmax=vmax)
 
-        # === Plot reference flux ===
-        x_ref_min, y_ref_min = reference.xy_min.cpu()
-        x_ref_max, y_ref_max = reference.xy_max.cpu()
+#         # === Compute and show MAE ===
+#         true_flux_at_grid = reference.f_at(xy_grid_tensor.reshape(res_x * res_y, 2))
+#         true_flux_at_grid_flat = true_flux_at_grid.reshape((res_x * res_y, n_bins))
+#         true_q0_at_grid = pm.q0(true_flux_at_grid_flat).reshape((res_x, res_y)).detach().cpu()
+#         mae = mean_absolute_error(estimated_q0, true_q0_at_grid)
+#         grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
+#                      transform=grid[1].transAxes,
+#                      ha='right', va='bottom',
+#                      color='white', fontsize=10,
+#                      bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
 
-        grid[0].imshow(reference_full_q0,
-                       interpolation='none',
-                       extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
-                       cmap="jet",
-                       vmin=vmin, vmax=vmax)
+#         # === Add colorbar and labels ===
+#         cbar = grid[0].cax.colorbar(im)
+#         cbar.set_label("mW/m$^2$")
 
-        # Highlight reconstructed area on reference plot
-        rect = patches.Rectangle((y_rec_min, x_rec_min),
-                                 y_rec_max - y_rec_min,
-                                 x_rec_max - x_rec_min,
-                                 linewidth=1, edgecolor='r', facecolor='none')
-        grid[0].add_patch(rect)
+#         grid[0].set_title("Reference $Q_0$")
+#         grid[1].set_title("Reconstructed $Q_0$")
+#         grid[0].set_xlabel("y (km)")
+#         grid[1].set_xlabel("y (km)")
+#         grid[0].set_ylabel("x (km)")
 
-        # === Plot reconstructed flux ===
-        im = grid[1].imshow(estimated_q0,
-                            interpolation='none',
-                            extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-                            cmap="jet",
-                            vmin=vmin, vmax=vmax)
+#     else:
+#         # === Plot only the reconstructed flux ===
+#         plt.imshow(estimated_q0,
+#                    interpolation='none',
+#                    extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
+#                    cmap="jet")
+#         cbar = plt.colorbar()
+#         cbar.set_label("mW/m$^2$")
+#         plt.xlabel("y (km)")
+#         plt.ylabel("x (km)")
+#         plt.title("Reconstructed total energy flux")
 
-        # === Compute and show MAE ===
-        true_flux_at_grid = reference.f_at(xy_grid_tensor.reshape(res_x * res_y, 2))
-        true_flux_at_grid_flat = true_flux_at_grid.reshape((res_x * res_y, n_bins))
-        true_q0_at_grid = pm.q0(true_flux_at_grid_flat).reshape((res_x, res_y)).detach().cpu()
-        mae = mean_absolute_error(estimated_q0, true_q0_at_grid)
-        grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
-                     transform=grid[1].transAxes,
-                     ha='right', va='bottom',
-                     color='white', fontsize=10,
-                     bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
-
-        # === Add colorbar and labels ===
-        cbar = grid[0].cax.colorbar(im)
-        cbar.set_label("mW/m$^2$")
-
-        grid[0].set_title("Reference $Q_0$")
-        grid[1].set_title("Reconstructed $Q_0$")
-        grid[0].set_xlabel("y (km)")
-        grid[1].set_xlabel("y (km)")
-        grid[0].set_ylabel("x (km)")
-
-    else:
-        # === Plot only the reconstructed flux ===
-        plt.imshow(estimated_q0,
-                   interpolation='none',
-                   extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-                   cmap="jet")
-        cbar = plt.colorbar()
-        cbar.set_label("mW/m$^2$")
-        plt.xlabel("y (km)")
-        plt.ylabel("x (km)")
-        plt.title("Reconstructed total energy flux")
-
-    plt.show()
+#     plt.show()
 
 def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], cams: list[Camera]):
     n_img = len(cams)

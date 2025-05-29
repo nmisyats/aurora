@@ -4,12 +4,22 @@ import torch
 import inspect
 from pathlib import Path
 
+from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
+import matplotlib.patches as patches
+
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, RayDataset
 from aurora.data import load_physical_model, load_cameras
-from aurora.plot import plot_total_energy_flux, plot_model_matrix
+from aurora.utils import xy_grid, xyz_grid, bounds_to_tuple
 
 app = typer.Typer()
+
+def choose_best_device(allow_gpu: bool = True):
+    if allow_gpu:
+        return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    else:
+        return torch.device("cpu")
 
 def create_train_command_for_model(model_name: str, model_cls, config_cls):
     """Dynamically create a train command for a specific model"""
@@ -25,19 +35,18 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         reg_strength: float = typer.Option(1.0, help="Regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
-        plot: bool = typer.Option(False, help="Plot the reconstruction after training complete"),
+        plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
+        res_x: int = typer.Option(128, help="x resolution for plotting"),
+        res_y: int = typer.Option(128, help="y resolution for plotting"),
         **config_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
         
         # Choose device
-        if gpu:
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        else:
-            device = torch.device("cpu")
+        device = choose_best_device(gpu)
         
         # Load physics model
-        pm, f_ref = load_physical_model(physical_model_path, device)
+        pm, ref = load_physical_model(physical_model_path, device)
         
         # Build config args from kwargs
         config_args = {}
@@ -70,7 +79,75 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         if plot:
             recon.eval_mode()
-            plot_total_energy_flux(recon.f, pm, 128, 128, f_ref)
+            recon_xy = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
+            estimated_f = recon.f(recon_xy).detach()
+            estimated_q0 = pm.q0(estimated_f).cpu()
+
+            x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
+            x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
+
+            # === Setup figure with 2 subplots and shared colorbar ===
+            fig = plt.figure(figsize=(8, 4))
+            grid = ImageGrid(fig, 111,
+                            nrows_ncols=(1, 2),
+                            axes_pad=0.1,
+                            cbar_location="right",
+                            cbar_mode="single",
+                            cbar_size="7%",
+                            cbar_pad="10%")
+
+            # === Process reference flux ===
+            reference_q0 = pm.q0(ref.image).cpu()
+
+            # === Determine color range ===
+            vmin = min(estimated_q0.min(), reference_q0.min())
+            vmax = max(estimated_q0.max(), reference_q0.max())
+
+            # === Plot reference flux ===
+            x_ref_min, y_ref_min = ref.xy_min.cpu()
+            x_ref_max, y_ref_max = ref.xy_max.cpu()
+
+            grid[0].imshow(reference_q0,
+                        interpolation='none',
+                        extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
+                        cmap="jet",
+                        vmin=vmin, vmax=vmax)
+
+            # Highlight reconstructed area on reference plot
+            rect = patches.Rectangle((y_rec_min, x_rec_min),
+                                    y_rec_max - y_rec_min,
+                                    x_rec_max - x_rec_min,
+                                    linewidth=1, edgecolor='r', facecolor='none')
+            grid[0].add_patch(rect)
+
+            # === Plot reconstructed flux ===
+            im = grid[1].imshow(estimated_q0,
+                                interpolation='none',
+                                extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
+                                cmap="jet",
+                                vmin=vmin, vmax=vmax)
+
+            # === Compute and show MAE ===
+            ref_f_at_xy = ref.f_at(recon_xy)
+            true_q0_at_grid = pm.q0(ref_f_at_xy).cpu()
+            mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
+            grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
+                        transform=grid[1].transAxes,
+                        ha='right', va='bottom',
+                        color='white', fontsize=10,
+                        bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
+
+            # === Add colorbar and labels ===
+            cbar = grid[0].cax.colorbar(im)
+            cbar.set_label("mW/m$^2$")
+
+            grid[0].set_title("Reference $Q_0$")
+            grid[1].set_title("Reconstructed $Q_0$")
+            grid[0].set_xlabel("y (km)")
+            grid[1].set_xlabel("y (km)")
+            grid[0].set_ylabel("x (km)")
+
+            plt.show()
     
     # Build parameter list dynamically
     params = []
@@ -151,7 +228,94 @@ plot_app = typer.Typer(help="Plotting utilities")
 app.add_typer(plot_app, name="plot")
 
 @plot_app.command("m-emis")
-def plot_physical_model_matrix(physical_model_path: Path):
-    pm, _ = load_physical_model(physical_model_path, torch.device("cpu"))
-    plot_model_matrix(pm)
+def plot_physical_model_matrix(path: Path = typer.Argument(..., help="Path to physical model")):
+    pm, _ = load_physical_model(path, "cpu")
+    m = pm.m_mat
+    z_edges = pm.z_edges
+    E_edges = pm.E_edges
+
+    plt.figure(figsize=(8, 6))
+
+    # Plot with pcolormesh using log scale for m
+    log_m = torch.log10(m)
+    log_m = torch.nan_to_num(log_m, neginf=torch.min(log_m[log_m != -torch.inf]))
+    mesh = plt.pcolormesh(E_edges, z_edges, log_m, shading='auto', cmap='jet')
     
+    # Set x to log scale
+    plt.xscale('log')
+
+    # Axis labels and colorbar
+    plt.xlabel(r"$E$ [eV]")
+    plt.ylabel(r"$z$ [km]")
+    plt.title(r"$\mathbf{M}$")
+    plt.colorbar(mesh, label=r"$\log_{10}(m)$")
+
+    plt.tight_layout()
+    plt.show()
+
+@plot_app.command("flux")
+def plot_flux(
+    path: Path = typer.Argument(..., help="Path to reconstruction or physical model"),
+    res_x: int = typer.Option(0),
+    res_y: int = typer.Option(0),
+    gpu: bool = typer.Option(True)
+):
+    device = choose_best_device(gpu)
+    if path.suffix == ".yml" or path.suffix == ".yaml":
+        pm, ref = load_physical_model(path, device)
+        ref_res_x, ref_res_y = ref.resolution
+        if res_x == 0:
+            res_x = ref_res_x
+        if res_y == 0:
+            res_y = ref_res_y
+        xy_min = ref.xy_min
+        xy_max = ref.xy_max
+        xy = xy_grid(xy_min, xy_max, res_x, res_y)
+        f = ref.f_at(xy)
+        q0 = pm.q0(f)
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
+        im = ax.imshow(q0.cpu(),
+                    interpolation='none',
+                    extent=[y_min, y_max, x_max, x_min],
+                    cmap="jet",
+                    aspect="equal")
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.1)
+        cbar = ax.figure.colorbar(im, cax=cax)
+        cbar.set_label("mW/m$^2$")
+        ax.set_xlabel("y (km)")
+        ax.set_ylabel("x (km)")
+        ax.set_title("$Q_0$")
+        plt.show()
+    
+    elif path.suffix == ".pth":
+        assert res_x > 0 and res_y > 0
+        recon = Reconstruction.load(path, device)
+        recon.eval_mode()
+        pm = recon.physical_model
+        xy_min = pm.frame.xy_min
+        xy_max = pm.frame.xy_max
+        xy = xy_grid(xy_min, xy_max)
+        f = recon.f(xy)
+        q0 = pm.q0(f)
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
+        im = ax.imshow(q0.cpu(),
+                    interpolation='none',
+                    extent=[y_min, y_max, x_max, x_min],
+                    cmap="jet",
+                    aspect="equal")
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.1)
+        cbar = ax.figure.colorbar(im, cax=cax)
+        cbar.set_label("mW/m$^2$")
+        ax.set_xlabel("y (km)")
+        ax.set_ylabel("x (km)")
+        ax.set_title("$Q_0$")
+        plt.show()
+    
+    else:
+        raise ValueError("Unsupported file type.")

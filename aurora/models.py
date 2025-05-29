@@ -38,15 +38,25 @@ class ReferenceFlux(ElectronFluxModel):
         self.xy_min = torch.tensor([x_min, y_min], device=device)
         self.xy_max = torch.tensor([x_max, y_max], device=device)
     
+    @property
+    def resolution(self):
+        res_x = self.image.size(1)
+        res_y = self.image.size(0)
+        return res_x, res_y
+    
     def f_at(self, xy: torch.Tensor) -> torch.Tensor:
-        # xy: (N, 2) coordinates within xy_min and xy_max
+        # xy: (..., 2) coordinates within xy_min and xy_max
         # self.image: (H, W, B)
-        # Output: (N, B) sampled flux at each xy
+        # Output: (..., B) sampled flux at each xy
 
         H, W, B = self.image.shape
 
+        # Save original shape (excluding the last dimension, which is 2)
+        orig_shape = xy.shape[:-1]  # (k1, ..., kn)
+        xy_flat = xy.reshape(-1, 2)  # (N, 2)
+
         # Normalize xy to [0, 1]
-        norm_xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
+        norm_xy = (xy_flat - self.xy_min) / (self.xy_max - self.xy_min)
         norm_xy = torch.clamp(norm_xy, 0, 1)
 
         # Scale to image pixel coordinates
@@ -55,9 +65,9 @@ class ReferenceFlux(ElectronFluxModel):
 
         # Create grid for grid_sample
         grid = torch.stack((x_idx, y_idx), dim=1).unsqueeze(0).unsqueeze(2)  # (1, N, 1, 2)
-        grid = 2 * grid / torch.tensor([W - 1, H - 1], device=self.device) - 1
+        grid = 2 * grid / torch.tensor([W - 1, H - 1], device=xy.device) - 1  # Normalize to [-1, 1]
         grid = grid[..., [1, 0]]  # switch x, y -> y, x
-        grid = grid.expand(B, -1, -1, -1)  # Expand to match flux shape
+        grid = grid.expand(B, -1, -1, -1)  # (B, N, 1, 2)
 
         # Prepare input image tensor for grid_sample
         flux = self.image.permute(2, 0, 1).unsqueeze(1)  # (B, 1, H, W)
@@ -67,8 +77,9 @@ class ReferenceFlux(ElectronFluxModel):
             flux, grid, mode='bilinear', align_corners=True
         )  # (B, 1, N, 1)
 
-        # Reshape result to (N, B)
-        return sampled.squeeze(3).squeeze(1).T  # (N, B)
+        # Reshape result to (..., B)
+        output = sampled.squeeze(3).squeeze(1).T  # (N, B)
+        return output.reshape(*orig_shape, B)     # (..., B)
 
 
 @dataclass
