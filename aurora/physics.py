@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 
-from aurora.utils import MinMax
 from aurora.geodesy import (
     lat_lon_to_ECEF,
     UNE_basis_ECEF,
@@ -18,8 +17,8 @@ class ReferenceFrame:
         origin_altitude: float,
         field_inclination: float,
         field_declination: float,
-        oblique_range_x: MinMax,
-        oblique_range_y: MinMax,
+        oblique_range_x: tuple[float, float],
+        oblique_range_y: tuple[float, float],
         oblique_height: float,
         device: torch.device
     ):

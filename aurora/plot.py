@@ -1,17 +1,12 @@
 from matplotlib import pyplot as plt
-import matplotlib.patches as patches
-import pyvista as pv
 from pathlib import Path
-import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import Callable
 import torch
 
 from aurora.camera import Camera
-from aurora.reconstruction import PhysicalModel
-from aurora.data import ReferenceFlux
-from aurora.utils import load_matrix_data, xy_grid, xyz_grid, mean_absolute_error, Coord2DLike, bounds2d_to_tuple
+from aurora.utils import load_matrix_data
 
 def plot_training_loss(loss: list[float]):
     plt.plot(loss)
@@ -39,101 +34,6 @@ def plot_camera_views(cam_path: Path):
 
     plt.show()
 
-
-# def plot_total_energy_flux(
-#     estimate_f: Callable[[torch.Tensor], torch.Tensor],
-#     pm: PhysicalModel,
-#     res_x: int,
-#     res_y: int,
-#     reference: ReferenceFlux | None = None
-# ):
-#     # === Generate xy grid and estimate flux ===
-#     xy_grid_tensor = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
-#     estimated_flux = estimate_f(xy_grid_tensor.reshape(res_x * res_y, 2))
-#     estimated_q0 = pm.q0(estimated_flux).reshape((res_x, res_y)).detach().cpu()
-
-#     x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
-#     x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
-
-#     if reference is not None:
-#         # === Setup figure with 2 subplots and shared colorbar ===
-#         fig = plt.figure(figsize=(8, 4))
-#         grid = ImageGrid(fig, 111,
-#                          nrows_ncols=(1, 2),
-#                          axes_pad=0.1,
-#                          cbar_location="right",
-#                          cbar_mode="single",
-#                          cbar_size="7%",
-#                          cbar_pad="10%")
-
-#         # === Process reference flux ===
-#         reference_flux_tensor = reference.image  # shape: (h, w, bins)
-#         h, w, n_bins = reference_flux_tensor.shape
-#         reference_flux_flat = reference_flux_tensor.reshape(h * w, n_bins)
-#         reference_full_q0 = pm.q0(reference_flux_flat).reshape((h, w)).detach().cpu()
-
-#         # === Determine color range ===
-#         vmin = min(estimated_q0.min(), reference_full_q0.min())
-#         vmax = max(estimated_q0.max(), reference_full_q0.max())
-
-#         # === Plot reference flux ===
-#         x_ref_min, y_ref_min = reference.xy_min.cpu()
-#         x_ref_max, y_ref_max = reference.xy_max.cpu()
-
-#         grid[0].imshow(reference_full_q0,
-#                        interpolation='none',
-#                        extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
-#                        cmap="jet",
-#                        vmin=vmin, vmax=vmax)
-
-#         # Highlight reconstructed area on reference plot
-#         rect = patches.Rectangle((y_rec_min, x_rec_min),
-#                                  y_rec_max - y_rec_min,
-#                                  x_rec_max - x_rec_min,
-#                                  linewidth=1, edgecolor='r', facecolor='none')
-#         grid[0].add_patch(rect)
-
-#         # === Plot reconstructed flux ===
-#         im = grid[1].imshow(estimated_q0,
-#                             interpolation='none',
-#                             extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-#                             cmap="jet",
-#                             vmin=vmin, vmax=vmax)
-
-#         # === Compute and show MAE ===
-#         true_flux_at_grid = reference.f_at(xy_grid_tensor.reshape(res_x * res_y, 2))
-#         true_flux_at_grid_flat = true_flux_at_grid.reshape((res_x * res_y, n_bins))
-#         true_q0_at_grid = pm.q0(true_flux_at_grid_flat).reshape((res_x, res_y)).detach().cpu()
-#         mae = mean_absolute_error(estimated_q0, true_q0_at_grid)
-#         grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
-#                      transform=grid[1].transAxes,
-#                      ha='right', va='bottom',
-#                      color='white', fontsize=10,
-#                      bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
-
-#         # === Add colorbar and labels ===
-#         cbar = grid[0].cax.colorbar(im)
-#         cbar.set_label("mW/m$^2$")
-
-#         grid[0].set_title("Reference $Q_0$")
-#         grid[1].set_title("Reconstructed $Q_0$")
-#         grid[0].set_xlabel("y (km)")
-#         grid[1].set_xlabel("y (km)")
-#         grid[0].set_ylabel("x (km)")
-
-#     else:
-#         # === Plot only the reconstructed flux ===
-#         plt.imshow(estimated_q0,
-#                    interpolation='none',
-#                    extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-#                    cmap="jet")
-#         cbar = plt.colorbar()
-#         cbar.set_label("mW/m$^2$")
-#         plt.xlabel("y (km)")
-#         plt.ylabel("x (km)")
-#         plt.title("Reconstructed total energy flux")
-
-#     plt.show()
 
 def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], cams: list[Camera]):
     n_img = len(cams)
@@ -187,41 +87,6 @@ def plot_reconstructed_images(render_image: Callable[[Camera], torch.Tensor], ca
 
     plt.show()
     return imgs
-
-def plot_volume_emission(estimate_L: Callable[[torch.Tensor], torch.Tensor], pm: PhysicalModel, res_x: int, res_y: int, res_z: int):
-    xyz = xyz_grid(pm.frame.box_min, pm.frame.box_max, res_x, res_y, res_z)
-    L = estimate_L(xyz.reshape(res_x*res_y*res_z, 3))
-    L = L.reshape(res_x, res_y, res_z)
-    L = L.detach().cpu().numpy()
-    
-    grid = pv.ImageData()
-    grid.dimensions = np.array(L.shape) + 1  # Add 1 because dimensions are number of points
-    grid.spacing = (1, 1, 1)  # Voxel spacing
-    grid.origin = (0, 0, 0)   # Origin of the grid
-
-    # Add the density data to the grid as a cell array
-    # Need to flatten the numpy array to match PyVista's expected format
-    grid.cell_data["density"] = L.flatten(order="F")
-
-    # Create a custom opacity transfer function
-    # This maps density values to opacity
-    opacity = [0, 0.1, 0.3, 0.6, 0.8, 1.0, 1.0]
-
-    # Create the plotter
-    pl = pv.Plotter()
-
-    # Add the volume to the plotter with a colormap
-    # pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=False)
-    pl.add_volume(grid, scalars="density", cmap="coolwarm", opacity=opacity, shade=False)
-
-    # Optional: Add axes for reference
-    pl.show_axes()
-    pl.add_bounding_box()
-
-    # Display the plot
-    pl.show()
-
-    return L
 
 # def plot_rays(pm: PhysicalModel, ro: np.ndarray, rd: np.ndarray, tn: np.ndarray, tf: np.ndarray):
 #     p1 = ro + rd * tn[:, np.newaxis]

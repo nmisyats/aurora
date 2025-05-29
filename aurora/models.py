@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from aurora.physics import PhysicalModel, ElectronFluxModel, TrainableFluxModel
-from aurora.utils import MinMax
 
 
 ModelEntry = namedtuple("RegisteredModel", ("model_cls", "config_cls"))
@@ -30,7 +29,7 @@ def register_model(name, config_cls):
 
 
 class ReferenceFlux(ElectronFluxModel):
-    def __init__(self, image: torch.Tensor, oblique_range_x: MinMax, oblique_range_y: MinMax, device: torch.device):
+    def __init__(self, image: torch.Tensor, oblique_range_x: tuple[float, float], oblique_range_y: tuple[float, float], device: torch.device):
         self.image = image.to(device)
         self.device = device
         x_min, x_max = oblique_range_x

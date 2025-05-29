@@ -1,18 +1,8 @@
 import numpy as np
 import torch
 from pathlib import Path
-from typing import NamedTuple, Union, Tuple, List
+from typing import Union, Tuple, List
 
-class MinMax(NamedTuple):
-    min: float
-    max: float
-
-def to_minmax(lst):
-    if not isinstance(lst, (list, tuple, torch.Tensor)):
-        raise TypeError("Value must be a list or tuple")
-    if len(lst) != 2:
-        raise ValueError("List must have exactly two elements")
-    return MinMax(float(lst[0]), float(lst[1]))
 
 Coord2DLike = Union[Tuple[float, float], List[float], torch.Tensor]
 Coord3DLike = Union[Tuple[float, float, float], List[float], torch.Tensor]
@@ -113,13 +103,6 @@ def xyz_grid(
 def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
     """
     Downsamples a 2D or 3D image (e.g., grayscale or RGB) by picking every `factor`-th pixel.
-    
-    Parameters:
-        image (torch.Tensor): Input image matrix. Can be 2D (grayscale) or 3D (RGB).
-        factor (int): Downsampling factor. Must be >= 1.
-        
-    Returns:
-        torch.Tensor: Downsampled image.
     """
     if factor < 1:
         raise ValueError("Downsampling factor must be >= 1")

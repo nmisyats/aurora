@@ -10,13 +10,13 @@ import torch
 from aurora.camera import Camera
 from aurora.physics import PhysicalModel, ReferenceFrame
 from aurora.models import ReferenceFlux
-from aurora.utils import load_matrix_data, load_3d_grid_data, to_minmax
+from aurora.utils import load_matrix_data, load_3d_grid_data
 
 def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
-_minmax = Use(to_minmax)
+_minmax = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p[1]))
 _float = Use(float)
 _path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
 
