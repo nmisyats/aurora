@@ -50,6 +50,12 @@ def load_matrix_data(dat_path: Path | str):
     mat = torch.tensor(mat, dtype=torch.float32)
     return mat
 
+def save_matrix_data(tensor: torch.Tensor, dat_path: Path | str):
+    with open(dat_path, "w") as f:
+        for row in tensor:
+            line = " ".join(f"{val:.6f}" for val in row.tolist())
+            f.write(line + "\n")
+
 def load_3d_grid_data(dat_path: Path | str):
     data = np.loadtxt(dat_path)
     indices = data[:, :3].astype(int)
