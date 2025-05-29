@@ -36,7 +36,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         reg_strength: float = typer.Option(1.0, help="Regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
-        save_path: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
+        save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
         plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
         res_x: int = typer.Option(128, help="x resolution for plotting"),
         res_y: int = typer.Option(128, help="y resolution for plotting"),
@@ -79,8 +79,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             lr_gamma=lr_decay
         )
 
-        if save_path is not None:
-            save_reonstruction(recon, save_path)
+        if save is not None:
+            save_reonstruction(recon, save)
 
         if plot:
             recon.eval_mode()
