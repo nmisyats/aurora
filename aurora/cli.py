@@ -35,6 +35,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         reg_strength: float = typer.Option(1.0, help="Regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
+        save_path: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
         plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
         res_x: int = typer.Option(128, help="x resolution for plotting"),
         res_y: int = typer.Option(128, help="y resolution for plotting"),
@@ -77,6 +78,9 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             lr_gamma=lr_decay
         )
 
+        if save_path is not None:
+            recon.save(save_path)
+
         if plot:
             recon.eval_mode()
             recon_xy = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
@@ -86,66 +90,82 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
             x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
 
-            # === Setup figure with 2 subplots and shared colorbar ===
-            fig = plt.figure(figsize=(8, 4))
-            grid = ImageGrid(fig, 111,
-                            nrows_ncols=(1, 2),
-                            axes_pad=0.1,
-                            cbar_location="right",
-                            cbar_mode="single",
-                            cbar_size="7%",
-                            cbar_pad="10%")
+            if ref is not None:
+                # === Setup figure with 2 subplots and shared colorbar ===
+                fig = plt.figure(figsize=(8, 4))
+                grid = ImageGrid(fig, 111,
+                                nrows_ncols=(1, 2),
+                                axes_pad=0.1,
+                                cbar_location="right",
+                                cbar_mode="single",
+                                cbar_size="7%",
+                                cbar_pad="10%")
 
-            # === Process reference flux ===
-            reference_q0 = pm.q0(ref.image).cpu()
+                # === Process reference flux ===
+                reference_q0 = pm.q0(ref.image).cpu()
 
-            # === Determine color range ===
-            vmin = min(estimated_q0.min(), reference_q0.min())
-            vmax = max(estimated_q0.max(), reference_q0.max())
+                # === Determine color range ===
+                vmin = min(estimated_q0.min(), reference_q0.min())
+                vmax = max(estimated_q0.max(), reference_q0.max())
 
-            # === Plot reference flux ===
-            x_ref_min, y_ref_min = ref.xy_min.cpu()
-            x_ref_max, y_ref_max = ref.xy_max.cpu()
+                # === Plot reference flux ===
+                x_ref_min, y_ref_min = ref.xy_min.cpu()
+                x_ref_max, y_ref_max = ref.xy_max.cpu()
 
-            grid[0].imshow(reference_q0,
-                        interpolation='none',
-                        extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
-                        cmap="jet",
-                        vmin=vmin, vmax=vmax)
+                grid[0].imshow(reference_q0,
+                            interpolation='none',
+                            extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
+                            cmap="jet",
+                            vmin=vmin, vmax=vmax)
 
-            # Highlight reconstructed area on reference plot
-            rect = patches.Rectangle((y_rec_min, x_rec_min),
-                                    y_rec_max - y_rec_min,
-                                    x_rec_max - x_rec_min,
-                                    linewidth=1, edgecolor='r', facecolor='none')
-            grid[0].add_patch(rect)
+                # Highlight reconstructed area on reference plot
+                rect = patches.Rectangle((y_rec_min, x_rec_min),
+                                        y_rec_max - y_rec_min,
+                                        x_rec_max - x_rec_min,
+                                        linewidth=1, edgecolor='r', facecolor='none')
+                grid[0].add_patch(rect)
 
-            # === Plot reconstructed flux ===
-            im = grid[1].imshow(estimated_q0,
-                                interpolation='none',
-                                extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-                                cmap="jet",
-                                vmin=vmin, vmax=vmax)
+                # === Plot reconstructed flux ===
+                im = grid[1].imshow(estimated_q0,
+                                    interpolation='none',
+                                    extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
+                                    cmap="jet",
+                                    vmin=vmin, vmax=vmax)
 
-            # === Compute and show MAE ===
-            ref_f_at_xy = ref.f_at(recon_xy)
-            true_q0_at_grid = pm.q0(ref_f_at_xy).cpu()
-            mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
-            grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
-                        transform=grid[1].transAxes,
-                        ha='right', va='bottom',
-                        color='white', fontsize=10,
-                        bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
+                # === Compute and show MAE ===
+                ref_f_at_xy = ref.f_at(recon_xy)
+                true_q0_at_grid = pm.q0(ref_f_at_xy).cpu()
+                mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
+                grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
+                            transform=grid[1].transAxes,
+                            ha='right', va='bottom',
+                            color='white', fontsize=10,
+                            bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
 
-            # === Add colorbar and labels ===
-            cbar = grid[0].cax.colorbar(im)
-            cbar.set_label("mW/m$^2$")
+                # === Add colorbar and labels ===
+                cbar = grid[0].cax.colorbar(im)
+                cbar.set_label("mW/m$^2$")
 
-            grid[0].set_title("Reference $Q_0$")
-            grid[1].set_title("Reconstructed $Q_0$")
-            grid[0].set_xlabel("y (km)")
-            grid[1].set_xlabel("y (km)")
-            grid[0].set_ylabel("x (km)")
+                grid[0].set_title("Reference $Q_0$")
+                grid[1].set_title("Reconstructed $Q_0$")
+                grid[0].set_xlabel("y (km)")
+                grid[1].set_xlabel("y (km)")
+                grid[0].set_ylabel("x (km)")
+            else:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                im = ax.imshow(estimated_q0,
+                            interpolation='none',
+                            extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
+                            cmap="jet",
+                            aspect="equal")
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes("right", size="5%", pad=0.1)
+                cbar = ax.figure.colorbar(im, cax=cax)
+                cbar.set_label("mW/m$^2$")
+                ax.set_xlabel("y (km)")
+                ax.set_ylabel("x (km)")
+                ax.set_title("$Q_0$")
+                plt.show()
 
             plt.show()
     
@@ -254,26 +274,61 @@ def plot_physical_model_matrix(path: Path = typer.Argument(..., help="Path to ph
     plt.show()
 
 @plot_app.command("flux")
-def plot_flux(
-    path: Path = typer.Argument(..., help="Path to reconstruction or physical model"),
-    res_x: int = typer.Option(0),
-    res_y: int = typer.Option(0),
-    gpu: bool = typer.Option(True)
+def plot_physical_model_flux(
+    path: Path = typer.Argument(..., help="Path to physical model"),
+):
+    pm, ref = load_physical_model(path, "cpu")
+    if ref is None:
+        typer.echo("The specified model doesn't have a reference flux.", err=True)
+        typer.Exit(1)
+    
+    res_x, res_y = ref.resolution
+    xy_min = ref.xy_min
+    xy_max = ref.xy_max
+    xy = xy_grid(xy_min, xy_max, res_x, res_y)
+    q0 = pm.q0(ref.image)
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
+    im = ax.imshow(q0.cpu(),
+                interpolation='none',
+                extent=[y_min, y_max, x_max, x_min],
+                cmap="jet",
+                aspect="equal")
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cbar = ax.figure.colorbar(im, cax=cax)
+    cbar.set_label("mW/m$^2$")
+    ax.set_xlabel("y (km)")
+    ax.set_ylabel("x (km)")
+    ax.set_title("$Q_0$")
+    plt.show()
+
+
+
+# Create subcommand for generating
+gen_app = typer.Typer(help="Generation utilities")
+app.add_typer(gen_app, name="gen")
+
+@gen_app.command("flux")
+def generate_reconstruction_flux(
+    path: Path = typer.Argument(..., help="Path to reconstruction"),
+    res_x: int = typer.Option(128),
+    res_y: int = typer.Option(128),
+    gpu: bool = typer.Option(True),
+    plot: bool = typer.Option(True)
 ):
     device = choose_best_device(gpu)
-    if path.suffix == ".yml" or path.suffix == ".yaml":
-        pm, ref = load_physical_model(path, device)
-        ref_res_x, ref_res_y = ref.resolution
-        if res_x == 0:
-            res_x = ref_res_x
-        if res_y == 0:
-            res_y = ref_res_y
-        xy_min = ref.xy_min
-        xy_max = ref.xy_max
-        xy = xy_grid(xy_min, xy_max, res_x, res_y)
-        f = ref.f_at(xy)
+    recon = Reconstruction.load(path, device)
+    recon.eval_mode()
+    pm = recon.physical_model
+    xy_min = pm.frame.xy_min
+    xy_max = pm.frame.xy_max
+    xy = xy_grid(xy_min, xy_max, res_x, res_y)
+    f = recon.f(xy).detach()
+    
+    if plot:
         q0 = pm.q0(f)
-        
         fig, ax = plt.subplots(figsize=(8, 6))
         x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
         im = ax.imshow(q0.cpu(),
@@ -289,33 +344,3 @@ def plot_flux(
         ax.set_ylabel("x (km)")
         ax.set_title("$Q_0$")
         plt.show()
-    
-    elif path.suffix == ".pth":
-        assert res_x > 0 and res_y > 0
-        recon = Reconstruction.load(path, device)
-        recon.eval_mode()
-        pm = recon.physical_model
-        xy_min = pm.frame.xy_min
-        xy_max = pm.frame.xy_max
-        xy = xy_grid(xy_min, xy_max)
-        f = recon.f(xy)
-        q0 = pm.q0(f)
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        x_min, x_max, y_min, y_max = bounds_to_tuple(xy_min, xy_max)
-        im = ax.imshow(q0.cpu(),
-                    interpolation='none',
-                    extent=[y_min, y_max, x_max, x_min],
-                    cmap="jet",
-                    aspect="equal")
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.1)
-        cbar = ax.figure.colorbar(im, cax=cax)
-        cbar.set_label("mW/m$^2$")
-        ax.set_xlabel("y (km)")
-        ax.set_ylabel("x (km)")
-        ax.set_title("$Q_0$")
-        plt.show()
-    
-    else:
-        raise ValueError("Unsupported file type.")

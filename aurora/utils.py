@@ -122,33 +122,6 @@ def save_3d_grid_data(array: np.ndarray, file_path: Path):
     data = np.hstack((indices, values))  # Combine indices with values
     np.savetxt(file_path, data, fmt="%d %d %d %.6f")  # Save to file with formatting
 
-def numpify(func=None, *, device="cpu"):
-    if func is None:
-        return lambda f: numpify(f, device=device)
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        def to_tensor(x):
-            if isinstance(x, np.ndarray):
-                return torch.from_numpy(x).to(device)
-            return x
-
-        def to_numpy(x):
-            if torch.is_tensor(x):
-                return x.detach().cpu().numpy()
-            elif isinstance(x, (list, tuple)):
-                return type(x)(to_numpy(i) for i in x)
-            elif isinstance(x, dict):
-                return {k: to_numpy(v) for k, v in x.items()}
-            return x
-
-        args_t = tuple(to_tensor(a) for a in args)
-        kwargs_t = {k: to_tensor(v) for k, v in kwargs.items()}
-        result = func(*args_t, **kwargs_t)
-        return to_numpy(result)
-
-    return wrapper
-
 def xy_grid(
         xy_min: torch.Tensor,
         xy_max: torch.Tensor,
@@ -200,18 +173,3 @@ def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
         return image[::factor, ::factor]
     else:
         return image[::factor, ::factor, :]
-
-def mean_absolute_error(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """
-    Computes the Mean Absolute Error (MAE) between predicted and target tensors.
-    
-    Parameters:
-        pred (torch.Tensor): Predicted values.
-        target (torch.Tensor): Target values.
-        
-    Returns:
-        torch.Tensor: Mean Absolute Error.
-    """
-    if pred.shape != target.shape:
-        raise ValueError("Predicted and target tensors must have the same shape")
-    return torch.mean(torch.abs(pred - target))
