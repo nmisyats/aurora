@@ -10,7 +10,7 @@ import matplotlib.patches as patches
 import pyvista as pv
 
 from aurora.models import MODEL_REGISTRY
-from aurora.reconstruction import Reconstruction, RayDataset
+from aurora.reconstruction import Reconstruction, RayDataset, load_reconstruction, save_reonstruction
 from aurora.data import load_physical_model, load_cameras
 from aurora.utils import xy_grid, xyz_grid, bounds2d_to_tuple, bounds3d_to_tuple
 
@@ -80,7 +80,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         )
 
         if save_path is not None:
-            recon.save(save_path)
+            save_reonstruction(recon, save_path)
 
         if plot:
             recon.eval_mode()
@@ -318,7 +318,7 @@ def generate_reconstructed_flux(
     plot: bool = typer.Option(True)
 ):
     device = choose_best_device(gpu)
-    recon = Reconstruction.load(path, device)
+    recon = load_reconstruction(path, device)
     recon.eval_mode()
     pm = recon.physical_model
     xy_min = pm.frame.xy_min
@@ -355,7 +355,7 @@ def generate_volume_emission(
 ):
     device = choose_best_device(gpu)
     if path.suffix == ".pth":
-        recon = Reconstruction.load(path, device)
+        recon = load_reconstruction(path, device)
         recon.eval_mode()
         pm = recon.physical_model
         xyz_min = pm.frame.box_min

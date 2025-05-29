@@ -163,14 +163,14 @@ class Reconstruction:
     def train_mode(self):
         if isinstance(self.f_model, TrainableFluxModel):
             self.f_model.train()
-    
-    def save(self, path: Path | str):
-        torch.save({
-            "physical_model": self.physical_model,
-            "f_model": self.f_model
-        }, path)
-    
-    @classmethod
-    def load(cls, path: Path | str, device: torch.device):
-        data = torch.load(path, map_location=device, weights_only=False)
-        return cls(data["physical_model"], data["f_model"], device)
+
+
+def save_reonstruction(recon: Reconstruction, path: Path | str):
+    torch.save({
+        "physical_model": recon.physical_model,
+        "f_model": recon.f_model
+    }, path)
+
+def load_reconstruction(path: Path | str, device: torch.device):
+    data = torch.load(path, map_location=device, weights_only=False)
+    return Reconstruction(data["physical_model"], data["f_model"], device)
