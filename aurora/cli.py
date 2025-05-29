@@ -282,10 +282,8 @@ def plot_physical_model_flux(
         typer.echo("The specified model doesn't have a reference flux.", err=True)
         typer.Exit(1)
     
-    res_x, res_y = ref.resolution
     xy_min = ref.xy_min
     xy_max = ref.xy_max
-    xy = xy_grid(xy_min, xy_max, res_x, res_y)
     q0 = pm.q0(ref.image)
     
     fig, ax = plt.subplots(figsize=(8, 6))
