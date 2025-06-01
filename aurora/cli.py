@@ -10,9 +10,18 @@ import matplotlib.patches as patches
 import pyvista as pv
 
 from aurora.models import MODEL_REGISTRY
-from aurora.reconstruction import Reconstruction, RayDataset, load_reconstruction, save_reonstruction
+from aurora.reconstruction import Reconstruction, RayDataset
+from aurora.reconstruction import load_reconstruction, save_reonstruction
 from aurora.data import load_physical_model, load_cameras
-from aurora.utils import xy_grid, xyz_grid, bounds2d_to_tuple, bounds3d_to_tuple
+from aurora.utils import (
+    xy_grid,
+    xyz_grid,
+    bounds2d_to_tuple,
+    bounds3d_to_tuple,
+    save_matrix_data,
+    save_2d_grid_data,
+    save_3d_grid_data
+)
 
 app = typer.Typer()
 
@@ -315,7 +324,8 @@ def generate_reconstructed_flux(
     res_x: int = typer.Option(128),
     res_y: int = typer.Option(128),
     gpu: bool = typer.Option(True),
-    plot: bool = typer.Option(True)
+    plot: bool = typer.Option(True),
+    save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
     recon = load_reconstruction(path, device)
@@ -325,6 +335,9 @@ def generate_reconstructed_flux(
     xy_max = pm.frame.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
     f = recon.f(xy).detach()
+
+    if save is not None:
+        save_3d_grid_data(f, save)
     
     if plot:
         q0 = pm.q0(f)
@@ -351,7 +364,8 @@ def generate_volume_emission(
     res_y: int = typer.Option(100),
     res_z: int = typer.Option(50),
     gpu: bool = typer.Option(True),
-    plot: bool = typer.Option(True)
+    plot: bool = typer.Option(True),
+    save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
     if path.suffix == ".pth":
@@ -375,6 +389,9 @@ def generate_volume_emission(
         xy, z = xyz[...,:2], xyz[...,2]
         f = ref.f_at(xy)
         l = pm.L(z, f).cpu()
+    
+    if save is not None:
+        save_3d_grid_data(l, save)
     
     if plot:
         l = l.numpy()
