@@ -1,7 +1,8 @@
+from pathlib import Path
+
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
-from pathlib import Path
 
 from aurora.camera import Camera
 from aurora.physics import (

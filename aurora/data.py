@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from schema import Schema, Optional, And, Use
 import yaml
 try:

@@ -1,5 +1,6 @@
 from collections import namedtuple
 from dataclasses import dataclass, field
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

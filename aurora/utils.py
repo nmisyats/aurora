@@ -1,7 +1,8 @@
-import numpy as np
-import torch
 from pathlib import Path
 from typing import Union, Tuple, List
+
+import numpy as np
+import torch
 
 
 Coord2DLike = Union[Tuple[float, float], List[float], torch.Tensor]
@@ -14,7 +15,6 @@ def bounds2d_to_tuple(min_point: Coord2DLike, max_point: Coord2DLike) -> Tuple[f
     x_min, y_min = float(min_point[0]), float(min_point[1])
     x_max, y_max = float(max_point[0]), float(max_point[1])
     return x_min, x_max, y_min, y_max
-
 
 def ranges2d_to_tuple(x_range: Coord2DLike, y_range: Coord2DLike) -> Tuple[float, float, float, float]:
     """

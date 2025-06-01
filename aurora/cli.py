@@ -1,9 +1,9 @@
-import typer
 from dataclasses import fields
-import torch
-import inspect
 from pathlib import Path
 
+import typer
+import inspect
+import torch
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import matplotlib.patches as patches
