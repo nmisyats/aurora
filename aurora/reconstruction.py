@@ -37,13 +37,7 @@ class Dataset:
     def _create_ray_g_pairs(self, cams: list[Camera]):
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in cams:
-            cam_ro, cam_rd = self.frame.create_rays(
-                cam.latitude,
-                cam.longitude,
-                cam.altitude,
-                cam.azimuth,
-                cam.zenith
-            )
+            cam_ro, cam_rd = cam.create_rays(self.frame)
             ro_list.append(cam_ro)
             rd_list.append(cam_rd)
 
@@ -120,13 +114,7 @@ class Reconstruction:
     
     @torch.no_grad()
     def image(self, cam: Camera, ray_bins: int, nan=0.0):
-        ro, rd = self.frame.create_rays(
-            cam.latitude,
-            cam.longitude,
-            cam.altitude,
-            cam.azimuth,
-            cam.zenith
-        )
+        ro, rd = cam.create_rays(self.frame)
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
         g = self.g(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape

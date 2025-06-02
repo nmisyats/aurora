@@ -4,8 +4,7 @@ from aurora.geodesy import (
     lat_lon_to_ECEF,
     UNE_basis_ECEF,
     earth_radius,
-    inc_dec_to_UNE,
-    az_ze_to_UNE
+    inc_dec_to_UNE
 )
 
 
@@ -95,17 +94,3 @@ class ReferenceFrame:
         if is_point:
             xyz_une[..., 0] = xyz_une[..., 0] + self.origin_altitude
         return xyz_une
-    
-    def create_rays(self, o_lat: float, o_lon: float, o_alt: float, az: torch.Tensor, ze: torch.Tensor):
-        az = az.flatten().to(self.device)
-        ze = ze.flatten().to(self.device)
-        rd_une = az_ze_to_UNE(az, ze).to(self.device)
-        rd_rel = self.from_une(rd_une, is_point=False)
-
-        ro_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon).to(self.device)
-        radius = earth_radius(o_lat, o_lon) + o_alt
-        ro_ecef = radius * ro_ecef_unit
-        ro_rel = self.from_ecef(ro_ecef, is_point=True)
-        ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
-
-        return ro_rel, rd_rel
