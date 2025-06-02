@@ -98,6 +98,19 @@ def load_reference_flux(yaml_path: Path | str, device: torch.device):
         desc = _ref_flux_desc_schema.validate(data)
     return parse_reference_flux(desc, device)
 
+def parse_camera(cam_pos: dict, cam_name: str, cam_dir: Path | str):
+    if not isinstance(cam_dir, Path):
+        cam_dir = Path(cam_dir)
+    return Camera(
+        name=cam_name,
+        longitude=cam_pos["longitude"],
+        latitude=cam_pos["latitude"],
+        altitude=cam_pos["altitude"],
+        image=load_matrix_data(cam_dir / "image.dat"),
+        azimuth=load_matrix_data(cam_dir / "az_cam.dat"),
+        zenith=load_matrix_data(cam_dir / "ze_cam.dat"),
+    )
+
 def load_cameras(yaml_path: Path | str) -> list[Camera]:
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
@@ -107,15 +120,7 @@ def load_cameras(yaml_path: Path | str) -> list[Camera]:
     cameras = []
     for cam_name, cam_pos in positions.items():
         cam_dir = images_dir / cam_name
-        cam = Camera(
-            name=cam_name,
-            longitude=cam_pos["longitude"],
-            latitude=cam_pos["latitude"],
-            altitude=cam_pos["altitude"],
-            image=load_matrix_data(cam_dir / "image.dat"),
-            azimuth=load_matrix_data(cam_dir / "az_cam.dat"),
-            zenith=load_matrix_data(cam_dir / "ze_cam.dat"),
-        )
+        cam = parse_camera(cam_pos, cam_name, cam_dir)
         cameras.append(cam)
     return cameras
 

@@ -12,7 +12,13 @@ import pyvista as pv
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, Dataset
 from aurora.reconstruction import load_reconstruction, save_reonstruction
-from aurora.data import load_physical_model, load_cameras, load_reference_flux
+from aurora.data import (
+    load_physical_model,
+    load_cameras,
+    load_reference_flux,
+    load_camera_positions,
+    parse_camera
+)
 from aurora.utils import (
     xy_grid,
     xyz_grid,
@@ -434,17 +440,21 @@ def generate_volume_emission(
 
 @gen_app.command("image")
 def generate_images(
-    path: Path = typer.Argument(..., help="Path to reconstruction"),
-    cameras: Path = typer.Argument(..., help="Camera data file"),
+    reconstruction_path: Path = typer.Argument(..., help="Path to reconstruction"),
+    dataset_path: Path = typer.Argument(..., help="Datset description"),
+    locations: str = typer.Option(None, parser=lambda s: s.split(",")),
+    ray_bins: int = typer.Option(100),
     downsample: int = typer.Option(None),
     gpu: bool = typer.Option(True),
     plot: bool = typer.Option(True),
-    ray_bins: int = typer.Option(100)
 ):
     device = choose_best_device(gpu)
-    recon = load_reconstruction(path, device)
+    recon = load_reconstruction(reconstruction_path, device)
     recon.eval_mode()
-    cams = load_cameras(cameras)
+
+    cams = load_cameras(dataset_path)
+    if locations is not None:
+        cams = list(filter(lambda c: c.name in locations, cams))
     n_cam = len(cams)
 
     if downsample is not None:
@@ -453,13 +463,13 @@ def generate_images(
 
     imgs = []
     for i, cam in enumerate(cams):
-        print(f"Generating image {i+1}/{n_cam}")
+        print(f"Generating image {i+1}/{n_cam} ({cam.name})")
         imgs.append(recon.image(cam, ray_bins))
 
     if plot:
         # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
         # plt.subplots_adjust(wspace=0.05, hspace=0.05)
-        fig = plt.figure(figsize=(n_cam * 2, 4 + 0.5))
+        fig = plt.figure(figsize=(n_cam * 2 + 3.0, 4 + 0.5))
         # Lists to store min and max values for color scaling
         all_mins, all_maxs = [], []
         refs = []
