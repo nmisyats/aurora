@@ -328,7 +328,7 @@ app.add_typer(gen_app, name="gen")
 
 @gen_app.command("flux")
 def generate_reconstructed_flux(
-    path: Path = typer.Argument(..., help="Path to reconstruction"),
+    reconstruction_path: Path = typer.Argument(..., help="Path to reconstruction"),
     res_x: int = typer.Option(128),
     res_y: int = typer.Option(128),
     gpu: bool = typer.Option(True),
@@ -336,7 +336,7 @@ def generate_reconstructed_flux(
     save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
-    recon = load_reconstruction(path, device)
+    recon = load_reconstruction(reconstruction_path, device)
     recon.eval_mode()
     pm = recon.physical_model
     xy_min = pm.frame.xy_min
@@ -367,7 +367,7 @@ def generate_reconstructed_flux(
 
 @gen_app.command("emis")
 def generate_volume_emission(
-    path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
+    reconstruction_or_reference_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
     physical_model: Path = typer.Option(None, help="Path to physical model (for reference flux only)"),
     res_x: int = typer.Option(100),
     res_y: int = typer.Option(100),
@@ -377,8 +377,8 @@ def generate_volume_emission(
     save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
-    if path.suffix == ".pth":
-        recon = load_reconstruction(path, device)
+    if reconstruction_or_reference_path.suffix == ".pth":
+        recon = load_reconstruction(reconstruction_or_reference_path, device)
         recon.eval_mode()
         pm = recon.physical_model
         xyz_min = pm.frame.box_min
@@ -386,7 +386,7 @@ def generate_volume_emission(
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = recon.L(xyz).detach().cpu()
     else:
-        ref = load_reference_flux(path, device)
+        ref = load_reference_flux(reconstruction_or_reference_path, device)
         if physical_model is None:
             typer.echo("Generating emission from flux data requires a physical model.")
             raise typer.Exit(1)
@@ -440,8 +440,9 @@ def generate_volume_emission(
 
 @gen_app.command("image")
 def generate_images(
-    reconstruction_path: Path = typer.Argument(..., help="Path to reconstruction"),
+    reconstruction_or_reference_path: Path = typer.Argument(..., help="Path to reconstruction"),
     dataset_path: Path = typer.Argument(..., help="Datset description"),
+    physical_model: Path = typer.Option(None, help="Path to physical model (for reference flux only)"),
     locations: str = typer.Option(None, parser=lambda s: s.split(",")),
     ray_bins: int = typer.Option(100),
     downsample: int = typer.Option(None),
@@ -449,8 +450,18 @@ def generate_images(
     plot: bool = typer.Option(True),
 ):
     device = choose_best_device(gpu)
-    recon = load_reconstruction(reconstruction_path, device)
-    recon.eval_mode()
+    if reconstruction_or_reference_path.suffix == ".pth":
+        device = choose_best_device(gpu)
+        recon = load_reconstruction(reconstruction_or_reference_path, device)
+        recon.eval_mode()
+    else:
+        ref = load_reference_flux(reconstruction_or_reference_path, device)
+        if physical_model is None:
+            typer.echo("Generating image from flux data requires a physical model.")
+            raise typer.Exit(1)
+        pm = load_physical_model(physical_model, device)
+        recon = Reconstruction(pm, ref, device)
+        recon.eval_mode()
 
     cams = load_cameras(dataset_path)
     if locations is not None:
