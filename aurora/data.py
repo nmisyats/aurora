@@ -24,20 +24,18 @@ _path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
 
 _model_desc_schema = Schema({
     Optional("name"): str,
-    "reference_frame": {
-        "origin_latitude": _float,
-        "origin_longitude": _float,
-        "origin_altitude": _float,
-        "field_inclination": _float,
-        "field_declination": _float
-    },
     "altitude_bins": _path,
     "energy_bins": _path,
     "emission_matrix": _path,
+    "reference_frame": {
+        "origin_latitude": _float,
+        "origin_longitude": _float,
+        "field_inclination": _float,
+        "field_declination": _float
+    },
     "reconstruction_volume": {
-        "oblique_range_x": _minmax,
-        "oblique_range_y": _minmax,
-        "oblique_height": _float
+        "range_south": _minmax,
+        "range_east": _minmax,
     }
 })
 
@@ -50,28 +48,31 @@ _dataset_desc_schema = Schema({
 _ref_flux_desc_schema = Schema({
     Optional("name"): str,
     "flux": _path,
-    "oblique_range_x": _minmax,
-    "oblique_range_y": _minmax
+    "range_south": _minmax,
+    "range_east": _minmax
 })
 
 def parse_physical_model(desc: dict, device: torch.device):
+    altitude_bins=load_matrix_data(desc["altitude_bins"]).flatten()
+    energy_bins=load_matrix_data(desc["energy_bins"]).flatten()
+    emission_matrix=load_matrix_data(desc["emission_matrix"]).T
     frame_desc = desc["reference_frame"]
     vol_desc = desc["reconstruction_volume"]
     frame = ReferenceFrame(
         origin_latitude=frame_desc["origin_latitude"],
         origin_longitude=frame_desc["origin_longitude"],
-        origin_altitude=frame_desc["origin_altitude"],
+        origin_altitude=altitude_bins[0].item(),
         field_inclination=frame_desc["field_inclination"],
         field_declination=frame_desc["field_declination"],
-        oblique_range_x=vol_desc["oblique_range_x"],
-        oblique_range_y=vol_desc["oblique_range_y"],
-        oblique_height=vol_desc["oblique_height"],
+        range_south=vol_desc["range_south"],
+        range_east=vol_desc["range_east"],
+        height=(altitude_bins[-1] - altitude_bins[0]).item(),
         device=device
     )
     pm = PhysicalModel(
-        altitude_bins=load_matrix_data(desc["altitude_bins"]).flatten(),
-        energy_bins=load_matrix_data(desc["energy_bins"]).flatten(),
-        emission_matrix=load_matrix_data(desc["emission_matrix"]).T,
+        altitude_bins=altitude_bins,
+        energy_bins=energy_bins,
+        emission_matrix=emission_matrix,
         frame=frame,
         device=device
     )
@@ -86,8 +87,8 @@ def load_physical_model(yaml_path: Path | str, device: torch.device):
 def parse_reference_flux(desc: dict, device: torch.device):
     return ReferenceFlux(
         image=load_3d_grid_data(desc["flux"]),
-        oblique_range_x=desc["oblique_range_x"],   
-        oblique_range_y=desc["oblique_range_y"],
+        range_south=desc["range_south"],   
+        range_east=desc["range_east"],
         device=device
     )
 

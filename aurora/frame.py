@@ -16,9 +16,9 @@ class ReferenceFrame:
         origin_altitude: float,
         field_inclination: float,
         field_declination: float,
-        oblique_range_x: tuple[float, float],
-        oblique_range_y: tuple[float, float],
-        oblique_height: float,
+        range_south: tuple[float, float],
+        range_east: tuple[float, float],
+        height: float,
         device: torch.device
     ):
         self.device = device
@@ -62,9 +62,9 @@ class ReferenceFrame:
         self.metric_tensor = metric_tensor
         
         # Define the oblique reference frame bounding box
-        x_min, x_max = oblique_range_x
-        y_min, y_max = oblique_range_y
-        h = oblique_height
+        x_min, x_max = range_south
+        y_min, y_max = range_east
+        h = height
         self.box_min = torch.tensor([x_min, y_min, 0.0], device=device)
         self.box_max = torch.tensor([x_max, y_max,   h], device=device)
         self.xy_min = self.box_min[:2]

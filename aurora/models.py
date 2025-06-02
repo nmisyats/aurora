@@ -30,11 +30,11 @@ def register_model(name, config_cls):
 
 
 class ReferenceFlux(ElectronFluxModel):
-    def __init__(self, image: torch.Tensor, oblique_range_x: tuple[float, float], oblique_range_y: tuple[float, float], device: torch.device):
+    def __init__(self, image: torch.Tensor, range_south: tuple[float, float], range_east: tuple[float, float], device: torch.device):
         self.image = image.to(device)
         self.device = device
-        x_min, x_max = oblique_range_x
-        y_min, y_max = oblique_range_y
+        x_min, x_max = range_south
+        y_min, y_max = range_east
         self.xy_min = torch.tensor([x_min, y_min], device=device)
         self.xy_max = torch.tensor([x_max, y_max], device=device)
     
