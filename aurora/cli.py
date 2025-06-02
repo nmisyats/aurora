@@ -10,7 +10,7 @@ import matplotlib.patches as patches
 import pyvista as pv
 
 from aurora.models import MODEL_REGISTRY
-from aurora.reconstruction import Reconstruction, RayDataset
+from aurora.reconstruction import Reconstruction, Dataset
 from aurora.reconstruction import load_reconstruction, save_reonstruction
 from aurora.data import load_physical_model, load_cameras, load_reference_flux
 from aurora.utils import (
@@ -77,7 +77,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         
         # Train the reconstruction after loading the camera dataset
         cams = load_cameras(camera_dataset_path)
-        dataset = RayDataset(cams, pm.frame, device)
+        dataset = Dataset(cams, pm.frame, device)
         recon.train(
             dataset=dataset,
             num_iters=iters,

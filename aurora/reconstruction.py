@@ -17,7 +17,7 @@ from aurora.geometry import (
 )
 
 
-class RayDataset:
+class Dataset:
     def __init__(self, cams: list[Camera], frame: ReferenceFrame, device: torch.device):
         self.frame = frame
         self.device = device
@@ -116,7 +116,7 @@ class Reconstruction:
         return lambda cam: self.image(cam, ray_bins, nan)
     
     def train(self,
-            dataset: RayDataset,
+            dataset: Dataset,
             num_iters: int,
             batch_size: int,
             ray_bins: int = 100,
