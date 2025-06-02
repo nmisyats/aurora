@@ -21,7 +21,8 @@ class PhysicalModel:
         self.m_mat = emission_matrix.to(self.device)
         self.E_edges = energy_bins.to(self.device)
 
-    def L(self, z: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
+    def L(self, p: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
+        z = p[..., 2]
         z = z + self.frame.origin_altitude
         z_idx = torch.bucketize(z.contiguous(), self.z_edges) - 1
         z_idx = torch.clamp(z_idx, 0, self.m_mat.shape[1]-1)
@@ -36,8 +37,7 @@ class PhysicalModel:
           p: torch.Tensor,
           f: torch.Tensor
         ) -> torch.Tensor:
-        z = p[:, 2]
-        l = self.L(z, f)
+        l = self.L(p, f)
         g = torch.trapezoid(l, t)
         g *= torch.sqrt(rd @ self.frame.metric_tensor @ rd)
         g /= 10.0

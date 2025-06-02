@@ -390,9 +390,9 @@ def generate_volume_emission(
         xyz_min = torch.tensor([*ref.xy_min, z_min]).to(device)
         xyz_max = torch.tensor([*ref.xy_max, z_max]).to(device)
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        xy, z = xyz[...,:2], xyz[...,2]
+        xy = xyz[...,:2]
         f = ref.f_at(xy)
-        l = pm.L(z, f).cpu()
+        l = pm.L(xyz, f).cpu()
     
     if save is not None:
         save_3d_grid_data(l, save)
