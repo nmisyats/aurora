@@ -429,3 +429,69 @@ def generate_volume_emission(
 
         # Display the plot
         pl.show()
+
+@gen_app.command("image")
+def generate_images(
+    path: Path = typer.Argument(..., help="Path to reconstruction"),
+    cameras: Path = typer.Argument(..., help="Camera data file"),
+    downsample: int = typer.Option(None),
+    gpu: bool = typer.Option(True),
+    plot: bool = typer.Option(True),
+    ray_bins: int = typer.Option(100)
+):
+    device = choose_best_device(gpu)
+    recon = load_reconstruction(path, device)
+    recon.eval_mode()
+    cams = load_cameras(cameras)
+    n_cam = len(cams)
+
+    if downsample is not None:
+        for i in range(n_cam):
+            cams[i] = cams[i].downsample(downsample)
+
+    imgs = []
+    for i, cam in enumerate(cams):
+        print(f"Generating image {i+1}/{n_cam}")
+        imgs.append(recon.image(cam, ray_bins))
+
+    if plot:
+        # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
+        # plt.subplots_adjust(wspace=0.05, hspace=0.05)
+        fig = plt.figure(figsize=(n_cam * 2, 4 + 0.5))
+        # Lists to store min and max values for color scaling
+        all_mins, all_maxs = [], []
+        refs = []
+        # First pass to get min and max values across all images
+        for i in range(n_cam):
+            imgs[i] = imgs[i].numpy(force=True)
+            refs.append(cams[i].image)
+            all_mins.append(min(imgs[i].min(), refs[i].min()))
+            all_maxs.append(max(imgs[i].max(), refs[i].max()))
+
+        # Get global min and max
+        vmin = min(all_mins)
+        vmax = max(all_maxs)
+
+        # Second pass to plot images with consistent color scale
+        grid = ImageGrid(fig, 111,
+                        nrows_ncols=(2, n_cam),
+                        axes_pad=0.1,
+                        cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
+        
+        cat = [*imgs, *refs]
+        ims = []
+        for i, (ax, img) in enumerate(zip(grid, cat)):
+            im = ax.imshow(img, vmin=vmin, vmax=vmax)
+            ims.append(im)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if i < n_cam:
+                ax.set_title(cams[i].name)
+        
+        cbar = grid[0].cax.colorbar(ims[0])
+        cbar.set_label("Rayleigh")
+
+        grid[0].set_ylabel("Generated image")
+        grid[n_cam].set_ylabel("Reference image")
+
+        plt.show()
