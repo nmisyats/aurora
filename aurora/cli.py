@@ -1,5 +1,6 @@
 from dataclasses import fields
 from pathlib import Path
+import math
 
 import typer
 import inspect
@@ -320,21 +321,53 @@ def plot_flux(
     ax.set_title("$Q_0$")
     plt.show()
 
-@plot_app.command("camera")
-def plot_camera(
+@plot_app.command("cams")
+def plot_cameras(
     dataset_path: Path = typer.Argument(..., help="Path to dataset description"),
-    cam_name: str = typer.Argument(..., help="Name of the camera to plot")
+    cam_name: str = typer.Option(None, help="Name of the camera to plot")
 ):
     cams = load_cameras(dataset_path)
-    cams = {cam.name: cam for cam in cams}
-    cam = cams[cam_name]
+
+    if cam_name is not None:
+        cams = {cam.name: cam for cam in cams}
+        cam = cams[cam_name]
+        fig, ax = plt.subplots(figsize=(8, 6))
+        im = ax.imshow(cam.image)
+        cbar = ax.figure.colorbar(im)
+        cbar.set_label("Rayleigh")
+        ax.set_title(f"{cam_name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
+        plt.show()
     
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.imshow(cam.image)
-    cbar = ax.figure.colorbar(im)
-    cbar.set_label("Rayleigh")
-    ax.set_title(f"{cam_name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
-    plt.show()
+    else:
+        n_imgs = len(cams)
+        # Compute grid size (try to make it as square as possible)
+        cols = math.ceil(math.sqrt(n_imgs))
+        rows = math.ceil(n_imgs / cols)
+        # Find global min/max for consistent color scaling
+        vmin = min(cam.image.min() for cam in cams)
+        vmax = max(cam.image.max() for cam in cams)
+        # Create figure and image grid
+        fig = plt.figure(figsize=(cols * 3, rows * 3))
+        grid = ImageGrid(fig, 111,
+                        nrows_ncols=(rows, cols),
+                        axes_pad=0.4,
+                        share_all=True,
+                        cbar_location="right",
+                        cbar_mode="single",
+                        cbar_size="5%",
+                        cbar_pad=0.1)
+        # Plot images
+        for ax, cam in zip(grid, cams):
+            im = ax.imshow(cam.image, cmap='viridis', vmin=vmin, vmax=vmax)
+            ax.axis('off')
+            ax.set_title(cam.name)
+        # Turn off unused axes
+        for ax in grid[n_imgs:]:
+            ax.axis('off')
+        # Shared colorbar
+        cbar = grid.cbar_axes[0].colorbar(im)
+        cbar.set_label("Rayleigh")
+        plt.show()
 
 
 # Create subcommand for generating
