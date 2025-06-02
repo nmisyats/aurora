@@ -320,6 +320,21 @@ def plot_flux(
     ax.set_title("$Q_0$")
     plt.show()
 
+@plot_app.command("camera")
+def plot_camera(
+    dataset_path: Path = typer.Argument(..., help="Path to dataset description"),
+    cam_name: str = typer.Argument(..., help="Name of the camera to plot")
+):
+    cams = load_cameras(dataset_path)
+    cams = {cam.name: cam for cam in cams}
+    cam = cams[cam_name]
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    im = ax.imshow(cam.image)
+    cbar = ax.figure.colorbar(im)
+    cbar.set_label("Rayleigh")
+    ax.set_title(f"{cam_name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
+    plt.show()
 
 
 # Create subcommand for generating
