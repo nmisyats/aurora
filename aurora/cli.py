@@ -12,7 +12,7 @@ import pyvista as pv
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, RayDataset
 from aurora.reconstruction import load_reconstruction, save_reonstruction
-from aurora.data import load_physical_model, load_cameras
+from aurora.data import load_physical_model, load_cameras, load_reference_flux
 from aurora.utils import (
     xy_grid,
     xyz_grid,
@@ -49,6 +49,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
         res_x: int = typer.Option(128, help="x resolution for plotting"),
         res_y: int = typer.Option(128, help="y resolution for plotting"),
+        ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
         **config_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
@@ -57,7 +58,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         device = choose_best_device(gpu)
         
         # Load physics model
-        pm, ref = load_physical_model(physical_model_path, device)
+        pm = load_physical_model(physical_model_path, device)
         
         # Build config args from kwargs
         config_args = {}
@@ -100,7 +101,9 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
             x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
 
-            if ref is not None:
+            if ref_flux is not None:
+                ref = load_reference_flux(ref_flux, device)
+
                 # === Setup figure with 2 subplots and shared colorbar ===
                 fig = plt.figure(figsize=(8, 4))
                 grid = ImageGrid(fig, 111,
@@ -284,13 +287,12 @@ def plot_physical_model_matrix(path: Path = typer.Argument(..., help="Path to ph
     plt.show()
 
 @plot_app.command("flux")
-def plot_physical_model_flux(
-    path: Path = typer.Argument(..., help="Path to physical model"),
+def plot_flux(
+    flux_path: Path = typer.Argument(..., help="Path to flux description"),
+    model_path: Path = typer.Argument(..., help="Path to model description")
 ):
-    pm, ref = load_physical_model(path, "cpu")
-    if ref is None:
-        typer.echo("The specified model doesn't have a reference flux.", err=True)
-        typer.Exit(1)
+    ref = load_reference_flux(flux_path, "cpu")
+    pm = load_physical_model(model_path, "cpu")
     
     xy_min = ref.xy_min
     xy_max = ref.xy_max

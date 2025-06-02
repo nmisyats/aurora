@@ -21,7 +21,7 @@ _minmax = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p
 _float = Use(float)
 _path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
 
-_pm_model_data_schema = Schema({
+_model_desc_schema = Schema({
     Optional("name"): str,
     "reference_frame": {
         "origin_latitude": _float,
@@ -37,16 +37,21 @@ _pm_model_data_schema = Schema({
         "oblique_range_x": _minmax,
         "oblique_range_y": _minmax,
         "oblique_height": _float
-    },
-    Optional("reference_flux"): {
-        "flux": _path,
-        "oblique_range_x": _minmax,
-        "oblique_range_y": _minmax
     }
 })
 
-def validate_pm_data_schema(data: dict) -> dict:
-    return _pm_model_data_schema.validate(data)
+_dataset_desc_schema = Schema({
+    Optional("name"): str,
+    "positions": _path,
+    "images": _path
+})
+
+_ref_flux_desc_schema = Schema({
+    Optional("name"): str,
+    "flux": _path,
+    "oblique_range_x": _minmax,
+    "oblique_range_y": _minmax
+})
 
 def parse_physical_model(desc: dict, device: torch.device):
     frame_desc = desc["reference_frame"]
@@ -69,33 +74,32 @@ def parse_physical_model(desc: dict, device: torch.device):
         frame=frame,
         device=device
     )
-    ref_flux = None
-    if "reference_flux" in desc:
-        flux_desc = desc["reference_flux"]
-        ref_flux = ReferenceFlux(
-            image=load_3d_grid_data(flux_desc["flux"]),
-            oblique_range_x=flux_desc["oblique_range_x"],   
-            oblique_range_y=flux_desc["oblique_range_y"],
-            device=device
-        )
-    return pm, ref_flux
+    return pm
 
 def load_physical_model(yaml_path: Path | str, device: torch.device):
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
-        desc = validate_pm_data_schema(data)
+        desc = _model_desc_schema.validate(data)
     return parse_physical_model(desc, device)
 
-def load_cameras(yaml_path: Path | str) -> list[Camera]:
-    path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
-    schema = Schema({
-        Optional("name"): str,
-        "positions": path,
-        "images": path
-    })
+def parse_reference_flux(desc: dict, device: torch.device):
+    return ReferenceFlux(
+        image=load_3d_grid_data(desc["flux"]),
+        oblique_range_x=desc["oblique_range_x"],   
+        oblique_range_y=desc["oblique_range_y"],
+        device=device
+    )
+
+def load_reference_flux(yaml_path: Path | str, device: torch.device):
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
-        desc = schema.validate(data)
+        desc = _ref_flux_desc_schema.validate(data)
+    return parse_reference_flux(desc, device)
+
+def load_cameras(yaml_path: Path | str) -> list[Camera]:
+    with open(yaml_path, "r") as f:
+        data = load_yaml(f)
+        desc = _dataset_desc_schema.validate(data)
     positions = load_camera_positions(desc["positions"])
     images_dir = desc["images"]
     cameras = []
