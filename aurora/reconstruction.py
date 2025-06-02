@@ -55,7 +55,11 @@ class Dataset:
     
     def __getitem__(self, idx):
         return (
-            self.ro[idx], self.rd[idx], self.g_ref[idx], self.tn[idx], self.tf[idx]
+            self.ro[idx],
+            self.rd[idx],
+            self.g_ref[idx],
+            self.tn[idx],
+            self.tf[idx]
         )
     
     def sample(self, num_samples: int):
@@ -73,9 +77,14 @@ class Reconstruction:
         self.device = device
 
         self._vmap_g_cache = {}
+        self._training = True
 
     def f(self, xy: torch.Tensor) -> torch.Tensor:
-        return self.f_model.f_at(xy)
+        if not self._training:
+            with torch.no_grad():
+                return self.f_model.f_at(xy)
+        else:
+            return self.f_model.f_at(xy)
 
     def L(self, p: torch.Tensor) -> torch.Tensor:
         xy, z = p[...,:2], p[...,2]
@@ -103,6 +112,7 @@ class Reconstruction:
             return self.physical_model.integrate_g(rd, t, p, f)
         return torch.vmap(single_ray_g, randomness='different')
     
+    @torch.no_grad()
     def image(self, cam: Camera, ray_bins: int, nan=0.0):
         ro, rd = cam.create_rays(self.frame, self.device)
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
@@ -125,6 +135,9 @@ class Reconstruction:
             lr_step_size: int = 5000, # step size 500
             lr_gamma: float = 0.1
         ) -> list[float]:
+
+        if not self._training:
+            raise ValueError("Reconstruction not in training mode.")
 
         if not isinstance(self.f_model, TrainableFluxModel):
             raise ValueError("Flux model is not trainable.")
@@ -160,10 +173,12 @@ class Reconstruction:
     def eval_mode(self):
         if isinstance(self.f_model, TrainableFluxModel):
             self.f_model.eval()
+        self._training = False
     
     def train_mode(self):
         if isinstance(self.f_model, TrainableFluxModel):
             self.f_model.train()
+        self._training = True
 
 
 def save_reonstruction(recon: Reconstruction, path: Path | str):

@@ -447,14 +447,15 @@ def generate_images(
     cams = load_cameras(cameras)
     n_cam = len(cams)
 
-    if downsample is not None:
-        for i in range(n_cam):
-            cams[i] = cams[i].downsample(downsample)
+    with torch.no_grad():
+        if downsample is not None:
+            for i in range(n_cam):
+                cams[i] = cams[i].downsample(downsample)
 
-    imgs = []
-    for i, cam in enumerate(cams):
-        print(f"Generating image {i+1}/{n_cam}")
-        imgs.append(recon.image(cam, ray_bins))
+        imgs = []
+        for i, cam in enumerate(cams):
+            print(f"Generating image {i+1}/{n_cam}")
+            imgs.append(recon.image(cam, ray_bins))
 
     if plot:
         # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
