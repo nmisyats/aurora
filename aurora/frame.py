@@ -64,7 +64,7 @@ class ReferenceFrame:
         # Define the oblique reference frame bounding box
         x_min, x_max = range_south
         y_min, y_max = range_east
-        h = height
+        h = height / metric_tensor[2,2] # height in the oblique frame
         self.box_min = torch.tensor([x_min, y_min, 0.0], device=device)
         self.box_max = torch.tensor([x_max, y_max,   h], device=device)
         self.xy_min = self.box_min[:2]
