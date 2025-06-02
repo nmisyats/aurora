@@ -120,7 +120,13 @@ class Reconstruction:
     
     @torch.no_grad()
     def image(self, cam: Camera, ray_bins: int, nan=0.0):
-        ro, rd = cam.create_rays(self.frame, self.device)
+        ro, rd = self.frame.create_rays(
+            cam.latitude,
+            cam.longitude,
+            cam.altitude,
+            cam.azimuth,
+            cam.zenith
+        )
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
         g = self.g(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
