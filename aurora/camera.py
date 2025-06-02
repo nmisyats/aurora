@@ -21,6 +21,14 @@ class Camera:
     azimuth: torch.Tensor
     zenith: torch.Tensor
 
+    @property
+    def width(self):
+        return self.azimuth.size(1)
+    
+    @property
+    def height(self):
+        return self.azimuth.size(0)
+
     def __repr__(self):
         return ", ".join(["Camera=(",
             f"name={self.name}",
