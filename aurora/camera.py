@@ -2,14 +2,8 @@ from dataclasses import dataclass
 
 import torch
 
-from aurora.physics import ReferenceFrame
-from aurora.geodesy import (
-    lat_lon_to_ECEF,
-    az_ze_to_UNE,
-    UNE_to_ECEF,
-    earth_radius,
-)
 from aurora.utils import downsample_image
+
 
 @dataclass
 class Camera:
@@ -42,26 +36,6 @@ class Camera:
     
     def __str__(self):
         return self.__repr__(self)
-    
-    def create_rays(self, frame: ReferenceFrame, device: torch.device):
-        lat, lon, alt = self.latitude, self.longitude, self.altitude
-        o_ecef = frame.origin_ecef
-        ecef_to_field = frame.ecef_to_field_mat
-
-        az = self.azimuth.flatten().to(device)
-        ze = self.zenith.flatten().to(device)
-        rd_une = az_ze_to_UNE(az, ze).to(device)
-        rd_ecef = UNE_to_ECEF(rd_une, lat, lon).to(device)
-        rd_rel = torch.matmul(rd_ecef, ecef_to_field.T)
-
-        ro_ecef_unit = lat_lon_to_ECEF(lat, lon).to(device)
-        radius = earth_radius(lat, lon) + alt
-        ro_ecef = radius * ro_ecef_unit
-        ro_ecef_rel = ro_ecef - o_ecef
-        ro_rel = torch.matmul(ro_ecef_rel, ecef_to_field.T)
-        ro_rel = ro_rel.repeat(rd_rel.shape[0], 1)
-
-        return ro_rel, rd_rel
 
     def downsample(self, factor: int) -> 'Camera':
         return Camera(

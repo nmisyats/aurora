@@ -5,8 +5,8 @@ import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
 
 from aurora.camera import Camera
+from aurora.frame import ReferenceFrame
 from aurora.physics import (
-    ReferenceFrame,
     PhysicalModel,
     ElectronFluxModel,
     TrainableFluxModel
@@ -37,7 +37,13 @@ class Dataset:
     def _create_ray_g_pairs(self, cams: list[Camera]):
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in cams:
-            cam_ro, cam_rd = cam.create_rays(self.frame, self.device)
+            cam_ro, cam_rd = self.frame.create_rays(
+                cam.latitude,
+                cam.longitude,
+                cam.altitude,
+                cam.azimuth,
+                cam.zenith
+            )
             ro_list.append(cam_ro)
             rd_list.append(cam_rd)
 

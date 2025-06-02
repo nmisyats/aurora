@@ -9,7 +9,8 @@ except ImportError:
 import torch
 
 from aurora.camera import Camera
-from aurora.physics import PhysicalModel, ReferenceFrame
+from aurora.physics import PhysicalModel
+from aurora.frame import ReferenceFrame
 from aurora.models import ReferenceFlux
 from aurora.utils import load_matrix_data, load_3d_grid_data
 
