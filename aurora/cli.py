@@ -102,8 +102,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         if plot:
             recon.eval_mode()
             recon_xy = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
-            estimated_f = recon.f(recon_xy).detach()
-            estimated_q0 = pm.q0(estimated_f).cpu()
+            estimated_f = recon.flux(recon_xy).detach()
+            estimated_q0 = pm.total_energy_flux(estimated_f).cpu()
 
             x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
             x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
@@ -122,7 +122,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                                 cbar_pad="10%")
 
                 # === Process reference flux ===
-                reference_q0 = pm.q0(ref.image).cpu()
+                reference_q0 = pm.total_energy_flux(ref.image).cpu()
 
                 # === Determine color range ===
                 vmin = min(estimated_q0.min(), reference_q0.min())
@@ -153,8 +153,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                                     vmin=vmin, vmax=vmax)
 
                 # === Compute and show MAE ===
-                ref_f_at_xy = ref.f_at(recon_xy)
-                true_q0_at_grid = pm.q0(ref_f_at_xy).cpu()
+                ref_f_at_xy = ref.flux_at(recon_xy)
+                true_q0_at_grid = pm.total_energy_flux(ref_f_at_xy).cpu()
                 mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
                 grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
                             transform=grid[1].transAxes,
@@ -303,7 +303,7 @@ def plot_flux(
     
     xy_min = ref.xy_min
     xy_max = ref.xy_max
-    q0 = pm.q0(ref.image)
+    q0 = pm.total_energy_flux(ref.image)
     
     fig, ax = plt.subplots(figsize=(8, 6))
     x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
@@ -390,13 +390,13 @@ def generate_reconstructed_flux(
     xy_min = pm.frame.xy_min
     xy_max = pm.frame.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
-    f = recon.f(xy).detach()
+    f = recon.flux(xy).detach()
 
     if save is not None:
         save_3d_grid_data(f, save)
     
     if plot:
-        q0 = pm.q0(f)
+        q0 = pm.total_energy_flux(f)
         fig, ax = plt.subplots(figsize=(8, 6))
         x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
         im = ax.imshow(q0.cpu(),
@@ -432,7 +432,7 @@ def generate_volume_emission(
         xyz_min = pm.frame.box_min
         xyz_max = pm.frame.box_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = recon.L(xyz).detach().cpu()
+        l = recon.emis_rate(xyz).detach().cpu()
     else:
         ref = load_reference_flux(reconstruction_or_reference_path, device)
         if physical_model is None:
@@ -445,8 +445,8 @@ def generate_volume_emission(
         xyz_max = torch.tensor([*ref.xy_max, z_max]).to(device)
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         xy = xyz[...,:2]
-        f = ref.f_at(xy)
-        l = pm.L(xyz, f).cpu()
+        f = ref.flux_at(xy)
+        l = pm.emis_rate(xyz, f).cpu()
     
     if save is not None:
         save_3d_grid_data(l, save)

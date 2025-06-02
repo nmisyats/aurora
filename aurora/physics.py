@@ -21,7 +21,7 @@ class PhysicalModel:
         self.m_mat = emission_matrix.to(self.device)
         self.E_edges = energy_bins.to(self.device)
 
-    def L(self, p: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
+    def emis_rate(self, p: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
         p_frame = p
         p_une = self.frame.to_une(p_frame, is_point=True)
         z_une = p_une[..., 0]
@@ -32,19 +32,19 @@ class PhysicalModel:
         l = torch.sum(m_z * f, dim=-1)
         return l
     
-    def integrate_g(self,
+    def integrate_gray_level(self,
           rd: torch.Tensor,
           t: torch.Tensor,
           p: torch.Tensor,
           f: torch.Tensor
         ) -> torch.Tensor:
-        l = self.L(p, f)
+        l = self.emis_rate(p, f)
         g = torch.trapezoid(l, t)
         g *= torch.sqrt(rd @ self.frame.metric_tensor @ rd)
         g /= 10.0
         return g
     
-    def q0(self, f: torch.Tensor) -> torch.Tensor:
+    def total_energy_flux(self, f: torch.Tensor) -> torch.Tensor:
         e = 1.602e-19
         lower_E, upper_E = self.E_edges[:-1], self.E_edges[1:]
         E = (lower_E + upper_E) / 2.0
@@ -56,11 +56,11 @@ class PhysicalModel:
 
 class ElectronFluxModel(ABC):
     @abstractmethod
-    def f_at(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux_at(self, xy: torch.Tensor) -> torch.Tensor:
         ...
 
 class TrainableFluxModel(ElectronFluxModel, nn.Module):
-    def f_at(self, xy: torch.Tensor):
+    def flux_at(self, xy: torch.Tensor):
         orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
         xy = xy.reshape(-1, 2) # (N, 2)
         f = self.forward(xy) # (N, n_bins)

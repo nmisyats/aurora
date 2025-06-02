@@ -79,19 +79,19 @@ class Reconstruction:
         self._vmap_g_cache = {}
         self._training = True
 
-    def f(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux(self, xy: torch.Tensor) -> torch.Tensor:
         if not self._training:
             with torch.no_grad():
-                return self.f_model.f_at(xy)
+                return self.f_model.flux_at(xy)
         else:
-            return self.f_model.f_at(xy)
+            return self.f_model.flux_at(xy)
 
-    def L(self, p: torch.Tensor) -> torch.Tensor:
+    def emis_rate(self, p: torch.Tensor) -> torch.Tensor:
         xy = p[...,:2]
-        f = self.f(xy)
-        return self.physical_model.L(p, f)
+        f = self.flux(xy)
+        return self.physical_model.emis_rate(p, f)
     
-    def g(
+    def gray_level(
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
@@ -108,15 +108,15 @@ class Reconstruction:
         def single_ray_g(ro, rd, tn, tf):
             t, p = create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
             xy = p[:,:2]
-            f = self.f(xy)
-            return self.physical_model.integrate_g(rd, t, p, f)
+            f = self.flux(xy)
+            return self.physical_model.integrate_gray_level(rd, t, p, f)
         return torch.vmap(single_ray_g, randomness='different')
     
     @torch.no_grad()
     def image(self, cam: Camera, ray_bins: int, nan=0.0):
         ro, rd = cam.create_rays(self.frame)
         tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
-        g = self.g(ro, rd, tn, tf, ray_bins)
+        g = self.gray_level(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)
@@ -149,7 +149,7 @@ class Reconstruction:
             optimizer.zero_grad()
 
             ro, rd, g_ref, tn, tf = dataset.sample(batch_size)
-            g = self.g(ro, rd, tn, tf, ray_bins)
+            g = self.gray_level(ro, rd, tn, tf, ray_bins)
             loss = (g - g_ref)**2
             loss = loss.sum() / batch_size
             loss.backward()

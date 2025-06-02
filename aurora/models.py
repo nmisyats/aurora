@@ -44,7 +44,7 @@ class ReferenceFlux(ElectronFluxModel):
         res_y = self.image.size(0)
         return res_x, res_y
     
-    def f_at(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux_at(self, xy: torch.Tensor) -> torch.Tensor:
         # xy: (..., 2) coordinates within xy_min and xy_max
         # self.image: (H, W, B)
         # Output: (..., B) sampled flux at each xy
