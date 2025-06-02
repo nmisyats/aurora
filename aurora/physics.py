@@ -22,9 +22,10 @@ class PhysicalModel:
         self.E_edges = energy_bins.to(self.device)
 
     def L(self, p: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
-        z = p[..., 2]
-        z = z + self.frame.origin_altitude
-        z_idx = torch.bucketize(z.contiguous(), self.z_edges) - 1
+        p_frame = p
+        p_une = self.frame.to_une(p_frame, is_point=True)
+        z_une = p_une[..., 0]
+        z_idx = torch.bucketize(z_une.contiguous(), self.z_edges) - 1
         z_idx = torch.clamp(z_idx, 0, self.m_mat.shape[1]-1)
         m_z = self.m_mat[z_idx.flatten(),:]
         m_z = m_z.reshape(*z_idx.shape, m_z.shape[-1])
