@@ -453,7 +453,6 @@ def generate_images(
     if reconstruction_or_reference_path.suffix == ".pth":
         device = choose_best_device(gpu)
         recon = load_reconstruction(reconstruction_or_reference_path, device)
-        recon.eval_mode()
     else:
         ref = load_reference_flux(reconstruction_or_reference_path, device)
         if physical_model is None:
@@ -461,7 +460,7 @@ def generate_images(
             raise typer.Exit(1)
         pm = load_physical_model(physical_model, device)
         recon = Reconstruction(pm, ref, device)
-        recon.eval_mode()
+    recon.eval_mode()
 
     cams = load_cameras(dataset_path)
     if locations is not None:
