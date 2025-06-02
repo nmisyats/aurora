@@ -324,18 +324,18 @@ def plot_flux(
 @plot_app.command("cams")
 def plot_cameras(
     dataset_path: Path = typer.Argument(..., help="Path to dataset description"),
-    cam_name: str = typer.Option(None, help="Name of the camera to plot")
+    name: str = typer.Option(None, help="Name of the camera to plot")
 ):
     cams = load_cameras(dataset_path)
 
-    if cam_name is not None:
+    if name is not None:
         cams = {cam.name: cam for cam in cams}
-        cam = cams[cam_name]
+        cam = cams[name]
         fig, ax = plt.subplots(figsize=(8, 6))
         im = ax.imshow(cam.image)
         cbar = ax.figure.colorbar(im)
         cbar.set_label("Rayleigh")
-        ax.set_title(f"{cam_name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
+        ax.set_title(f"{name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
         plt.show()
     
     else:
