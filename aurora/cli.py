@@ -361,7 +361,8 @@ def generate_reconstructed_flux(
 
 @gen_app.command("emis")
 def generate_volume_emission(
-    path: Path = typer.Argument(..., help="Path to reconstruction or physical model"),
+    path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
+    physical_model: Path = typer.Argument(..., help="Path to physical model (for reference flux only)"),
     res_x: int = typer.Option(100),
     res_y: int = typer.Option(100),
     res_z: int = typer.Option(50),
@@ -379,7 +380,8 @@ def generate_volume_emission(
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = recon.L(xyz).detach().cpu()
     else:
-        pm, ref = load_physical_model(path, device)
+        ref = load_reference_flux(path, device)
+        pm = load_physical_model(physical_model, device)
         if ref is None:
             typer.echo("The specified physical model does not have a reference flux.")
             typer.Exit(1)
