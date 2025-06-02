@@ -20,37 +20,22 @@ def load_yaml(stream):
 
 _minmax = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p[1]))
 _float = Use(float)
-_path = And(Use(Path), lambda p: p.exists(), error="Must be a valid path")
 
-_model_desc_schema = Schema({
-    Optional("name"): str,
-    "altitude_bins": _path,
-    "energy_bins": _path,
-    "emission_matrix": _path,
-    "reference_frame": {
-        "origin_latitude": _float,
-        "origin_longitude": _float,
-        "field_inclination": _float,
-        "field_declination": _float
-    },
-    "reconstruction_volume": {
-        "range_south": _minmax,
-        "range_east": _minmax,
-    }
-})
+def resolve_relative_to_base(target_path: Path, base_path: Path) -> Path:
+    base_path = Path(base_path)
+    target_path = Path(target_path)
+    if target_path.is_absolute():
+        return target_path.resolve()
+    abs_base = base_path.resolve()
+    return (abs_base / target_path).resolve()
 
-_dataset_desc_schema = Schema({
-    Optional("name"): str,
-    "positions": _path,
-    "images": _path
-})
-
-_ref_flux_desc_schema = Schema({
-    Optional("name"): str,
-    "flux": _path,
-    "range_south": _minmax,
-    "range_east": _minmax
-})
+def path_validator(base_path: Path):
+    return And(
+        Use(Path),
+        Use(lambda p: resolve_relative_to_base(p, base_path)),
+        lambda p: p.exists(),
+        error="Must be a valid path"
+    )
 
 def parse_physical_model(desc: dict, device: torch.device):
     altitude_bins=load_matrix_data(desc["altitude_bins"]).flatten()
@@ -79,9 +64,27 @@ def parse_physical_model(desc: dict, device: torch.device):
     return pm
 
 def load_physical_model(yaml_path: Path | str, device: torch.device):
+    yaml_path = Path(yaml_path)
+    relative_path = path_validator(yaml_path.parent)
+    model_desc_schema = Schema({
+        Optional("name"): str,
+        "altitude_bins": relative_path,
+        "energy_bins": relative_path,
+        "emission_matrix": relative_path,
+        "reference_frame": {
+            "origin_latitude": _float,
+            "origin_longitude": _float,
+            "field_inclination": _float,
+            "field_declination": _float
+        },
+        "reconstruction_volume": {
+            "range_south": _minmax,
+            "range_east": _minmax,
+        }
+    })
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
-        desc = _model_desc_schema.validate(data)
+        desc = model_desc_schema.validate(data)
     return parse_physical_model(desc, device)
 
 def parse_reference_flux(desc: dict, device: torch.device):
@@ -93,9 +96,17 @@ def parse_reference_flux(desc: dict, device: torch.device):
     )
 
 def load_reference_flux(yaml_path: Path | str, device: torch.device):
+    yaml_path = Path(yaml_path)
+    relative_path = path_validator(yaml_path.parent)
+    ref_flux_desc_schema = Schema({
+        Optional("name"): str,
+        "flux": relative_path,
+        "range_south": _minmax,
+        "range_east": _minmax
+    })
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
-        desc = _ref_flux_desc_schema.validate(data)
+        desc = ref_flux_desc_schema.validate(data)
     return parse_reference_flux(desc, device)
 
 def parse_camera(cam_pos: dict, cam_name: str, cam_dir: Path | str):
@@ -112,9 +123,16 @@ def parse_camera(cam_pos: dict, cam_name: str, cam_dir: Path | str):
     )
 
 def load_cameras(yaml_path: Path | str) -> list[Camera]:
+    yaml_path = Path(yaml_path)
+    relative_path = path_validator(yaml_path.parent)
+    dataset_desc_schema = Schema({
+        Optional("name"): str,
+        "positions": relative_path,
+        "images": relative_path
+    })
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
-        desc = _dataset_desc_schema.validate(data)
+        desc = dataset_desc_schema.validate(data)
     positions = load_camera_positions(desc["positions"])
     images_dir = desc["images"]
     cameras = []
