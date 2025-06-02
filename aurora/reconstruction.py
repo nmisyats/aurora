@@ -121,9 +121,6 @@ class Reconstruction:
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)
         return img
-
-    def image_renderer(self, ray_bins: int, nan=0.0):
-        return lambda cam: self.image(cam, ray_bins, nan)
     
     def train(self,
             dataset: Dataset,
