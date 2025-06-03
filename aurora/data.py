@@ -7,12 +7,12 @@ try:
 except ImportError:
     from yaml import Loader
 import torch
+import numpy as np
 
 from aurora.camera import Camera
 from aurora.physics import PhysicalModel
 from aurora.frame import ReferenceFrame
 from aurora.models import ReferenceFlux
-from aurora.utils import load_matrix_data, load_3d_grid_data
 
 def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
@@ -38,30 +38,31 @@ def path_validator(base_path: Path):
     )
 
 def parse_physical_model(desc: dict, device: torch.device):
-    altitude_bins=load_matrix_data(desc["altitude_bins"]).flatten()
-    energy_bins=load_matrix_data(desc["energy_bins"]).flatten()
-    emission_matrix=load_matrix_data(desc["emission_matrix"]).T
+    altitude_bins = load_matrix_data(desc["altitude_bins"]).flatten()
+    energy_bins = load_matrix_data(desc["energy_bins"]).flatten()
+    emission_matrix = load_matrix_data(desc["emission_matrix"]).T
+    min_altitude = altitude_bins[0].item()
+    max_altitude = altitude_bins[-1].item()
     frame_desc = desc["reference_frame"]
     vol_desc = desc["reconstruction_volume"]
-    frame = ReferenceFrame(
-        origin_latitude=frame_desc["origin_latitude"],
-        origin_longitude=frame_desc["origin_longitude"],
-        origin_altitude=altitude_bins[0].item(),
-        field_inclination=frame_desc["field_inclination"],
-        field_declination=frame_desc["field_declination"],
-        range_south=vol_desc["range_south"],
-        range_east=vol_desc["range_east"],
-        height=(altitude_bins[-1] - altitude_bins[0]).item(),
-        device=device
-    )
-    pm = PhysicalModel(
+    physical_model = PhysicalModel(
         altitude_bins=altitude_bins,
         energy_bins=energy_bins,
         emission_matrix=emission_matrix,
-        frame=frame,
+        frame=ReferenceFrame(
+            origin_latitude=frame_desc["origin_latitude"],
+            origin_longitude=frame_desc["origin_longitude"],
+            origin_altitude=min_altitude,
+            field_inclination=frame_desc["field_inclination"],
+            field_declination=frame_desc["field_declination"],
+            range_south=vol_desc["range_south"],
+            range_east=vol_desc["range_east"],
+            height=max_altitude - min_altitude,
+            device=device
+        ),
         device=device
     )
-    return pm
+    return physical_model
 
 def load_physical_model(yaml_path: Path | str, device: torch.device):
     yaml_path = Path(yaml_path)
@@ -109,18 +110,12 @@ def load_reference_flux(yaml_path: Path | str, device: torch.device):
         desc = ref_flux_desc_schema.validate(data)
     return parse_reference_flux(desc, device)
 
-def parse_camera(cam_pos: dict, cam_name: str, cam_dir: Path | str):
-    if not isinstance(cam_dir, Path):
-        cam_dir = Path(cam_dir)
-    return Camera(
-        name=cam_name,
-        longitude=cam_pos["longitude"],
-        latitude=cam_pos["latitude"],
-        altitude=cam_pos["altitude"],
-        image=load_matrix_data(cam_dir / "image.dat"),
-        azimuth=load_matrix_data(cam_dir / "az_cam.dat"),
-        zenith=load_matrix_data(cam_dir / "ze_cam.dat"),
-    )
+def load_camera_images(cam_dir: Path | str):
+    cam_dir = Path(cam_dir)
+    image = load_matrix_data(cam_dir / "image.dat")
+    azimuth = load_matrix_data(cam_dir / "az_cam.dat")
+    zenith = load_matrix_data(cam_dir / "ze_cam.dat")
+    return image, azimuth, zenith
 
 def load_cameras(yaml_path: Path | str) -> list[Camera]:
     yaml_path = Path(yaml_path)
@@ -138,7 +133,16 @@ def load_cameras(yaml_path: Path | str) -> list[Camera]:
     cameras = []
     for cam_name, cam_pos in positions.items():
         cam_dir = images_dir / cam_name
-        cam = parse_camera(cam_pos, cam_name, cam_dir)
+        image, azimuth, zenith = load_camera_images(cam_dir)
+        cam = Camera(
+            name=cam_name,
+            longitude=cam_pos["longitude"],
+            latitude=cam_pos["latitude"],
+            altitude=cam_pos["altitude"],
+            image=image,
+            azimuth=azimuth,
+            zenith=zenith,
+        )
         cameras.append(cam)
     return cameras
 
@@ -173,3 +177,54 @@ def load_camera_positions(set_path: Path) -> dict[str, dict]:
             print(f"Error parsing camera data: {e}")
             continue
     return positions
+
+def load_matrix_data(dat_path: Path | str):
+    mat = []
+    with open(dat_path, "r") as f:
+        for line in f:
+            row = [float(num) for num in line.strip().split()]
+            mat.append(row)
+    mat = torch.tensor(mat, dtype=torch.float32)
+    return mat
+
+def save_matrix_data(tensor: torch.Tensor, dat_path: Path | str):
+    with open(dat_path, "w") as f:
+        for row in tensor:
+            line = " ".join(f"{val:.6f}" for val in row.tolist())
+            f.write(line + "\n")
+
+def load_3d_grid_data(dat_path: Path | str):
+    data = np.loadtxt(dat_path)
+    indices = data[:, :3].astype(int)
+    values = data[:, 3]
+    # Determine array shape from max index values
+    ni, nj, nk = indices.max(axis=0) + 1
+    array = np.zeros((ni, nj, nk), dtype=values.dtype)
+    # Assign values
+    array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
+    return torch.from_numpy(array).to(torch.float32)
+
+def save_3d_grid_data(array: torch.Tensor, file_path: Path):
+    array = array.numpy(force=True)
+    ni, nj, nk = array.shape
+    indices = np.indices((ni, nj, nk)).reshape(3, -1).T  # Generate i, j, k indices efficiently
+    values = array.ravel().reshape(-1, 1)  # Flatten array values
+    data = np.hstack((indices, values))  # Combine indices with values
+    np.savetxt(file_path, data, fmt="%d %d %d %.6f")  # Save to file with formatting
+
+def load_2d_grid_data(dat_path: Path | str):
+    data = np.loadtxt(dat_path)
+    indices = data[:, :2].astype(int)
+    values = data[:, 2]
+    ni, nj = indices.max(axis=0) + 1
+    array = np.zeros((ni, nj), dtype=values.dtype)
+    array[indices[:, 0], indices[:, 1]] = values
+    return torch.from_numpy(array).to(torch.float32)
+
+def save_2d_grid_data(array: torch.Tensor, file_path: Path):
+    array = array.numpy(force=True)
+    ni, nj = array.shape
+    indices = np.indices((ni, nj)).reshape(2, -1).T  # Generate i, j indices
+    values = array.ravel().reshape(-1, 1)
+    data = np.hstack((indices, values))
+    np.savetxt(file_path, data, fmt="%d %d %.6f")

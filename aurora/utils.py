@@ -41,57 +41,6 @@ def ranges3d_to_tuple(x_range: Coord2DLike, y_range: Coord2DLike, z_range: Coord
     z_min, z_max = float(z_range[0]), float(z_range[1])
     return x_min, x_max, y_min, y_max, z_min, z_max
 
-def load_matrix_data(dat_path: Path | str):
-    mat = []
-    with open(dat_path, "r") as f:
-        for line in f:
-            row = [float(num) for num in line.strip().split()]
-            mat.append(row)
-    mat = torch.tensor(mat, dtype=torch.float32)
-    return mat
-
-def save_matrix_data(tensor: torch.Tensor, dat_path: Path | str):
-    with open(dat_path, "w") as f:
-        for row in tensor:
-            line = " ".join(f"{val:.6f}" for val in row.tolist())
-            f.write(line + "\n")
-
-def load_3d_grid_data(dat_path: Path | str):
-    data = np.loadtxt(dat_path)
-    indices = data[:, :3].astype(int)
-    values = data[:, 3]
-    # Determine array shape from max index values
-    ni, nj, nk = indices.max(axis=0) + 1
-    array = np.zeros((ni, nj, nk), dtype=values.dtype)
-    # Assign values
-    array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
-    return torch.from_numpy(array).to(torch.float32)
-
-def save_3d_grid_data(array: torch.Tensor, file_path: Path):
-    array = array.numpy(force=True)
-    ni, nj, nk = array.shape
-    indices = np.indices((ni, nj, nk)).reshape(3, -1).T  # Generate i, j, k indices efficiently
-    values = array.ravel().reshape(-1, 1)  # Flatten array values
-    data = np.hstack((indices, values))  # Combine indices with values
-    np.savetxt(file_path, data, fmt="%d %d %d %.6f")  # Save to file with formatting
-
-def load_2d_grid_data(dat_path: Path | str):
-    data = np.loadtxt(dat_path)
-    indices = data[:, :2].astype(int)
-    values = data[:, 2]
-    ni, nj = indices.max(axis=0) + 1
-    array = np.zeros((ni, nj), dtype=values.dtype)
-    array[indices[:, 0], indices[:, 1]] = values
-    return torch.from_numpy(array).to(torch.float32)
-
-def save_2d_grid_data(array: torch.Tensor, file_path: Path):
-    array = array.numpy(force=True)
-    ni, nj = array.shape
-    indices = np.indices((ni, nj)).reshape(2, -1).T  # Generate i, j indices
-    values = array.ravel().reshape(-1, 1)
-    data = np.hstack((indices, values))
-    np.savetxt(file_path, data, fmt="%d %d %.6f")
-
 def xy_grid(
         xy_min: torch.Tensor,
         xy_max: torch.Tensor,

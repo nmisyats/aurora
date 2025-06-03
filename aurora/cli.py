@@ -17,17 +17,15 @@ from aurora.data import (
     load_physical_model,
     load_cameras,
     load_reference_flux,
-    load_camera_positions,
-    parse_camera
+    save_matrix_data,
+    save_2d_grid_data,
+    save_3d_grid_data
 )
 from aurora.utils import (
     xy_grid,
     xyz_grid,
     bounds2d_to_tuple,
-    bounds3d_to_tuple,
-    save_matrix_data,
-    save_2d_grid_data,
-    save_3d_grid_data
+    bounds3d_to_tuple
 )
 
 app = typer.Typer()
