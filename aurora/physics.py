@@ -20,7 +20,7 @@ class PhysicalModel:
         self.frame = frame
         self.z_edges = altitude_bins.to(self.device)
         self.m_mat = emission_matrix.to(self.device)
-        self.d_mat = density_matrix.to(self.device)
+        self.d_mat = density_matrix.to(self.device).square()
         self.E_edges = energy_bins.to(self.device)
 
     def emis_rate(self, p: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
