@@ -1,9 +1,25 @@
-from pathlib import Path
 from typing import Union, Tuple, List
 
 import numpy as np
 import torch
 
+
+TensorLike = Union[torch.Tensor, np.ndarray, float, List[float], Tuple[float, ...]]
+
+def as_tensor(data: TensorLike) -> torch.Tensor:
+    """
+    Converts input data to a PyTorch tensor.
+    """
+    if isinstance(data, torch.Tensor):
+        return data
+    elif isinstance(data, np.ndarray):
+        return torch.from_numpy(data).to(torch.float32)
+    elif isinstance(data, (list, tuple)):
+        return torch.tensor(data, dtype=torch.float32)
+    elif isinstance(data, float):
+        return torch.tensor(data, dtype=torch.float32)
+    else:
+        raise TypeError(f"Unsupported type for conversion to tensor: {type(data)}")
 
 Coord2DLike = Union[Tuple[float, float], List[float], torch.Tensor]
 Coord3DLike = Union[Tuple[float, float, float], List[float], torch.Tensor]

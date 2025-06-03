@@ -18,7 +18,7 @@ def load_yaml(stream):
     return yaml.load(stream, Loader=Loader)
 
 
-_minmax = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p[1]))
+_minmax_tuple = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p[1]))
 _float = Use(float)
 
 def resolve_relative_to_base(target_path: Path, base_path: Path) -> Path:
@@ -41,6 +41,7 @@ def parse_physical_model(desc: dict, device: torch.device):
     altitude_bins = load_matrix_data(desc["altitude_bins"]).flatten()
     energy_bins = load_matrix_data(desc["energy_bins"]).flatten()
     emission_matrix = load_matrix_data(desc["emission_matrix"]).T
+    density_matrix = load_matrix_data(desc["density_matrix"]).T
     min_altitude = altitude_bins[0].item()
     max_altitude = altitude_bins[-1].item()
     frame_desc = desc["reference_frame"]
@@ -49,6 +50,7 @@ def parse_physical_model(desc: dict, device: torch.device):
         altitude_bins=altitude_bins,
         energy_bins=energy_bins,
         emission_matrix=emission_matrix,
+        density_matrix=density_matrix,
         frame=ReferenceFrame(
             origin_latitude=frame_desc["origin_latitude"],
             origin_longitude=frame_desc["origin_longitude"],
@@ -72,6 +74,7 @@ def load_physical_model(yaml_path: Path | str, device: torch.device):
         "altitude_bins": relative_path,
         "energy_bins": relative_path,
         "emission_matrix": relative_path,
+        "density_matrix": relative_path,
         "reference_frame": {
             "origin_latitude": _float,
             "origin_longitude": _float,
@@ -79,8 +82,8 @@ def load_physical_model(yaml_path: Path | str, device: torch.device):
             "field_declination": _float
         },
         "reconstruction_volume": {
-            "range_south": _minmax,
-            "range_east": _minmax,
+            "range_south": _minmax_tuple,
+            "range_east": _minmax_tuple,
         }
     })
     with open(yaml_path, "r") as f:
@@ -102,8 +105,8 @@ def load_reference_flux(yaml_path: Path | str, device: torch.device):
     ref_flux_desc_schema = Schema({
         Optional("name"): str,
         "flux": relative_path,
-        "range_south": _minmax,
-        "range_east": _minmax
+        "range_south": _minmax_tuple,
+        "range_east": _minmax_tuple
     })
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
@@ -117,34 +120,47 @@ def load_camera_images(cam_dir: Path | str):
     zenith = load_matrix_data(cam_dir / "ze_cam.dat")
     return image, azimuth, zenith
 
-def load_cameras(yaml_path: Path | str) -> list[Camera]:
+def load_radar_point_cloud(dat_path: Path | str):
+    data = np.loadtxt(dat_path, dtype=np.float32)
+    data = torch.from_numpy(data)
+    alts, lats, lons, vals = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
+    return alts, lats, lons, vals
+
+def load_dataset(yaml_path: Path | str) -> list[Camera]:
     yaml_path = Path(yaml_path)
     relative_path = path_validator(yaml_path.parent)
     dataset_desc_schema = Schema({
         Optional("name"): str,
-        "positions": relative_path,
-        "images": relative_path
+        Optional("cameras"): {
+            "positions": relative_path,
+            "images": relative_path
+        },
+        Optional("radar"): relative_path
     })
     with open(yaml_path, "r") as f:
         data = load_yaml(f)
         desc = dataset_desc_schema.validate(data)
-    positions = load_camera_positions(desc["positions"])
-    images_dir = desc["images"]
-    cameras = []
-    for cam_name, cam_pos in positions.items():
-        cam_dir = images_dir / cam_name
-        image, azimuth, zenith = load_camera_images(cam_dir)
-        cam = Camera(
-            name=cam_name,
-            longitude=cam_pos["longitude"],
-            latitude=cam_pos["latitude"],
-            altitude=cam_pos["altitude"],
-            image=image,
-            azimuth=azimuth,
-            zenith=zenith,
-        )
-        cameras.append(cam)
-    return cameras
+    cameras, radar_data = None, None
+    if "cameras" in desc:
+        positions = load_camera_positions(desc["cameras"]["positions"])
+        images_dir = desc["cameras"]["images"]
+        cameras = []
+        for cam_name, cam_pos in positions.items():
+            cam_dir = images_dir / cam_name
+            image, azimuth, zenith = load_camera_images(cam_dir)
+            cam = Camera(
+                name=cam_name,
+                longitude=cam_pos["longitude"],
+                latitude=cam_pos["latitude"],
+                altitude=cam_pos["altitude"],
+                image=image,
+                azimuth=azimuth,
+                zenith=zenith,
+            )
+            cameras.append(cam)
+    if "radar" in desc:
+        radar_data = load_radar_point_cloud(desc["radar"])
+    return cameras, radar_data
 
 def load_camera_positions(set_path: Path) -> dict[str, dict]:
     with open(set_path, "r") as f:

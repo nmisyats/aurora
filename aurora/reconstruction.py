@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import dataclass
 
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
@@ -15,9 +16,13 @@ from aurora.geometry import (
     create_ray_points,
     ray_box_intersection
 )
+from aurora.geodesy import (
+    earth_radius,
+    lat_lon_to_ECEF,
+)
 
 
-class Dataset:
+class CameraRays:
     def __init__(self, cams: list[Camera], frame: ReferenceFrame, device: torch.device):
         self.frame = frame
         self.device = device
@@ -69,6 +74,52 @@ class Dataset:
         return self[idxs]
 
 
+class RadarPoints:
+    def __init__(
+            self,
+            altitudes: torch.Tensor,
+            latitudes: torch.Tensor,
+            longitudes: torch.Tensor,
+            densities: torch.Tensor,
+            frame: ReferenceFrame,
+            device: torch.device
+        ):
+        self.frame = frame
+        self.device = device
+
+        latitudes = latitudes.to(device)
+        longitudes = longitudes.to(device)
+        altitudes = altitudes.to(device).reshape(-1, 1)
+        points_ecef_unit = lat_lon_to_ECEF(latitudes, longitudes)
+        radii = earth_radius(latitudes, longitudes).reshape(-1, 1)
+        points_ecef = points_ecef_unit * (radii + altitudes)
+        self.p = frame.from_ecef(points_ecef, is_point=True)
+
+        self.d_ref = densities.to(device)
+    
+    def __len__(self):
+        return len(self.p)
+    
+    def __getitem__(self, idx):
+        return (self.p[idx], self.d_ref[idx])
+    
+    def sample(self, num_samples: int):
+        if num_samples > len(self):
+            raise ValueError("Number of samples exceeds dataset size.")
+        idxs = torch.randint(0, len(self), (num_samples,))
+        return self[idxs]
+
+
+@dataclass
+class Dataset:
+    rays: CameraRays | None = None
+    radar: RadarPoints | None = None
+
+    def __post_init__(self):
+        if self.rays is None and self.radar is None:
+            raise ValueError("At least one of rays or radar data must be provided.")
+
+
 class Reconstruction:
     def __init__(self, pm: PhysicalModel, f_model: ElectronFluxModel, device: torch.device):
         self.physical_model = pm
@@ -90,6 +141,11 @@ class Reconstruction:
         xy = p[...,:2]
         f = self.flux(xy)
         return self.physical_model.emis_rate(p, f)
+    
+    def e_dens(self, p: torch.Tensor) -> torch.Tensor:
+        xy = p[...,:2]
+        f = self.flux(xy)
+        return self.physical_model.e_dens(p, f)
     
     def gray_level(
             self, 
@@ -125,8 +181,11 @@ class Reconstruction:
     def train(self,
             dataset: Dataset,
             num_iters: int,
-            batch_size: int,
+            ray_batch_size: int = 4096,
             ray_bins: int = 100,
+            radar_batch_size: int = 1000,
+            ray_loss_weight: float = 1.0,
+            radar_loss_weight: float = 1.0,
             lr: float = 5e-5, # change to -4
             weight_decay: float = 1.0,
             lr_step_size: int = 5000, # step size 500
@@ -142,16 +201,29 @@ class Reconstruction:
         optimizer = torch.optim.Adam(self.f_model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
 
+        ray_data, radar_data = dataset.rays, dataset.radar
+        
         losses = []
 
         tq = tqdm.trange(num_iters)
         for iter in tq:
             optimizer.zero_grad()
 
-            ro, rd, g_ref, tn, tf = dataset.sample(batch_size)
-            g = self.gray_level(ro, rd, tn, tf, ray_bins)
-            loss = (g - g_ref)**2
-            loss = loss.sum() / batch_size
+            ray_loss, radar_loss = 0.0, 0.0
+
+            if ray_data is not None and ray_loss_weight > 0.0:
+                ro, rd, g_ref, tn, tf = ray_data.sample(ray_batch_size)
+                g = self.gray_level(ro, rd, tn, tf, ray_bins)
+                ray_loss = (g - g_ref)**2
+                ray_loss = ray_loss.sum() / ray_batch_size
+            
+            if radar_data is not None and radar_loss_weight > 0.0:
+                p, d_ref = radar_data.sample(radar_batch_size)
+                d = self.e_dens(p)
+                radar_loss = (d - d_ref)**2
+                radar_loss = radar_loss.sum() / radar_batch_size
+
+            loss = ray_loss_weight*ray_loss + radar_loss_weight*radar_loss
             loss.backward()
 
             optimizer.step()

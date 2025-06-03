@@ -11,11 +11,11 @@ import matplotlib.patches as patches
 import pyvista as pv
 
 from aurora.models import MODEL_REGISTRY
-from aurora.reconstruction import Reconstruction, Dataset
+from aurora.reconstruction import Reconstruction, Dataset, CameraRays, RadarPoints
 from aurora.reconstruction import load_reconstruction, save_reonstruction
 from aurora.data import (
     load_physical_model,
-    load_cameras,
+    load_dataset,
     load_reference_flux,
     save_matrix_data,
     save_2d_grid_data,
@@ -41,11 +41,14 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     
     def train_command(
         physical_model_path: Path = typer.Argument(..., help="Path to physical model configuration file"),
-        camera_dataset_path: Path = typer.Argument(..., help="Path to camera dataset configuration file"),
+        dataset_path: Path = typer.Argument(..., help="Path to camera dataset configuration file"),
         gpu: bool = typer.Option(True, help="Use GPU if available"),
         iters: int = typer.Option(2000, help="Number of training iterations"),
-        batch_size: int = typer.Option(4096, help="Batch size"),
+        ray_batch_size: int = typer.Option(4096, help="Batch size for ray loss"),
         ray_bins: int = typer.Option(100, help="Number of bins for ray integration"),
+        radar_batch_size: int = typer.Option(1000, help="Batch size for radar loss"),
+        ray_loss_weight: float = typer.Option(1.0, help="Weight for ray loss"),
+        radar_loss_weight: float = typer.Option(1.0, help="Weight for radar loss"),
         lr: float = typer.Option(5e-5, help="Initial learning rate"),
         reg_strength: float = typer.Option(1.0, help="Regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
@@ -81,13 +84,19 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         recon = Reconstruction(pm, f_model, device)
         
         # Train the reconstruction after loading the camera dataset
-        cams = load_cameras(camera_dataset_path)
-        dataset = Dataset(cams, pm.frame, device)
+        cams, radar_data = load_dataset(dataset_path)
+        rays = CameraRays(cams, pm.frame, device)
+        radar = RadarPoints(*radar_data, pm.frame, device)
+        dataset = Dataset(rays, radar)
+
         recon.train(
             dataset=dataset,
             num_iters=iters,
-            batch_size=batch_size,
+            ray_batch_size=ray_batch_size,
             ray_bins=ray_bins,
+            radar_batch_size=radar_batch_size,
+            ray_loss_weight=ray_loss_weight,
+            radar_loss_weight=radar_loss_weight,
             lr=lr,
             weight_decay=reg_strength,
             lr_step_size=lr_step,
