@@ -1,29 +1,33 @@
 import torch
 
-from aurora.frame import ReferenceFrame
+from aurora.frame import MFAlignedFrame
+import aurora.geometry as geom
 
-class BBox:
+
+class MFAlignedBBox:
     def __init__(
             self,
-            up_range: tuple[float, float],
             north_range: tuple[float, float],
             east_range: tuple[float, float],
-            frame: ReferenceFrame,
-            device: torch.device
-    ):
-        self.device = device
+            height: float,
+            frame: MFAlignedFrame
+        ):
+        self.frame = frame
+        self.device = frame.device
 
-        up_min, up_max = up_range
         north_min, north_max = north_range
         east_min, east_max = east_range
-        une_min = torch.tensor([up_min, north_min, east_min], device=device)
-        une_max = torch.tensor([up_max, north_max, east_max], device=device)
+        # Scale upmin to maintain oblicity
+        height = height / frame.metric_tensor[2,2]
 
-        self.xyz_min = frame.from_une(une_min)
-        self.xyz_max = frame.from_une(une_max)
-        self.xy_min = self.xyz_max[:2]
+        une_min = torch.tensor([  0.0,  north_min, east_min], device=self.device)
+        une_max = torch.tensor([height, north_max, east_max], device=self.device)
+
+        self.xyz_min = frame.from_local_UNE(une_min)
+        self.xyz_max = frame.from_local_UNE(une_max)
+        self.xy_min = self.xyz_min[:2]
         self.xy_max = self.xyz_max[:2]
-
+        
     @property
     def x_min(self) -> float:
         return self.xyz_min[0].item()
@@ -52,9 +56,32 @@ class BBox:
         return self.xyz_min[idx], self.xyz_max[idx]
     
     def __str__(self):
-        return "BBox(" + ", ".join([
-            f"x=({self.x_min:.2f}, {self.x_max:.2f})",
-            f"y=({self.y_min:.2f}, {self.y_max:.2f})",
-            f"z=({self.z_min:.2f}, {self.z_max:.2f})",
+        return ("BBox("
+            f"x=({self.x_min:.2f}, {self.x_max:.2f}),"
+            f"y=({self.y_min:.2f}, {self.y_max:.2f}),"
+            f"z=({self.z_min:.2f}, {self.z_max:.2f}),"
             f"device={self.device}"
-        ]) + ")"
+            ")")
+    
+    def ray_intersect_frame(self, ro_frame: torch.Tensor, rd_frame: torch.Tensor):
+        tn_frame, tf_frame = geom.ray_box_intersection(
+            ro_frame, rd_frame, self.xyz_min, self.xyz_max)
+        return tn_frame, tf_frame
+
+    def ray_intersect_local_une(self, ro_une: torch.Tensor, rd_une: torch.Tensor):
+        ro_frame = self.frame.from_local_UNE(ro_une, is_point=True)
+        rd_frame = self.frame.from_local_UNE(rd_une, is_point=False)
+        tn_frame, tf_frame = self.ray_intersect_frame(ro_frame, rd_frame)
+        scale = self.frame.metric_scale(rd_frame)
+        tn_une = tn_frame * scale
+        tf_une = tf_frame * scale
+        return tn_une, tf_une
+    
+    def ray_intersect_ecef(self, ro_ecef: torch.Tensor, rd_ecef: torch.Tensor):
+        ro_frame = self.frame.from_ECEF(ro_ecef, is_point=True)
+        rd_frame = self.frame.from_ECEF(rd_ecef, is_point=False)
+        tn_frame, tf_frame = self.ray_intersect_frame(ro_frame, rd_frame)
+        scale = self.frame.metric_scale(rd_frame)
+        tn_ecef = tn_frame * scale
+        tf_ecef = tf_frame * scale
+        return tn_ecef, tf_ecef

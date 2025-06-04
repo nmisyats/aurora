@@ -160,7 +160,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                                     vmin=vmin, vmax=vmax)
 
                 # === Compute and show MAE ===
-                ref_f_at_xy = ref.flux_at(recon_xy)
+                ref_f_at_xy = ref.flux(recon_xy)
                 true_q0_at_grid = pm.total_energy_flux(ref_f_at_xy).cpu()
                 mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
                 grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
@@ -452,7 +452,7 @@ def generate_volume_emission(
         xyz_max = torch.tensor([*ref.xy_max, z_max]).to(device)
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         xy = xyz[...,:2]
-        f = ref.flux_at(xy)
+        f = ref.flux(xy)
         l = pm.emis_rate(xyz, f).cpu()
     
     if save is not None:

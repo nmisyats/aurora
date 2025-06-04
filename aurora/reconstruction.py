@@ -1,48 +1,58 @@
 from pathlib import Path
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
 
+import aurora.physics as phy
 from aurora.camera import Camera
-from aurora.frame import ReferenceFrame
-from aurora.physics import (
-    PhysicalModel,
-    ElectronFluxModel,
-    TrainableFluxModel
-)
-from aurora.geometry import (
-    create_ray_points,
-    ray_box_intersection
-)
-from aurora.geodesy import (
-    earth_radius,
-    lat_lon_to_ECEF,
-)
+from aurora.frame import MFAlignedFrame
+from aurora.bbox import MFAlignedBBox
+import aurora.geodesy as geod
+import aurora.geometry as geom
 
 
-class CameraRays:
-    def __init__(self, cams: list[Camera], frame: ReferenceFrame, device: torch.device):
-        self.frame = frame
-        self.device = device
+class Dataset(ABC):
+    @property
+    @abstractmethod
+    def device(self) -> torch.device:
+        ...
+    
+    @abstractmethod
+    def __len__(self) -> int:
+        """
+        Returns the number of samples in the dataset.
+        """
+        ...
+    
+    @abstractmethod
+    def __getitem__(self, idx):
+        """
+        Returns a sample from the dataset at the given index.
+        """
+        ...
+    
+    def sample(self, num_samples: int) -> tuple[torch.Tensor, ...]:
+        """
+        Samples a random elements from the dataset.
+        """
+        idxs = torch.randint(0, len(self), (num_samples,))
+        return self[idxs]
 
-        # Create rays and compute intersections
-        ro, rd, g_ref = self._create_ray_g_pairs(cams)
-        tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
-        # Get mask for non-NaN values in tn
-        valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
-        # Apply the mask to all tensors
-        self.ro = ro[valid_mask].contiguous()
-        self.rd = rd[valid_mask].contiguous()
-        self.g_ref = g_ref[valid_mask].contiguous()
-        self.tn = tn[valid_mask].contiguous()
-        self.tf = tf[valid_mask].contiguous()
 
-    def _create_ray_g_pairs(self, cams: list[Camera]):
+class CameraRaysDataset(Dataset):
+    def __init__(self, cams: list[Camera], bbox: MFAlignedBBox):
+        self.bbox = bbox
+        self.device = bbox.device
+        self.frame = bbox.frame
+
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in cams:
-            cam_ro, cam_rd = cam.create_rays(self.frame)
+            cam_ro, cam_rd = cam.create_rays_ecef(self.device)
+            cam_ro = self.frame.from_ECEF(cam_ro, is_point=True)
+            cam_rd = self.frame.from_ECEF(cam_rd, is_point=False)
             ro_list.append(cam_ro)
             rd_list.append(cam_rd)
 
@@ -52,8 +62,18 @@ class CameraRays:
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
-        
-        return ro, rd, g_ref
+
+        tn, tf = bbox.ray_intersect_frame(ro, rd)
+
+        # Get mask for non-NaN values in tn
+        valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
+        # Apply the mask to all tensors
+        self.ro = ro[valid_mask].contiguous()
+        self.rd = rd[valid_mask].contiguous()
+        self.g_ref = g_ref[valid_mask].contiguous()
+        self.tn = tn[valid_mask].contiguous()
+        self.tf = tf[valid_mask].contiguous()
+
 
     def __len__(self):
         return len(self.ro)
@@ -66,142 +86,212 @@ class CameraRays:
             self.tn[idx],
             self.tf[idx]
         )
-    
-    def sample(self, num_samples: int):
-        if num_samples > len(self):
-            raise ValueError("Number of samples exceeds dataset size.")
-        idxs = torch.randint(0, len(self), (num_samples,))
-        return self[idxs]
 
 
-class RadarPoints:
+class RadarPointsDataset(Dataset):
     def __init__(
             self,
             altitudes: torch.Tensor,
             latitudes: torch.Tensor,
             longitudes: torch.Tensor,
             densities: torch.Tensor,
-            frame: ReferenceFrame,
-            device: torch.device
+            frame: MFAlignedFrame,
         ):
         self.frame = frame
-        self.device = device
 
-        latitudes = latitudes.to(device)
-        longitudes = longitudes.to(device)
-        altitudes = altitudes.to(device).reshape(-1, 1)
-        points_ecef_unit = lat_lon_to_ECEF(latitudes, longitudes)
-        radii = earth_radius(latitudes, longitudes).reshape(-1, 1)
-        points_ecef = points_ecef_unit * (radii + altitudes)
-        self.p = frame.from_ecef(points_ecef, is_point=True)
-
-        self.d_ref = densities.to(device)
+        lats = latitudes.to(self.device)
+        lons = longitudes.to(self.device)
+        alts = altitudes.to(self.device).reshape(-1, 1)
+        
+        pts_ecef_unit = geod.lat_lon_to_ECEF(lats, lons)
+        radii = geod.earth_radius(lats, lons).reshape(-1, 1)
+        pts_ecef = pts_ecef_unit * (radii + alts)
+        pts_frame = self.frame.from_ECEF(pts_ecef, is_point=True)
+        
+        self.p = pts_frame
+        self.d_ref = densities.to(self.device)
     
+    @property
+    def device(self) -> torch.device:
+        return self.frame.device
+
     def __len__(self):
         return len(self.p)
     
     def __getitem__(self, idx):
         return (self.p[idx], self.d_ref[idx])
-    
-    def sample(self, num_samples: int):
-        if num_samples > len(self):
-            raise ValueError("Number of samples exceeds dataset size.")
-        idxs = torch.randint(0, len(self), (num_samples,))
-        return self[idxs]
 
 
 @dataclass
 class Dataset:
-    rays: CameraRays | None = None
-    radar: RadarPoints | None = None
+    rays: CameraRaysDataset | None = None
+    radar: RadarPointsDataset | None = None
 
     def __post_init__(self):
         if self.rays is None and self.radar is None:
             raise ValueError("At least one of rays or radar data must be provided.")
 
 
+
 class Reconstruction:
-    def __init__(self, pm: PhysicalModel, f_model: ElectronFluxModel, device: torch.device):
-        self.physical_model = pm
-        self.f_model = f_model
-        self.frame = pm.frame
-        self.device = device
+    def __init__(
+        self,
+        flux_model: phy.ElectronFluxModel,
+        bbox: MFAlignedBBox,
+        M_emis: torch.Tensor,
+        M_dens: torch.Tensor,
+        z_edges: torch.Tensor,
+        E_edges: torch.Tensor,
+    ):
+        self.flux_model = flux_model
+        self.bbox = bbox
+        self.M_emis = M_emis
+        self.M_dens = M_dens
+        self.z_edges = z_edges
+        self.E_edges = E_edges
+
+        self.device = bbox.device
+        self.frame = bbox.frame
 
         self._vmap_g_cache = {}
         self._training = True
 
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the electron flux at points xy.
+        Args:
+            xy (torch.Tensor): Tensor of shape (..., 2) in NE coordinates.
+        
+        Returns:
+            torch.Tensor: Flux tensor at the points xy of shape (..., n_E)
+                where n_E is the number of energy bins.
+        """
         if not self._training:
             with torch.no_grad():
-                return self.f_model.flux_at(xy)
+                return self.flux_model.flux(xy)
         else:
-            return self.f_model.flux_at(xy)
+            return self.flux_model.flux(xy)
 
     def emis_rate(self, p: torch.Tensor) -> torch.Tensor:
-        xy = p[...,:2]
+        """
+        Calculate the emission rate at points p.
+        
+        Args:
+            p (torch.Tensor): Tensor of shape (..., 3) une frame coordinates.
+        
+        Returns:
+            torch.Tensor: Emission rate tensor at the points p of shape (...,).
+        """
+        xy, z = p[...,:2], p[...,2]
         f = self.flux(xy)
-        return self.physical_model.emis_rate(p, f)
+        z = z * self.frame.metric_tensor[2, 2]
+        return phy.emis_rate(z, f, self.M_emis, self.z_edges)
     
-    def e_dens(self, p: torch.Tensor) -> torch.Tensor:
-        xy = p[...,:2]
+    def elec_dens(self, p: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the electron density at points p.
+        
+        Args:
+            p (torch.Tensor): Tensor of shape (..., 3) une frame coordinates.
+        
+        Returns:
+            torch.Tensor: Emission rate tensor at the points p of shape (...,).
+        """
+        xy, z = p[...,:2], p[...,2]
         f = self.flux(xy)
-        return self.physical_model.e_dens(p, f)
-    
-    def gray_level(
+        z = z * self.frame.metric_tensor[2, 2]
+        return phy.elec_dens(z, f, self.M_dens, self.z_edges)
+
+    def int_emis_ray(
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
             tn: torch.Tensor, 
-            tf: torch.Tensor, 
+            tf: torch.Tensor,
             ray_bins: int
         ) -> torch.Tensor:
+        """
+        Integrate the emission along rays along a ray.
+        
+        Args:
+            ray_bins (int): Number of bins to use for ray integration.
+            ro (torch.Tensor): Ray origins of shape (n, ..., 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, ..., 3) in frame coordinates.
+            tn (torch.Tensor): Near intersection distances of shape (n, ...,).
+            tf (torch.Tensor): Far intersection distances of shape (n, ...,).
+        
+        Returns:
+            torch.Tensor: Integrated emission tensor of shape (n, ...,).
+        """
+        if ro.ndim == 1:
+            ro = ro.unsqueeze(0)
+            rd = rd.unsqueeze(0)
+            tn = tn.unsqueeze(0)
+            tf = tf.unsqueeze(0)
         if ray_bins not in self._vmap_g_cache:
             self._vmap_g_cache[ray_bins] = self._make_vmapped_g(ray_bins)
         vmap_g = self._vmap_g_cache[ray_bins]
         return vmap_g(ro, rd, tn, tf)
 
     def _make_vmapped_g(self, ray_bins: int):
-        def single_ray_g(ro, rd, tn, tf):
-            t, p = create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
-            xy = p[:,:2]
+        def int_single_ray(ro, rd, tn, tf):
+            t, p = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
+            xy, z = p[:,:2], p[:,2]
             f = self.flux(xy)
-            return self.physical_model.integrate_gray_level(rd, t, p, f)
-        return torch.vmap(single_ray_g, randomness='different')
+            l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
+            g = phy.int_emis_rayleigh(t, l)
+            return g
+        return torch.vmap(int_single_ray, randomness='different')
     
     @torch.no_grad()
     def image(self, cam: Camera, ray_bins: int, nan=0.0):
-        ro, rd = cam.create_rays(self.frame)
-        tn, tf = ray_box_intersection(ro, rd, self.frame.box_min, self.frame.box_max)
-        g = self.gray_level(ro, rd, tn, tf, ray_bins)
+        """
+        Generate an image from the camera using the integrated emission along rays.
+        
+        Args:
+            cam (Camera): Camera object to generate the image from.
+            ray_bins (int): Number of bins to use for ray integration.
+            nan (float): Value to replace NaN values in the image.
+        
+        Returns:
+            torch.Tensor: Image tensor of shape (cam.height, cam.width).
+        """
+        ro, rd = cam.create_rays_ecef()
+        ro = self.frame.from_ECEF(ro, is_point=True)
+        rd = self.frame.from_ECEF(rd, is_point=False)
+        tn, tf = self.bbox.ray_intersect_frame(ro, rd)
+        g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)
         return img
     
-    def train(self,
-            dataset: Dataset,
-            num_iters: int,
+    def train(self, *,
+            ray_data: CameraRaysDataset | None = None,
+            radar_data: RadarPointsDataset | None = None,
+            num_iters: int = 1000,
             ray_batch_size: int = 4096,
             ray_bins: int = 100,
             radar_batch_size: int = 1000,
             ray_loss_weight: float = 1.0,
             radar_loss_weight: float = 1.0,
-            lr: float = 5e-5, # change to -4
+            lr: float = 5e-5,
             weight_decay: float = 1.0,
-            lr_step_size: int = 5000, # step size 500
+            lr_step_size: int = 5000,
             lr_gamma: float = 0.1
         ) -> list[float]:
-
+        
+        if ray_data is None and radar_data is None:
+            raise ValueError("At least one of ray_data or radar_data must be provided.")
+        
         if not self._training:
             raise ValueError("Reconstruction not in training mode.")
 
-        if not isinstance(self.f_model, TrainableFluxModel):
+        if not isinstance(self.flux_model, phy.TrainableFluxModel):
             raise ValueError("Flux model is not trainable.")
 
-        optimizer = torch.optim.Adam(self.f_model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.Adam(self.flux_model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
-
-        ray_data, radar_data = dataset.rays, dataset.radar
         
         losses = []
 
@@ -213,13 +303,13 @@ class Reconstruction:
 
             if ray_data is not None and ray_loss_weight > 0.0:
                 ro, rd, g_ref, tn, tf = ray_data.sample(ray_batch_size)
-                g = self.gray_level(ro, rd, tn, tf, ray_bins)
+                g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
                 ray_loss = (g - g_ref)**2
                 ray_loss = ray_loss.sum() / ray_batch_size
             
             if radar_data is not None and radar_loss_weight > 0.0:
                 p, d_ref = radar_data.sample(radar_batch_size)
-                d = self.e_dens(p)
+                d = self.elec_dens(p)
                 radar_loss = (d - d_ref)**2
                 radar_loss = radar_loss.sum() / radar_batch_size
 
@@ -240,22 +330,33 @@ class Reconstruction:
         return losses
     
     def eval_mode(self):
-        if isinstance(self.f_model, TrainableFluxModel):
-            self.f_model.eval()
+        if isinstance(self.flux_model, phy.TrainableFluxModel):
+            self.flux_model.eval()
         self._training = False
     
     def train_mode(self):
-        if isinstance(self.f_model, TrainableFluxModel):
-            self.f_model.train()
+        if isinstance(self.flux_model, phy.TrainableFluxModel):
+            self.flux_model.train()
         self._training = True
 
 
 def save_reonstruction(recon: Reconstruction, path: Path | str):
     torch.save({
-        "physical_model": recon.physical_model,
-        "f_model": recon.f_model
+        "flux_model": recon.flux_model,
+        "bbox": recon.bbox,
+        "M_emis": recon.M_emis,
+        "M_dens": recon.M_dens,
+        "z_edges": recon.z_edges,
+        "E_edges": recon.E_edges
     }, path)
 
 def load_reconstruction(path: Path | str, device: torch.device):
     data = torch.load(path, map_location=device, weights_only=False)
-    return Reconstruction(data["physical_model"], data["f_model"], device)
+    return Reconstruction(
+        data["flux_model"],
+        data["bbox"],
+        data["M_emis"],
+        data["M_dens"],
+        data["z_edges"],
+        data["E_edges"]
+    )

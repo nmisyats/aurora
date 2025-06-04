@@ -36,7 +36,7 @@ def az_ze_to_UNE(azimuth: TensorLike, zenith: TensorLike):
 
     return torch.stack((up, north, east), dim=-1)
 
-def UNE_to_ECEF(une: TensorLike, lat: float, lon: float):
+def rotate_UNE_to_ECEF(une: TensorLike, lat: float, lon: float):
     """
     Convert Up-North-East coordinates to Earth-Centered, Earth-Fixed coordinates.
     
@@ -71,7 +71,7 @@ def UNE_to_ECEF(une: TensorLike, lat: float, lon: float):
     
     return torch.stack((x, y, z), dim=-1).to(torch.float32)
 
-def ECEF_to_UNE(ecef: TensorLike, lat: float, lon: float):
+def rotate_ECEF_to_UNE(ecef: TensorLike, lat: float, lon: float):
     """
     Convert Earth-Centered, Earth-Fixed coordinates to Up-North-East coordinates.
     
@@ -131,11 +131,45 @@ def lat_lon_to_ECEF(lat: TensorLike, lon: TensorLike):
     return torch.stack((x, y, z), dim=-1)
 
 def UNE_basis_ECEF(lat: float, lon: float):
-    up_dir    = UNE_to_ECEF(torch.tensor([1, 0, 0]), lat, lon)
-    north_dir = UNE_to_ECEF(torch.tensor([0, 1, 0]), lat, lon)
-    east_dir  = UNE_to_ECEF(torch.tensor([0, 0, 1]), lat, lon)
+    up_dir    = rotate_UNE_to_ECEF(torch.tensor([1, 0, 0]), lat, lon)
+    north_dir = rotate_UNE_to_ECEF(torch.tensor([0, 1, 0]), lat, lon)
+    east_dir  = rotate_UNE_to_ECEF(torch.tensor([0, 0, 1]), lat, lon)
     
     return up_dir, north_dir, east_dir
+
+def transpose_between_UNEs(
+        une: TensorLike,
+        lat_from: float,
+        lon_from: float,
+        lat_to: float,
+        lon_to: float,
+        is_point: bool
+    ):
+    """
+    Transpose coordinates between two Up-North-East (UNE) coordinate systems.
+
+    Args:
+        une: Tensor of shape (*, 3) of coordinates in the source UNE frame.
+        une_from_lat: Latitude of the source UNE frame in degrees.
+        une_from_lon: Longitude of the source UNE frame in degrees.
+        une_to_lat: Latitude of the target UNE frame in degrees.
+        une_to_lon: Longitude of the target UNE frame in degrees.
+    
+    Returns:
+        torch.Tensor: Coordinates in the target UNE frame, with the same shape as `une`.
+    """
+    o_ecef_from = lat_lon_to_ECEF(lat_from, lon_from)
+    o_ecef_to = lat_lon_to_ECEF(lat_to, lon_to)
+
+    une_from = une
+    ecef_from = rotate_UNE_to_ECEF(une_from, lat_from, lon_from)
+    if is_point:
+        ecef_to = (o_ecef_from + ecef_from) - o_ecef_to
+    else:
+        ecef_to = ecef_from
+    une_to = rotate_ECEF_to_UNE(ecef_to, lat_to, lon_to)
+    
+    return une_to
 
 def earth_radius(lat: TensorLike, lon: TensorLike):
     lat = as_tensor(lat)
