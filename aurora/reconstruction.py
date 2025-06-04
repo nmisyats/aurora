@@ -1,17 +1,17 @@
 from pathlib import Path
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
 
-import aurora.physics as phy
 from aurora.camera import Camera
+from aurora.flux import ElectronFluxModel, TrainableFluxModel
 from aurora.frame import MFAlignedFrame
 from aurora.bbox import MFAlignedBBox
 import aurora.geodesy as geod
 import aurora.geometry as geom
+import aurora.physics as phy
 
 
 class Dataset(ABC):
@@ -122,21 +122,10 @@ class RadarPointsDataset(Dataset):
         return (self.p[idx], self.d_ref[idx])
 
 
-@dataclass
-class Dataset:
-    rays: CameraRaysDataset | None = None
-    radar: RadarPointsDataset | None = None
-
-    def __post_init__(self):
-        if self.rays is None and self.radar is None:
-            raise ValueError("At least one of rays or radar data must be provided.")
-
-
-
 class Reconstruction:
     def __init__(
         self,
-        flux_model: phy.ElectronFluxModel,
+        flux_model: ElectronFluxModel,
         bbox: MFAlignedBBox,
         M_emis: torch.Tensor,
         M_dens: torch.Tensor,
@@ -182,9 +171,9 @@ class Reconstruction:
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (...,).
         """
-        xy, z = p[...,:2], p[...,2]
+        q = self.frame.to_local_UNE(p, is_point=True)
+        xy, z = p[...,:2], q[...,0]
         f = self.flux(xy)
-        z = z * self.frame.metric_tensor[2, 2]
         return phy.emis_rate(z, f, self.M_emis, self.z_edges)
     
     def elec_dens(self, p: torch.Tensor) -> torch.Tensor:
@@ -197,9 +186,9 @@ class Reconstruction:
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (...,).
         """
-        xy, z = p[...,:2], p[...,2]
+        q = self.frame.to_local_UNE(p, is_point=True)
+        xy, z = p[...,:2], q[...,0]
         f = self.flux(xy)
-        z = z * self.frame.metric_tensor[2, 2]
         return phy.elec_dens(z, f, self.M_dens, self.z_edges)
 
     def int_emis_ray(
@@ -236,9 +225,11 @@ class Reconstruction:
     def _make_vmapped_g(self, ray_bins: int):
         def int_single_ray(ro, rd, tn, tf):
             t, p = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
-            xy, z = p[:,:2], p[:,2]
+            q = self.frame.to_local_UNE(p, is_point=True)
+            xy, z = p[:,:2], q[:,0]
             f = self.flux(xy)
             l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
+            t = t * self.frame.metric_scale(rd)
             g = phy.int_emis_rayleigh(t, l)
             return g
         return torch.vmap(int_single_ray, randomness='different')
@@ -287,7 +278,7 @@ class Reconstruction:
         if not self._training:
             raise ValueError("Reconstruction not in training mode.")
 
-        if not isinstance(self.flux_model, phy.TrainableFluxModel):
+        if not isinstance(self.flux_model, TrainableFluxModel):
             raise ValueError("Flux model is not trainable.")
 
         optimizer = torch.optim.Adam(self.flux_model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -330,12 +321,12 @@ class Reconstruction:
         return losses
     
     def eval_mode(self):
-        if isinstance(self.flux_model, phy.TrainableFluxModel):
+        if isinstance(self.flux_model, TrainableFluxModel):
             self.flux_model.eval()
         self._training = False
     
     def train_mode(self):
-        if isinstance(self.flux_model, phy.TrainableFluxModel):
+        if isinstance(self.flux_model, TrainableFluxModel):
             self.flux_model.train()
         self._training = True
 
