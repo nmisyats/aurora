@@ -6,6 +6,7 @@ from aurora.geodesy import (
     earth_radius,
     inc_dec_to_UNE,
 )
+import aurora.geometry as geom
 
 
 class Frame:
@@ -92,3 +93,24 @@ class Frame:
         if is_point:
             xyz_une[..., 0] = xyz_une[..., 0] + self.origin_altitude
         return xyz_une
+    
+    def make_oblique_bbox(
+            self,
+            north_south_range: tuple[float, float],
+            west_east_range: tuple[float, float],
+            altitude_range: tuple[float, float],
+            device: torch.device
+        ) -> geom.BBox:
+        """
+        Create an oblique bounding box in the frame's coordinate system.
+        """
+        x_min, x_max = north_south_range
+        y_min, y_max = west_east_range
+        z_min, z_max = altitude_range
+        # Scale upmin to maintain oblicity
+        z_min /= self.metric_tensor[2,2]
+        z_max /= self.metric_tensor[2,2]
+
+        xyz_min = torch.tensor([x_min, y_min, z_min], device=device)
+        xyz_max = torch.tensor([x_max, y_max, z_max], device=device)
+        return geom.BBox(xyz_min, xyz_max)

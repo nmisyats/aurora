@@ -8,132 +8,20 @@ import tqdm
 from aurora.camera import Camera
 from aurora.flux import ElectronFluxModel, TrainableFluxModel
 from aurora.frame import Frame
-from aurora.bbox import MFAlignedBBox
 import aurora.geodesy as geod
 import aurora.geometry as geom
 import aurora.physics as phy
-
-
-class Dataset(ABC):
-    @property
-    @abstractmethod
-    def device(self) -> torch.device:
-        ...
-    
-    @abstractmethod
-    def __len__(self) -> int:
-        """
-        Returns the number of samples in the dataset.
-        """
-        ...
-    
-    @abstractmethod
-    def __getitem__(self, idx):
-        """
-        Returns a sample from the dataset at the given index.
-        """
-        ...
-    
-    def sample(self, num_samples: int) -> tuple[torch.Tensor, ...]:
-        """
-        Samples a random elements from the dataset.
-        """
-        idxs = torch.randint(0, len(self), (num_samples,))
-        return self[idxs]
-
-
-class CameraRaysDataset(Dataset):
-    def __init__(self, cams: list[Camera], bbox: MFAlignedBBox):
-        self.bbox = bbox
-        self.device = bbox.device
-        self.frame = bbox.frame
-
-        ro_list, rd_list, g_ref_list = [], [], []
-        for cam in cams:
-            cam_ro, cam_rd = cam.create_rays_ecef(self.device)
-            cam_ro = self.frame.from_ECEF(cam_ro, is_point=True)
-            cam_rd = self.frame.from_ECEF(cam_rd, is_point=False)
-            ro_list.append(cam_ro)
-            rd_list.append(cam_rd)
-
-            cam_g_ref = cam.image.flatten().to(self.device)
-            g_ref_list.append(cam_g_ref)
-        
-        ro = torch.cat(ro_list)
-        rd = torch.cat(rd_list)
-        g_ref = torch.cat(g_ref_list)
-
-        tn, tf = bbox.ray_intersect_frame(ro, rd)
-
-        # Get mask for non-NaN values in tn
-        valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
-        # Apply the mask to all tensors
-        self.ro = ro[valid_mask].contiguous()
-        self.rd = rd[valid_mask].contiguous()
-        self.g_ref = g_ref[valid_mask].contiguous()
-        self.tn = tn[valid_mask].contiguous()
-        self.tf = tf[valid_mask].contiguous()
-
-
-    def __len__(self):
-        return len(self.ro)
-    
-    def __getitem__(self, idx):
-        return (
-            self.ro[idx],
-            self.rd[idx],
-            self.g_ref[idx],
-            self.tn[idx],
-            self.tf[idx]
-        )
-
-
-class RadarPointsDataset(Dataset):
-    def __init__(
-            self,
-            altitudes: torch.Tensor,
-            latitudes: torch.Tensor,
-            longitudes: torch.Tensor,
-            densities: torch.Tensor,
-            frame: Frame,
-        ):
-        self.frame = frame
-
-        lats = latitudes.to(self.device)
-        lons = longitudes.to(self.device)
-        alts = altitudes.to(self.device).reshape(-1, 1)
-        
-        pts_ecef_unit = geod.lat_lon_to_ECEF(lats, lons)
-        radii = geod.earth_radius(lats, lons).reshape(-1, 1)
-        pts_ecef = pts_ecef_unit * (radii + alts)
-        pts_frame = self.frame.from_ECEF(pts_ecef, is_point=True)
-        
-        self.p = pts_frame
-        self.d_ref = densities.to(self.device)
-    
-    @property
-    def device(self) -> torch.device:
-        return self.frame.device
-
-    def __len__(self):
-        return len(self.p)
-    
-    def __getitem__(self, idx):
-        return (self.p[idx], self.d_ref[idx])
-
 
 class Reconstruction:
     def __init__(
         self,
         flux_model: ElectronFluxModel,
         frame: Frame,
+        bbox: geom.BBox,
         M_emis: torch.Tensor,
         M_dens: torch.Tensor,
         z_edges: torch.Tensor,
-        E_edges: torch.Tensor,
-        north_south_range: tuple[float, float],
-        west_east_range: tuple[float, float],
-        altitude_range: tuple[float, float]
+        E_edges: torch.Tensor
     ):
         self.flux_model = flux_model
         self.M_emis = M_emis
@@ -142,6 +30,7 @@ class Reconstruction:
         self.E_edges = E_edges
 
         self.frame = frame
+        self.bbox = bbox
         self.device = frame.device
 
         x_min, x_max = north_south_range
