@@ -11,7 +11,7 @@ import numpy as np
 
 from aurora.camera import Camera
 from aurora.physics import PhysicalModel
-from aurora.frame import MFAlignedFrame
+from aurora.frame import Frame
 from aurora.models import ReferenceFlux
 
 def load_yaml(stream):
@@ -51,7 +51,7 @@ def parse_physical_model(desc: dict, device: torch.device):
         energy_bins=energy_bins,
         emission_matrix=emission_matrix,
         density_matrix=density_matrix,
-        frame=MFAlignedFrame(
+        frame=Frame(
             origin_latitude=frame_desc["origin_latitude"],
             origin_longitude=frame_desc["origin_longitude"],
             origin_altitude=min_altitude,

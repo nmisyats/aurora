@@ -8,7 +8,7 @@ from aurora.geodesy import (
 )
 
 
-class MFAlignedFrame:
+class Frame:
     def __init__(self,
         origin_latitude: float,
         origin_longitude: float,

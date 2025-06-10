@@ -7,7 +7,7 @@ import tqdm
 
 from aurora.camera import Camera
 from aurora.flux import ElectronFluxModel, TrainableFluxModel
-from aurora.frame import MFAlignedFrame
+from aurora.frame import Frame
 from aurora.bbox import MFAlignedBBox
 import aurora.geodesy as geod
 import aurora.geometry as geom
@@ -95,7 +95,7 @@ class RadarPointsDataset(Dataset):
             latitudes: torch.Tensor,
             longitudes: torch.Tensor,
             densities: torch.Tensor,
-            frame: MFAlignedFrame,
+            frame: Frame,
         ):
         self.frame = frame
 
@@ -126,22 +126,36 @@ class Reconstruction:
     def __init__(
         self,
         flux_model: ElectronFluxModel,
-        bbox: MFAlignedBBox,
+        frame: Frame,
         M_emis: torch.Tensor,
         M_dens: torch.Tensor,
         z_edges: torch.Tensor,
         E_edges: torch.Tensor,
+        north_south_range: tuple[float, float],
+        west_east_range: tuple[float, float],
+        altitude_range: tuple[float, float]
     ):
         self.flux_model = flux_model
-        self.bbox = bbox
         self.M_emis = M_emis
         self.M_dens = M_dens
         self.z_edges = z_edges
         self.E_edges = E_edges
 
-        self.device = bbox.device
-        self.frame = bbox.frame
+        self.frame = frame
+        self.device = frame.device
 
+        x_min, x_max = north_south_range
+        y_min, y_max = west_east_range
+        z_min, z_max = altitude_range
+        # Scale upmin to maintain oblicity
+        z_min /= frame.metric_tensor[2,2]
+        z_max /= frame.metric_tensor[2,2]
+
+        self.xyz_min = torch.tensor([x_min, y_min, z_min], device=self.device)
+        self.xyz_max = torch.tensor([x_max, y_max, z_max], device=self.device)
+        self.xy_min = self.xyz_min[:2]
+        self.xy_max = self.xyz_max[:2]
+        
         self._vmap_g_cache = {}
         self._training = True
 
@@ -250,7 +264,7 @@ class Reconstruction:
         ro, rd = cam.create_rays_ecef()
         ro = self.frame.from_ECEF(ro, is_point=True)
         rd = self.frame.from_ECEF(rd, is_point=False)
-        tn, tf = self.bbox.ray_intersect_frame(ro, rd)
+        tn, tf = geom.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
         g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
         img = g.reshape(h, w)
