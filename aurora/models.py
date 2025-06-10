@@ -1,11 +1,12 @@
 from collections import namedtuple
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from aurora.physics import PhysicalModel, ElectronFluxModel, TrainableFluxModel
+from aurora.bbox import BBox
 
 
 ModelEntry = namedtuple("RegisteredModel", ("model_cls", "config_cls"))
@@ -29,14 +30,68 @@ def register_model(name, config_cls):
 
 
 
-class ReferenceFlux(ElectronFluxModel):
-    def __init__(self, image: torch.Tensor, range_south: tuple[float, float], range_east: tuple[float, float], device: torch.device):
+class FluxModel(ABC):
+    @abstractmethod
+    def flux(self, xy: torch.Tensor) -> torch.Tensor:
+        ...
+    
+    @property
+    @abstractmethod
+    def E_edges(self) -> torch.Tensor:
+        ...
+    
+    @property
+    @abstractmethod
+    def xy_min(self) -> torch.Tensor:
+        ...
+    
+    @property
+    @abstractmethod
+    def xy_max(self) -> torch.Tensor:
+        ...
+
+
+class TrainableFluxModel(FluxModel, nn.Module):
+    def flux(self, xy: torch.Tensor):
+        orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
+        xy = xy.reshape(-1, 2) # (N, 2)
+        f = self.forward(xy) # (N, n_bins)
+        n_bins = f.shape[-1]
+        return f.reshape(*orig_shape, n_bins)
+
+    @classmethod
+    def default_config(cls):
+        return None
+
+
+class ReferenceFlux(FluxModel):
+    def __init__(
+            self,
+            image: torch.Tensor,
+            E_edges: torch.Tensor,
+            range_south: tuple[float, float],
+            range_east: tuple[float, float],
+            device: torch.device
+        ):
         self.image = image.to(device)
         self.device = device
         x_min, x_max = range_south
         y_min, y_max = range_east
-        self.xy_min = torch.tensor([x_min, y_min], device=device)
-        self.xy_max = torch.tensor([x_max, y_max], device=device)
+        self._xy_min = torch.tensor([x_min, y_min], device=device)
+        self._xy_max = torch.tensor([x_max, y_max], device=device)
+        self._E_edges = E_edges.to(device)
+    
+    @property
+    def xy_min(self):
+        return self._xy_min
+    
+    @property
+    def xy_max(self):
+        return self._xy_max
+    
+    @property
+    def E_edges(self):
+        return self._E_edges
     
     @property
     def resolution(self):
@@ -82,24 +137,59 @@ class ReferenceFlux(ElectronFluxModel):
         return output.reshape(*orig_shape, B)     # (..., B)
 
 
+class NNFluxModel(TrainableFluxModel):
+    def __init__(self, bbox: BBox, E_edges: torch.Tensor):
+        super(NNFluxModel, self).__init__()
+        self._xy_min = bbox.xyz_min[:2]
+        self._xy_max = bbox.xyz_max[:2]
+        self._E_edges = E_edges
+        self.input_size = 2
+        self.output_size = len(E_edges) - 1  # Number of energy bins
+    
+    def normalize_xy(self, xy: torch.Tensor):
+        return (xy - self._xy_min) / (self._xy_max - self._xy_min)
+    
+    @property
+    def xy_min(self):
+        return self._xy_min
+    
+    @property
+    def xy_max(self):
+        return self._xy_max
+    
+    @property
+    def E_edges(self):
+        return self._E_edges
+
+
+class FourierNNFluxModel(NNFluxModel):
+    def __init__(self, bbox: BBox, E_edges: torch.Tensor, embed_exp: int):
+        assert embed_exp >= 1
+
+        super().__init__(bbox, E_edges)
+        
+        self.embed_exp = embed_exp
+        self.embed_size = (2 * embed_exp + 1) * self.input_size
+        self.freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
+    
+    def position_encode(self, x: torch.Tensor):
+        cos_x = [torch.cos(f * x) for f in self.freqs]
+        sin_x = [torch.sin(f * x) for f in self.freqs]
+        return torch.cat((x, *cos_x, *sin_x), dim=-1)
+
+
 @dataclass
 class LogMLPConfig:
     embed_exp: int = config_field(4, help="Fourier embedding maximum exponent")
     log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
 
 @register_model("log_res_mlp", LogMLPConfig)
-class LogResMLP(TrainableFluxModel):
-    def __init__(self, pm: PhysicalModel, config: LogMLPConfig):
+class LogResMLP(FourierNNFluxModel):
+    def __init__(self, bbox: BBox, E_edges: torch.Tensor, config: LogMLPConfig):
         assert config.embed_exp >= 1
 
-        super(LogResMLP, self).__init__()
+        super().__init__(bbox, E_edges, config.embed_exp)
 
-        self.xy_min = pm.frame.xy_min
-        self.xy_max = pm.frame.xy_max
-        self.input_size = 2
-        self.embed_exp = config.embed_exp
-        self.embed_size = self.input_size + self.input_size * 2 * config.embed_exp
-        self.output_size = len(pm.E_edges) - 1
         self.log_scale = config.log_scale
         
         self.fc1 = nn.Linear(self.embed_size, 128)
@@ -109,8 +199,8 @@ class LogResMLP(TrainableFluxModel):
         self.fc5 = nn.Linear(128, self.output_size)
     
     def forward(self, xy: torch.Tensor):
-        xy = (xy - self.xy_min) / (self.xy_max - self.xy_min)
-        x = self.embed_fourier(xy)
+        xy = self.normalize_xy(xy)
+        x = self.position_encode(xy)
         x0 = x
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -120,9 +210,7 @@ class LogResMLP(TrainableFluxModel):
         x = x * self.log_scale
         x = torch.pow(10.0, x)
         return x
-    
-    def embed_fourier(self, x: torch.Tensor):
-        freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
-        cos_x = [torch.cos(f * x) for f in freqs]
-        sin_x = [torch.sin(f * x) for f in freqs]
-        return torch.cat((x, *cos_x, *sin_x), dim=-1)
+
+    @classmethod
+    def default_config(cls):
+        return LogMLPConfig()

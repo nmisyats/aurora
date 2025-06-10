@@ -13,7 +13,7 @@ import pyvista as pv
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, Dataset, CameraRays, RadarPoints
 from aurora.reconstruction import load_reconstruction, save_reonstruction
-from aurora.data import (
+from aurora.dataset import (
     load_physical_model,
     load_dataset,
     load_reference_flux,

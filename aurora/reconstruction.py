@@ -6,44 +6,31 @@ import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
 
 from aurora.camera import Camera
-from aurora.flux import ElectronFluxModel, TrainableFluxModel
+from aurora.models import FluxModel, TrainableFluxModel
 from aurora.frame import Frame
-import aurora.geodesy as geod
+from aurora.bbox import BBox
+from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.geometry as geom
 import aurora.physics as phy
 
 class Reconstruction:
     def __init__(
         self,
-        flux_model: ElectronFluxModel,
+        flux_model: FluxModel,
         frame: Frame,
-        bbox: geom.BBox,
+        bbox: BBox,
         M_emis: torch.Tensor,
         M_dens: torch.Tensor,
-        z_edges: torch.Tensor,
-        E_edges: torch.Tensor
+        z_edges: torch.Tensor
     ):
         self.flux_model = flux_model
         self.M_emis = M_emis
         self.M_dens = M_dens
         self.z_edges = z_edges
-        self.E_edges = E_edges
 
         self.frame = frame
         self.bbox = bbox
         self.device = frame.device
-
-        x_min, x_max = north_south_range
-        y_min, y_max = west_east_range
-        z_min, z_max = altitude_range
-        # Scale upmin to maintain oblicity
-        z_min /= frame.metric_tensor[2,2]
-        z_max /= frame.metric_tensor[2,2]
-
-        self.xyz_min = torch.tensor([x_min, y_min, z_min], device=self.device)
-        self.xyz_max = torch.tensor([x_max, y_max, z_max], device=self.device)
-        self.xy_min = self.xyz_min[:2]
-        self.xy_max = self.xyz_max[:2]
         
         self._vmap_g_cache = {}
         self._training = True
@@ -52,7 +39,7 @@ class Reconstruction:
         """
         Calculate the electron flux at points xy.
         Args:
-            xy (torch.Tensor): Tensor of shape (..., 2) in NE coordinates.
+            xy (torch.Tensor): Tensor of shape (..., 2) in South-East coordinates.
         
         Returns:
             torch.Tensor: Flux tensor at the points xy of shape (..., n_E)
@@ -64,33 +51,33 @@ class Reconstruction:
         else:
             return self.flux_model.flux(xy)
 
-    def emis_rate(self, p: torch.Tensor) -> torch.Tensor:
+    def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the emission rate at points p.
         
         Args:
-            p (torch.Tensor): Tensor of shape (..., 3) une frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (..., 3) in frame coordinates.
         
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (...,).
         """
-        q = self.frame.to_local_UNE(p, is_point=True)
-        xy, z = p[...,:2], q[...,0]
+        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
+        xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
         return phy.emis_rate(z, f, self.M_emis, self.z_edges)
     
-    def elec_dens(self, p: torch.Tensor) -> torch.Tensor:
+    def elec_dens(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron density at points p.
         
         Args:
-            p (torch.Tensor): Tensor of shape (..., 3) une frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (..., 3) in frame coordinates.
         
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (...,).
         """
-        q = self.frame.to_local_UNE(p, is_point=True)
-        xy, z = p[...,:2], q[...,0]
+        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
+        xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
         return phy.elec_dens(z, f, self.M_dens, self.z_edges)
 
@@ -127,13 +114,13 @@ class Reconstruction:
 
     def _make_vmapped_g(self, ray_bins: int):
         def int_single_ray(ro, rd, tn, tf):
-            t, p = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
-            q = self.frame.to_local_UNE(p, is_point=True)
-            xy, z = p[:,:2], q[:,0]
+            t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
+            p_enu = self.frame.to_local_enu(p_frame, is_point=True)
+            xy, z = p_frame[:,:2], p_enu[:,2]
             f = self.flux(xy)
             l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
-            t = t * self.frame.metric_scale(rd)
-            g = phy.int_emis_rayleigh(t, l)
+            g = phy.int_emis_rayleigh(t_frame, l)
+            g = g # * self.frame.metric_scale(rd) not required?
             return g
         return torch.vmap(int_single_ray, randomness='different')
     
@@ -150,10 +137,10 @@ class Reconstruction:
         Returns:
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
-        ro, rd = cam.create_rays_ecef()
-        ro = self.frame.from_ECEF(ro, is_point=True)
-        rd = self.frame.from_ECEF(rd, is_point=False)
-        tn, tf = geom.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
+        ro, rd = cam.create_rays_ecef(self.device)
+        ro = self.frame.from_ecef(ro, is_point=True)
+        rd = self.frame.from_ecef(rd, is_point=False)
+        tn, tf = geom.ray_box_intersection(ro, rd, self.bbox.xyz_min, self.bbox.xyz_max)
         g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
         h, w = cam.image.shape
         img = g.reshape(h, w)
@@ -196,13 +183,13 @@ class Reconstruction:
             ray_loss, radar_loss = 0.0, 0.0
 
             if ray_data is not None and ray_loss_weight > 0.0:
-                ro, rd, g_ref, tn, tf = ray_data.sample(ray_batch_size)
+                ro, rd, tn, tf, g_ref = ray_data.random_sample(ray_batch_size)
                 g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
                 ray_loss = (g - g_ref)**2
                 ray_loss = ray_loss.sum() / ray_batch_size
             
             if radar_data is not None and radar_loss_weight > 0.0:
-                p, d_ref = radar_data.sample(radar_batch_size)
+                p, d_ref = radar_data.random_sample(radar_batch_size)
                 d = self.elec_dens(p)
                 radar_loss = (d - d_ref)**2
                 radar_loss = radar_loss.sum() / radar_batch_size
@@ -234,23 +221,21 @@ class Reconstruction:
         self._training = True
 
 
-def save_reonstruction(recon: Reconstruction, path: Path | str):
-    torch.save({
-        "flux_model": recon.flux_model,
-        "bbox": recon.bbox,
-        "M_emis": recon.M_emis,
-        "M_dens": recon.M_dens,
-        "z_edges": recon.z_edges,
-        "E_edges": recon.E_edges
-    }, path)
+# def save_reonstruction(recon: Reconstruction, path: Path | str):
+#     torch.save({
+#         "flux_model": recon.flux_model,
+#         "bbox": recon.bbox,
+#         "M_emis": recon.M_emis,
+#         "M_dens": recon.M_dens,
+#         "z_edges": recon.z_edges
+#     }, path)
 
-def load_reconstruction(path: Path | str, device: torch.device):
-    data = torch.load(path, map_location=device, weights_only=False)
-    return Reconstruction(
-        data["flux_model"],
-        data["bbox"],
-        data["M_emis"],
-        data["M_dens"],
-        data["z_edges"],
-        data["E_edges"]
-    )
+# def load_reconstruction(path: Path | str, device: torch.device):
+#     data = torch.load(path, map_location=device, weights_only=False)
+#     return Reconstruction(
+#         data["flux_model"],
+#         data["bbox"],
+#         data["M_emis"],
+#         data["M_dens"],
+#         data["z_edges"]
+#     )

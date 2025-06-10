@@ -3,9 +3,9 @@ import numpy as np
 
 from aurora.utils import TensorLike, as_tensor
 
-def az_ze_to_UNE(azimuth: TensorLike, zenith: TensorLike):
+def az_ze_to_enu(azimuth: TensorLike, zenith: TensorLike):
     """
-    Convert azimuth and zenith angles to Up-North-East (UNE) coordinate system vectors.
+    Convert azimuth and zenith angles to East-North-Up (ENU) coordinate system vectors.
     
     Args:
         azimuth: Azimuth angle in degrees measured clockwise from North (0° at North, 
@@ -14,11 +14,11 @@ def az_ze_to_UNE(azimuth: TensorLike, zenith: TensorLike):
             90° at horizon, 180° at nadir/down)
     
     Returns:
-        torch.Tensor: A tensor of shape (*azimuth.shape, 3) where the coomponents of the last dimension
-            represent the UNE vector for the corresponding azimuth/latitude values:
-            - up: Vertical component pointing away from Earth's center
-            - north: Component pointing toward geographic North
+        torch.Tensor: A tensor of shape (*azimuth.shape, 3) where the components of the last dimension
+            represent the ENU vector for the corresponding azimuth/zenith values:
             - east: Component pointing toward geographic East
+            - north: Component pointing toward geographic North
+            - up: Vertical component pointing away from Earth's center
             
     Note:
         The returned vector components form a unit vector (magnitude = 1)
@@ -30,29 +30,29 @@ def az_ze_to_UNE(azimuth: TensorLike, zenith: TensorLike):
     az_rad = torch.deg2rad(azimuth)
     ze_rad = torch.deg2rad(zenith)
 
-    up = torch.cos(ze_rad)
-    north = torch.cos(az_rad) * torch.sin(ze_rad)
     east = torch.sin(az_rad) * torch.sin(ze_rad)
+    north = torch.cos(az_rad) * torch.sin(ze_rad)
+    up = torch.cos(ze_rad)
 
-    return torch.stack((up, north, east), dim=-1)
+    return torch.stack((east, north, up), dim=-1)
 
-def rotate_UNE_to_ECEF(une: TensorLike, lat: float, lon: float):
+def rotate_enu_to_ecef(enu: TensorLike, lat: float, lon: float):
     """
-    Convert Up-North-East coordinates to Earth-Centered, Earth-Fixed coordinates.
+    Convert East-North-Up coordinates to Earth-Centered, Earth-Fixed coordinates.
     
     Args:
-        une: Tensor of shape (*, 3) of coordinates in UNE frame
+        enu: Tensor of shape (*, 3) of coordinates in ENU frame
         lat: Latitude in degrees
         lon: Longitude in degrees
         
     Returns:
         torch.Tensor: coordinates in ECEF frame, forming a unit vector, for each
-            input UNE coordinates
+            input ENU coordinates
     """
-    une = as_tensor(une)
+    enu = as_tensor(enu)
 
-    # Extract UNE components
-    up, north, east = une[..., 0], une[..., 1], une[..., 2]
+    # Extract ENU components
+    east, north, up = enu[..., 0], enu[..., 1], enu[..., 2]
     
     # Convert lat/lon to radians
     lat_rad = np.deg2rad(lat)
@@ -64,24 +64,24 @@ def rotate_UNE_to_ECEF(une: TensorLike, lat: float, lon: float):
     sin_lon = np.sin(lon_rad)
     cos_lon = np.cos(lon_rad)
 
-    # Calculate the transformation from UNE to ECEF
-    x = -sin_lat * cos_lon * north - sin_lon * east + cos_lat * cos_lon * up
-    y = -sin_lat * sin_lon * north + cos_lon * east + cos_lat * sin_lon * up
+    # Calculate the transformation from ENU to ECEF
+    x = -sin_lon * east - sin_lat * cos_lon * north + cos_lat * cos_lon * up
+    y = cos_lon * east - sin_lat * sin_lon * north + cos_lat * sin_lon * up
     z = cos_lat * north + sin_lat * up
     
     return torch.stack((x, y, z), dim=-1).to(torch.float32)
 
-def rotate_ECEF_to_UNE(ecef: TensorLike, lat: float, lon: float):
+def rotate_ecef_to_enu(ecef: TensorLike, lat: float, lon: float):
     """
-    Convert Earth-Centered, Earth-Fixed coordinates to Up-North-East coordinates.
+    Convert Earth-Centered, Earth-Fixed coordinates to East-North-Up coordinates.
     
     Args:
-        ecef: Tensor of shape (*, 3) of coordinates in UNE frame
+        ecef: Tensor of shape (*, 3) of coordinates in ECEF frame
         lat: Latitude in degrees
         lon: Longitude in degrees
         
     Returns:
-        torch.Tensor: coordinates in UNE frame, forming a unit vector, for each
+        torch.Tensor: coordinates in ENU frame, forming a unit vector, for each
             input ECEF coordinates
     """
     ecef = as_tensor(ecef)
@@ -99,23 +99,24 @@ def rotate_ECEF_to_UNE(ecef: TensorLike, lat: float, lon: float):
     sin_lon = np.sin(lon_rad)
     cos_lon = np.cos(lon_rad)
     
-    # Calculate the transformation from ECEF to UNE (inverse of UNE to ECEF)
-    up = cos_lat * cos_lon * x + cos_lat * sin_lon * y + sin_lat * z
-    north = -sin_lat * cos_lon * x - sin_lat * sin_lon * y + cos_lat * z
+    # Calculate the transformation from ECEF to ENU (inverse of ENU to ECEF)
     east = -sin_lon * x + cos_lon * y
+    north = -sin_lat * cos_lon * x - sin_lat * sin_lon * y + cos_lat * z
+    up = cos_lat * cos_lon * x + cos_lat * sin_lon * y + sin_lat * z
     
-    return torch.stack((up, north, east), dim=-1).to(torch.float32)
+    return torch.stack((east, north, up), dim=-1).to(torch.float32)
 
-def lat_lon_to_unit_ECEF(lat: TensorLike, lon: TensorLike):
+def geodetic_to_ecef(lat: TensorLike, lon: TensorLike, alt: TensorLike = 0.0):
     """
-    Convert latitude and longitude (in degrees) to normalized ECEF coordinates (magnitude 1).
+    Convert latitude and longitude (in degrees) to ECEF coordinates.
     
     Parameters:
         lat: Latitude in degrees.
         lon: Longitude in degrees.
+        alt: Altitude in kilometers (default is 0).
     
     Returns:
-        torch.Tensor: coordinates in ECEF (unit sphere).
+        torch.Tensor: coordinates in ECEF.
     """
     lat = as_tensor(lat)
     lon = as_tensor(lon)
@@ -128,70 +129,52 @@ def lat_lon_to_unit_ECEF(lat: TensorLike, lon: TensorLike):
     y = torch.cos(lat_rad) * torch.sin(lon_rad)
     z = torch.sin(lat_rad)
 
-    return torch.stack((x, y, z), dim=-1)
+    ecef_unit = torch.stack((x, y, z), dim=-1)
 
-def lat_lon_to_ECEF(lat: TensorLike, lon: TensorLike, alt: TensorLike = 0.0):
+    r = earth_radius(lat, lon) + as_tensor(alt)
+
+    ecef = ecef_unit * r.unsqueeze(-1)
+
+    return ecef
+
+def enu_basis_vectors_ecef(lat: float, lon: float):
     """
-    Convert latitude and longitude (in degrees) to ECEF coordinates.
+    Get the ENU basis vectors in ECEF coordinates for a given location.
     
-    Parameters:
-        lat: Latitude in degrees.
-        lon: Longitude in degrees.
-        alt: Altitude in kilometers (default is 0).
-    
+    Args:
+        lat: Latitude in degrees
+        lon: Longitude in degrees
+        
     Returns:
-        torch.Tensor: coordinates in ECEF.
+        tuple: (east_dir, north_dir, up_dir) - ENU basis vectors in ECEF frame
     """
-    ecef_unit = lat_lon_to_unit_ECEF(lat, lon) # (..., 3)
-    radius = earth_radius(lat, lon) + as_tensor(alt) # (...,)
-    return ecef_unit * radius.unsqueeze(-1) # Ensure radius is broadcasted correctly
-
-def UNE_basis_ECEF(lat: float, lon: float):
-    up_dir    = rotate_UNE_to_ECEF(torch.tensor([1, 0, 0]), lat, lon)
-    north_dir = rotate_UNE_to_ECEF(torch.tensor([0, 1, 0]), lat, lon)
-    east_dir  = rotate_UNE_to_ECEF(torch.tensor([0, 0, 1]), lat, lon)
+    east_dir  = rotate_enu_to_ecef(torch.tensor([1, 0, 0]), lat, lon)
+    north_dir = rotate_enu_to_ecef(torch.tensor([0, 1, 0]), lat, lon)
+    up_dir    = rotate_enu_to_ecef(torch.tensor([0, 0, 1]), lat, lon)
     
-    return up_dir, north_dir, east_dir
-
-# def transpose_between_UNEs(
-#         une: TensorLike,
-#         lat_from: float,
-#         lon_from: float,
-#         lat_to: float,
-#         lon_to: float,
-#         is_point: bool
-#     ):
-#     """
-#     Transpose coordinates between two Up-North-East (UNE) coordinate systems.
-
-#     Args:
-#         une: Tensor of shape (*, 3) of coordinates in the source UNE frame.
-#         une_from_lat: Latitude of the source UNE frame in degrees.
-#         une_from_lon: Longitude of the source UNE frame in degrees.
-#         une_to_lat: Latitude of the target UNE frame in degrees.
-#         une_to_lon: Longitude of the target UNE frame in degrees.
-    
-#     Returns:
-#         torch.Tensor: Coordinates in the target UNE frame, with the same shape as `une`.
-#     """
-#     o_ecef_from = lat_lon_to_ECEF(lat_from, lon_from)
-#     o_ecef_to = lat_lon_to_unit_ECEF(lat_to, lon_to)
-
-#     une_from = une
-#     ecef_from = rotate_UNE_to_ECEF(une_from, lat_from, lon_from)
-#     if is_point:
-#         ecef_to = (o_ecef_from + ecef_from) - o_ecef_to
-#     else:
-#         ecef_to = ecef_from
-#     une_to = rotate_ECEF_to_UNE(ecef_to, lat_to, lon_to)
-    
-#     return une_to
+    return east_dir, north_dir, up_dir
 
 def earth_radius(lat: TensorLike, lon: TensorLike):
-    lat = as_tensor(lat)
-    return torch.ones_like(lat) * 6371.0  # Approximate Earth radius in km
+    """
+    Get the approximate Earth radius at a given latitude and longitude.
+    """
+    return torch.full_like(as_tensor(lat), 6371.0) # Approximate Earth radius in km
 
-def inc_dec_to_UNE(inclination: TensorLike, declination: TensorLike):
+def inc_dec_to_enu(inclination: TensorLike, declination: TensorLike):
+    """
+    Convert inclination and declination angles to East-North-Up (ENU) coordinate system vectors.
+    
+    Args:
+        inclination: Inclination angle in degrees (positive downward from horizontal)
+        declination: Declination angle in degrees (positive eastward from north)
+    
+    Returns:
+        torch.Tensor: A tensor of shape (*inclination.shape, 3) where the components of the last dimension
+            represent the ENU vector for the corresponding inclination/declination values:
+            - east: Component pointing toward geographic East
+            - north: Component pointing toward geographic North  
+            - up: Vertical component pointing away from Earth's center
+    """
     inclination = as_tensor(inclination)
     declination = as_tensor(declination)
 
@@ -199,9 +182,9 @@ def inc_dec_to_UNE(inclination: TensorLike, declination: TensorLike):
     inc_rad = torch.deg2rad(inclination)
     dec_rad = torch.deg2rad(declination)
     
-    up = -torch.sin(inc_rad)
-    north = torch.cos(dec_rad) * torch.cos(inc_rad)
     east = torch.sin(dec_rad) * torch.cos(inc_rad)
+    north = torch.cos(dec_rad) * torch.cos(inc_rad)
+    up = -torch.sin(inc_rad)
 
-    # Return the unit vector in UNE frame
-    return torch.stack((up, north, east), dim=-1)
+    # Return the unit vector in ENU frame
+    return torch.stack((east, north, up), dim=-1)

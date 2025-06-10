@@ -1,13 +1,6 @@
 import torch
 
-from aurora.geodesy import (
-    lat_lon_to_ECEF,
-    UNE_basis_ECEF,
-    earth_radius,
-    inc_dec_to_UNE,
-)
-import aurora.geometry as geom
-
+import aurora.geodesy as geo
 
 class Frame:
     def __init__(self,
@@ -22,25 +15,24 @@ class Frame:
         
         # Get the frame transforms
         o_lat, o_lon, o_alt = origin_latitude, origin_longitude, origin_altitude
-        o_ecef_unit = lat_lon_to_ECEF(o_lat, o_lon)
-        radius = earth_radius(o_lat, o_lon) + o_alt
-        o_ecef = radius * o_ecef_unit
+        o_ecef = geo.geodetic_to_ecef(o_lat, o_lon, o_alt)
         o_ecef = o_ecef.to(device)
 
-        une_to_ecef = torch.stack(UNE_basis_ECEF(o_lat, o_lon)).T
-        ecef_to_une = torch.linalg.inv(une_to_ecef)
-        field_dir_une = inc_dec_to_UNE(field_inclination, field_declination)
-        field_to_une = torch.stack((
-            torch.tensor([0.0, -1.0, 0.0]),
-            torch.tensor([0.0,  0.0, 1.0]),
-            -field_dir_une
-        )).T
-        une_to_field = torch.linalg.inv(field_to_une)
-        ecef_to_field = torch.matmul(une_to_field, ecef_to_une)
-        field_to_ecef = torch.matmul(une_to_ecef, field_to_une)
+        enu_to_ecef = torch.stack(geo.enu_basis_vectors_ecef(o_lat, o_lon)).T
+        ecef_to_enu = torch.linalg.inv(enu_to_ecef)
+        field_dir_enu = geo.inc_dec_to_enu(field_inclination, field_declination)
+        z_dir_enu = -field_dir_enu
+        field_to_enu = torch.tensor([
+            [0.0, -1.0, 0.0],
+            [1.0,  0.0, 0.0],
+            z_dir_enu.tolist()
+        ]).T
+        enu_to_field = torch.linalg.inv(field_to_enu)
+        ecef_to_field = torch.matmul(enu_to_field, ecef_to_enu)
+        field_to_ecef = torch.matmul(enu_to_ecef, field_to_enu)
         
-        field_to_une = field_to_une.to(device)
-        une_to_field = une_to_field.to(device)
+        field_to_enu = field_to_enu.to(device)
+        enu_to_field = enu_to_field.to(device)
         ecef_to_field = ecef_to_field.to(device)
         field_to_ecef = field_to_ecef.to(device)
 
@@ -49,8 +41,8 @@ class Frame:
 
         # Store the reference frame parameters
         self.origin_ecef = o_ecef
-        self.une_to_field_mat = une_to_field
-        self.field_to_une_mat = field_to_une
+        self.enu_to_field_mat = enu_to_field
+        self.field_to_enu_mat = field_to_enu
         self.ecef_to_field_mat = ecef_to_field
         self.field_to_ecef_mat = field_to_ecef
         self.metric_tensor = metric_tensor
@@ -60,57 +52,37 @@ class Frame:
         self.origin_altitude = torch.scalar_tensor(o_alt, device=device)
 
     def metric_scale(self, d_frame: torch.Tensor) -> torch.Tensor:
-        d, m = d_frame, self.metric_tensor
-        if d.ndim == 1:
-            return torch.sqrt(d.T @ m @ d)
-        elif d.ndim == 2:
-            dTm = torch.matmul(d, m.T)
-            dTmd = torch.sum(dTm * d, dim=1)
-            return torch.sqrt(dTmd)
-        else:
-            raise ValueError(f"Unsupported shape {d.shape} for metric scale calculation.")
+        if d_frame.ndim != 1:
+            raise ValueError(f"Unsupported shape {d_frame.shape} for metric scale calculation.")
+        return torch.sqrt(d_frame @ self.metric_tensor @ d_frame)
     
-    def from_ECEF(self, xyz_ecef: torch.Tensor, *, is_point=False):
+    def from_ecef(self, xyz_ecef: torch.Tensor, *, is_point=False):
         if is_point:
             xyz_ecef = xyz_ecef - self.origin_ecef
         xyz_frame = torch.matmul(xyz_ecef, self.ecef_to_field_mat.T)
         return xyz_frame
     
-    def to_ECEF(self, xyz_frame: torch.Tensor, *, is_point=False):
+    def to_ecef(self, xyz_frame: torch.Tensor, *, is_point=False):
         xyz_ecef = torch.matmul(xyz_frame, self.field_to_ecef_mat.T)
         if is_point:
             xyz_ecef = xyz_ecef + self.origin_ecef
         return xyz_ecef
     
-    def from_local_UNE(self, xyz_une: torch.Tensor, *, is_point=False):
+    def from_local_enu(self, xyz_enu: torch.Tensor, *, is_point=False):
         if is_point:
-            xyz_une[..., 0] = xyz_une[..., 0] - self.origin_altitude
-        xyz_frame = torch.matmul(xyz_une, self.une_to_field_mat.T)
+            xyz_enu[..., 2] = xyz_enu[..., 2] - self.origin_altitude
+        xyz_frame = torch.matmul(xyz_enu, self.enu_to_field_mat.T)
         return xyz_frame
 
-    def to_local_UNE(self, xyz_frame: torch.Tensor, *, is_point=False):
-        xyz_une = torch.matmul(xyz_frame, self.field_to_une_mat.T)
+    def to_local_enu(self, xyz_frame: torch.Tensor, *, is_point=False):
+        xyz_enu = torch.matmul(xyz_frame, self.field_to_enu_mat.T)
         if is_point:
-            xyz_une[..., 0] = xyz_une[..., 0] + self.origin_altitude
-        return xyz_une
+            xyz_enu[..., 2] = xyz_enu[..., 2] + self.origin_altitude
+        return xyz_enu
     
-    def make_oblique_bbox(
-            self,
-            north_south_range: tuple[float, float],
-            west_east_range: tuple[float, float],
-            altitude_range: tuple[float, float],
-            device: torch.device
-        ) -> geom.BBox:
-        """
-        Create an oblique bounding box in the frame's coordinate system.
-        """
-        x_min, x_max = north_south_range
-        y_min, y_max = west_east_range
-        z_min, z_max = altitude_range
-        # Scale upmin to maintain oblicity
-        z_min /= self.metric_tensor[2,2]
-        z_max /= self.metric_tensor[2,2]
+    def __repr__(self):
+        return "Frame(" + ", ".join([
+           f"origin_ecef={self.origin_ecef.tolist()}",
+           f"metric_tensor={self.metric_tensor.tolist()}"
+        ]) + ")"
 
-        xyz_min = torch.tensor([x_min, y_min, z_min], device=device)
-        xyz_max = torch.tensor([x_max, y_max, z_max], device=device)
-        return geom.BBox(xyz_min, xyz_max)
