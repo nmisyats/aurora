@@ -10,17 +10,13 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import matplotlib.patches as patches
 import pyvista as pv
 
-from aurora.models import MODEL_REGISTRY
-from aurora.reconstruction import Reconstruction, Dataset, CameraRays, RadarPoints
-from aurora.reconstruction import load_reconstruction, save_reonstruction
-from aurora.dataset import (
-    load_physical_model,
-    load_dataset,
-    load_reference_flux,
-    save_matrix_data,
-    save_2d_grid_data,
-    save_3d_grid_data
-)
+from aurora.models import MODEL_REGISTRY, ReferenceFlux
+from aurora.reconstruction import Reconstruction, save_reonstruction, load_reconstruction
+from aurora.dataset import CameraRaysDataset, RadarPointsDataset
+from aurora.frame import Frame
+from aurora.bbox import BBox
+import aurora.data as data
+import aurora.physics as phy
 from aurora.utils import (
     xy_grid,
     xyz_grid,
@@ -40,8 +36,24 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     """Dynamically create a train command for a specific model"""
     
     def train_command(
-        physical_model_path: Path = typer.Argument(..., help="Path to physical model configuration file"),
-        dataset_path: Path = typer.Argument(..., help="Path to camera dataset configuration file"),
+        origin_lat: float = typer.Argument(..., help="Latitude of the reference frame's origin"),
+        origin_lon: float = typer.Argument(..., help="Longitude of the reference frame's origin"),
+        origin_alt: float = typer.Argument(..., help="Altitude of the reference frame's origin"),
+        field_inc: float = typer.Argument(..., help="Magnetic field inclination"),
+        field_dec: float = typer.Argument(..., help="Magnetic field declination"),
+        east_min: float = typer.Argument(..., help="East minimum bound for reconstruction"),
+        east_max: float = typer.Argument(..., help="East maximum bound for reconstruction"),
+        south_min: float = typer.Argument(..., help="South minimum bound for reconstruction"),
+        south_max: float = typer.Argument(..., help="South maximum bound for reconstruction"),
+        alt_min: float = typer.Argument(..., help="Altitude minimum bound for reconstruction"),
+        alt_max: float = typer.Argument(..., help="Altitude maximum bound for reconstruction"),
+        emis_mat: Path = typer.Argument(..., help="Emission matrix"),
+        dens_mat: Path = typer.Argument(..., help="Electron density matrix"),
+        altitude_bins: Path = typer.Argument(..., help="Altitude bins"),
+        energy_bins: Path = typer.Argument(..., help="Energy bins"),
+        cam_pos: Path = typer.Option(None, help="Camera positions file"),
+        cam_dir: Path = typer.Option(None, help="Cameras directory"),
+        radar_points: Path = typer.Option(None, help="Radar point cloud file"),
         gpu: bool = typer.Option(True, help="Use GPU if available"),
         iters: int = typer.Option(2000, help="Number of training iterations"),
         ray_batch_size: int = typer.Option(4096, help="Batch size for ray loss"),
@@ -55,8 +67,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
         save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
         plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
-        res_x: int = typer.Option(128, help="x resolution for plotting"),
-        res_y: int = typer.Option(128, help="y resolution for plotting"),
+        plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
+        plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
         ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
         **config_kwargs
     ):
@@ -64,9 +76,38 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         
         # Choose device
         device = choose_best_device(gpu)
-        
-        # Load physics model
-        pm = load_physical_model(physical_model_path, device)
+
+        # Create the oblique reference frame
+        frame = Frame(
+            origin_latitude=origin_lat,
+            origin_longitude=origin_lon,
+            origin_altitude=origin_alt,
+            field_inclination=field_inc,
+            field_declination=field_dec,
+            device=device
+        )
+
+        # Define the reconstruction bounding box
+        bbox = BBox(
+            frame=frame,
+            east_range=(east_min, east_max),
+            south_range=(south_min, south_max),
+            altitude_range=(alt_min, alt_max)
+        )
+
+        M_emis = data.load_emission_matrix(emis_mat).to(device)
+        M_dens = data.load_density_matrix(dens_mat).to(device)
+        E_edges = data.load_energy_bins(energy_bins).to(device)
+        z_edges = data.load_altitude_bins(altitude_bins).to(device)
+
+        # Load the datasets
+        ray_data, radar_data = None, None
+        if cam_pos is not None and cam_dir is not None:
+            cams = data.load_cameras(cam_pos, cam_dir)
+            ray_data = CameraRaysDataset(cams, frame, bbox)
+        if radar_points is not None:
+            points = data.load_radar_point_cloud(radar_points)
+            radar_data = RadarPointsDataset(*points, frame)
         
         # Build config args from kwargs
         config_args = {}
@@ -77,20 +118,23 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         
         # Instantiate reconstruction model
         config = config_cls(**config_args)
-        f_model = model_cls(pm, config)
+        f_model = model_cls(bbox.xy_min, bbox.xy_max, E_edges, config)
         f_model = f_model.to(device)
         typer.echo(f"Instantiated model:\n{f_model}")
         
-        recon = Reconstruction(pm, f_model, device)
+        recon = Reconstruction(
+            flux_model=f_model,
+            frame=frame,
+            bbox=bbox,
+            M_emis=M_emis,
+            M_dens=M_dens,
+            z_edges=z_edges,
+        )
         
-        # Train the reconstruction after loading the camera dataset
-        cams, radar_data = load_dataset(dataset_path)
-        rays = CameraRays(cams, pm.frame, device)
-        radar = RadarPoints(*radar_data, pm.frame, device)
-        dataset = Dataset(rays, radar)
-
+        # Train the reconstruction on the provided data
         recon.train(
-            dataset=dataset,
+            ray_data=ray_data,
+            radar_data=radar_data,
             num_iters=iters,
             ray_batch_size=ray_batch_size,
             ray_bins=ray_bins,
@@ -108,12 +152,12 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         if plot:
             recon.eval_mode()
-            recon_xy = xy_grid(pm.frame.xy_min, pm.frame.xy_max, res_x, res_y)
+            recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
             estimated_f = recon.flux(recon_xy).detach()
-            estimated_q0 = pm.total_energy_flux(estimated_f).cpu()
+            estimated_q0 = phy.total_energy_flux(estimated_f, E_edges).cpu()
 
-            x_rec_min, y_rec_min = pm.frame.xy_min.cpu()
-            x_rec_max, y_rec_max = pm.frame.xy_max.cpu()
+            x_rec_min, y_rec_min = bbox.xy_min.cpu()
+            x_rec_max, y_rec_max = bbox.xy_max.cpu()
 
             if ref_flux is not None:
                 ref = load_reference_flux(ref_flux, device)
@@ -129,7 +173,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                                 cbar_pad="10%")
 
                 # === Process reference flux ===
-                reference_q0 = pm.total_energy_flux(ref.image).cpu()
+                reference_q0 = phy.total_energy_flux(ref.image, E_edges).cpu()
 
                 # === Determine color range ===
                 vmin = min(estimated_q0.min(), reference_q0.min())
@@ -205,7 +249,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         param_kind = inspect.Parameter.KEYWORD_ONLY
         if isinstance(arg_default, typer.models.ArgumentInfo):
             param_kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
-        param = inspect.Parameter(arg_name, param_kind, default=arg_default)
+        param = inspect.Parameter(arg_name, param_kind, default=arg_default, annotation=args_spec.annotations[arg_name])
         params.append(param)
     
     # Add model-specific config parameters
@@ -254,10 +298,13 @@ train_app = typer.Typer(help="Train models")
 app.add_typer(train_app, name="train")
 
 # Dynamically register all models as subcommands
+MODEL_TRAINING_COMMANDS = {}
 for model_name, model_entry in MODEL_REGISTRY.items():
     model_cls, config_cls = model_entry
-    train_command = create_train_command_for_model(model_name, model_cls, config_cls)
-    train_app.command(name=model_name, help=f"Train {model_name} model")(train_command)
+    train_func = create_train_command_for_model(model_name, model_cls, config_cls)
+    command = train_app.command(name=model_name, help=f"Train {model_name} model")
+    train_command = command(train_func)
+    MODEL_TRAINING_COMMANDS[model_name] = train_command
 
 # Fallback command to list available models
 @train_app.callback(invoke_without_command=True)
@@ -268,6 +315,86 @@ def train_main(ctx: typer.Context):
             typer.echo(f"  {model_name}")
         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
 
+def get_full_args_with_defaults(func, config_dict):
+    sig = inspect.signature(func)
+    args = {}
+
+    for name, param in sig.parameters.items():
+        if name in config_dict:
+            args[name] = config_dict[name]
+        else:
+            default = param.default
+            if isinstance(default, typer.models.OptionInfo):
+                args[name] = default.default  # actual default
+            elif default is not inspect.Parameter.empty:
+                args[name] = default
+            else:
+                raise ValueError(f"Missing required parameter: {name}")
+    return args
+
+def create_train_from_config_command_for_model(model_name: str, train_func):
+    args_spec = inspect.signature(train_func)
+    params = []
+
+    # Add config_path argument
+    params.append(inspect.Parameter(
+        "config_path",
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        annotation=Path,
+        default=...,
+    ))
+
+    # For every parameter in train_func, add a matching Option to override
+    for name, param in args_spec.parameters.items():
+        if name == "self":
+            continue
+
+        # We skip config_path — already added
+        if name == "config_path":
+            continue
+        
+        annotation = param.annotation
+        default_val = param.default
+
+        if isinstance(default_val, typer.models.ArgumentInfo) or isinstance(default_val, typer.models.OptionInfo):
+            # Extract help text
+            help_text = default_val.help
+
+            # Treat everything as Option with default None (means: override optional)
+            default = typer.Option(None, help=help_text)
+        elif default_val != inspect._empty:
+            default = typer.Option(default_val)
+        else:
+            # No default known — make it explicitly optional
+            default = typer.Option(None)
+
+        params.append(inspect.Parameter(
+            name,
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=default,
+            annotation=annotation
+        ))
+
+    # Create a wrapper function
+    def from_config_wrapper(config_path: Path, **cli_kwargs):
+        config_dict = data.load_yaml(config_path)
+        merged = {**config_dict, **{k: v for k, v in cli_kwargs.items() if v is not None}}
+
+        args = get_full_args_with_defaults(train_func, merged)
+        return train_func(**args)
+    
+    from_config_wrapper.__signature__ = inspect.Signature(params)
+    from_config_wrapper.__name__ = f"train_from_config_{model_name}"
+    return from_config_wrapper
+
+from_config_app = typer.Typer(help="Train models using config file + CLI override")
+train_app.add_typer(from_config_app, name="from-config")
+
+# Dynamically register all from-config commands
+for model_name, train_func in MODEL_TRAINING_COMMANDS.items():
+    from_config_func = create_train_from_config_command_for_model(model_name, train_func)
+    command = from_config_app.command(name=model_name, help=f"Train {model_name} using a config file and CLI overrides")
+    command(from_config_func)
 
 
 # Create subcommand for plotting
@@ -422,8 +549,7 @@ def generate_reconstructed_flux(
 
 @gen_app.command("emis")
 def generate_volume_emission(
-    reconstruction_or_reference_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
-    physical_model: Path = typer.Option(None, help="Path to physical model (for reference flux only)"),
+    recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
     res_x: int = typer.Option(100),
     res_y: int = typer.Option(100),
     res_z: int = typer.Option(50),
@@ -432,31 +558,59 @@ def generate_volume_emission(
     save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
-    if reconstruction_or_reference_path.suffix == ".pth":
-        recon = load_reconstruction(reconstruction_or_reference_path, device)
+    if recon_or_ref_path.suffix == ".pth":
+        recon = load_reconstruction(recon_or_ref_path, device)
         recon.eval_mode()
-        pm = recon.physical_model
-        xyz_min = pm.frame.box_min
-        xyz_max = pm.frame.box_max
+        xyz_min = recon.bbox.xyz_min
+        xyz_max = recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = recon.emis_rate(xyz).detach().cpu()
     else:
-        ref = load_reference_flux(reconstruction_or_reference_path, device)
-        if physical_model is None:
-            typer.echo("Generating emission from flux data requires a physical model.")
-            raise typer.Exit(1)
-        pm = load_physical_model(physical_model, device)
-        z_min = pm.frame.box_min[2]
-        z_max = pm.frame.box_max[2]
-        xyz_min = torch.tensor([*ref.xy_min, z_min]).to(device)
-        xyz_max = torch.tensor([*ref.xy_max, z_max]).to(device)
+        info = data.load_yaml(recon_or_ref_path)
+        # Create the oblique reference frame
+        frame = Frame(
+            origin_latitude=info["origin_lat"],
+            origin_longitude=info["origin_lon"],
+            origin_altitude=info["origin_alt"],
+            field_inclination=info["field_inc"],
+            field_declination=info["field_dec"],
+            device=device
+        )
+
+        # Define the reconstruction bounding box
+        bbox = BBox(
+            frame=frame,
+            east_range=(info["east_min"], info["east_max"]),
+            south_range=(info["south_min"], info["south_max"]),
+            altitude_range=(info["alt_min"], info["alt_max"])
+        )
+
+        M_emis = data.load_emission_matrix(info["emis_mat"]).to(device)
+        M_dens = data.load_density_matrix(info["dens_mat"]).to(device)
+        E_edges = data.load_energy_bins(info["energy_bins"]).to(device)
+        z_edges = data.load_altitude_bins(info["altitude_bins"]).to(device)
+        recon = Reconstruction(
+            flux_model=ReferenceFlux(
+                image=data.load_3d_grid_data(info["flux"]),
+                E_edges=E_edges,
+                xy_min=bbox.xy_min,
+                xy_max=bbox.xy_max,
+                device=device
+            ),
+            frame=frame,
+            bbox=bbox,
+            M_emis=M_emis,
+            M_dens=M_dens,
+            z_edges=z_edges
+        )
+
+        xyz_min = bbox.xyz_min
+        xyz_max = bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        xy = xyz[...,:2]
-        f = ref.flux(xy)
-        l = pm.emis_rate(xyz, f).cpu()
+        l = recon.emis_rate(xyz).cpu()
     
     if save is not None:
-        save_3d_grid_data(l, save)
+        data.save_3d_grid_data(l, save)
     
     if plot:
         l = l.numpy()

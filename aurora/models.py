@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from aurora.bbox import BBox
-
 
 ModelEntry = namedtuple("RegisteredModel", ("model_cls", "config_cls"))
 
@@ -69,17 +67,15 @@ class ReferenceFlux(FluxModel):
             self,
             image: torch.Tensor,
             E_edges: torch.Tensor,
-            range_south: tuple[float, float],
-            range_east: tuple[float, float],
+            xy_min: torch.Tensor,
+            xy_max: torch.Tensor,
             device: torch.device
         ):
         self.image = image.to(device)
-        self.device = device
-        x_min, x_max = range_south
-        y_min, y_max = range_east
-        self._xy_min = torch.tensor([x_min, y_min], device=device)
-        self._xy_max = torch.tensor([x_max, y_max], device=device)
+        self._xy_min = xy_min.to(device)
+        self._xy_max = xy_max.to(device)
         self._E_edges = E_edges.to(device)
+        self.device = device
     
     @property
     def xy_min(self):
@@ -95,8 +91,7 @@ class ReferenceFlux(FluxModel):
     
     @property
     def resolution(self):
-        res_x = self.image.size(1)
-        res_y = self.image.size(0)
+        res_y, res_x = self.image.shape
         return res_x, res_y
     
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
@@ -138,10 +133,10 @@ class ReferenceFlux(FluxModel):
 
 
 class NNFluxModel(TrainableFluxModel):
-    def __init__(self, bbox: BBox, E_edges: torch.Tensor):
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor):
         super(NNFluxModel, self).__init__()
-        self._xy_min = bbox.xyz_min[:2]
-        self._xy_max = bbox.xyz_max[:2]
+        self._xy_min = xy_min
+        self._xy_max = xy_max
         self._E_edges = E_edges
         self.input_size = 2
         self.output_size = len(E_edges) - 1  # Number of energy bins
@@ -162,15 +157,19 @@ class NNFluxModel(TrainableFluxModel):
         return self._E_edges
 
 
-class FourierNNFluxModel(NNFluxModel):
-    def __init__(self, bbox: BBox, E_edges: torch.Tensor, embed_exp: int):
-        assert embed_exp >= 1
+@dataclass
+class FourierNNConfig:
+    encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
 
-        super().__init__(bbox, E_edges)
+class FourierNNFluxModel(NNFluxModel):
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, encoding_exp: int):
+        assert encoding_exp >= 1
+
+        super().__init__(xy_min, xy_max, E_edges)
         
-        self.embed_exp = embed_exp
-        self.embed_size = (2 * embed_exp + 1) * self.input_size
-        self.freqs = [(2**i) * torch.pi for i in range(self.embed_exp)]
+        self.encoding_exp = encoding_exp
+        self.encoding_size = (2 * self.encoding_exp + 1) * self.input_size
+        self.freqs = [(2**i) * torch.pi for i in range(self.encoding_exp)]
     
     def position_encode(self, x: torch.Tensor):
         cos_x = [torch.cos(f * x) for f in self.freqs]
@@ -179,22 +178,19 @@ class FourierNNFluxModel(NNFluxModel):
 
 
 @dataclass
-class LogMLPConfig:
-    embed_exp: int = config_field(4, help="Fourier embedding maximum exponent")
+class LogFourierNNConfig(FourierNNConfig):
     log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
 
-@register_model("log_res_mlp", LogMLPConfig)
+@register_model("log_res_mlp", LogFourierNNConfig)
 class LogResMLP(FourierNNFluxModel):
-    def __init__(self, bbox: BBox, E_edges: torch.Tensor, config: LogMLPConfig):
-        assert config.embed_exp >= 1
-
-        super().__init__(bbox, E_edges, config.embed_exp)
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, config: LogFourierNNConfig):
+        super().__init__(xy_min, xy_max, E_edges, config.encoding_exp)
 
         self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.embed_size, 128)
+        self.fc1 = nn.Linear(self.encoding_size, 128)
         self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128 + self.embed_size, 128)
+        self.fc3 = nn.Linear(128 + self.encoding_size, 128)
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
@@ -207,10 +203,9 @@ class LogResMLP(FourierNNFluxModel):
         x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
         x = F.relu(self.fc4(x))
         x = F.sigmoid(self.fc5(x))
-        x = x * self.log_scale
-        x = torch.pow(10.0, x)
+        x = torch.pow(10.0, x * self.log_scale)
         return x
 
     @classmethod
     def default_config(cls):
-        return LogMLPConfig()
+        return LogFourierNNConfig()

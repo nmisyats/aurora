@@ -10,31 +10,62 @@ import torch
 import numpy as np
 
 from aurora.camera import Camera
-from aurora.frame import Frame
-from aurora.models import ReferenceFlux
+# from aurora.models import ReferenceFlux
 
-def load_yaml(stream):
-    return yaml.load(stream, Loader=Loader)
+def load_yaml(file_path: Path | str) -> dict:
+    with open(file_path, "r") as f:
+        return yaml.load(f, Loader=Loader)
 
 
 # _minmax_tuple = And(Use(lambda lst: (float(lst[0]), float(lst[1])), lambda p: p[0] < p[1]))
 # _float = Use(float)
 
-# def resolve_relative_to_base(target_path: Path, base_path: Path) -> Path:
-#     base_path = Path(base_path)
-#     target_path = Path(target_path)
-#     if target_path.is_absolute():
-#         return target_path.resolve()
-#     abs_base = base_path.resolve()
-#     return (abs_base / target_path).resolve()
+def resolve_relative_to_base(target_path: Path | str, base_path: Path | str) -> Path:
+    base_path = Path(base_path)
+    target_path = Path(target_path)
+    if target_path.is_absolute():
+        return target_path.resolve()
+    abs_base = base_path.resolve()
+    return (abs_base / target_path).resolve()
 
-# def path_validator(base_path: Path):
-#     return And(
-#         Use(Path),
-#         Use(lambda p: resolve_relative_to_base(p, base_path)),
-#         lambda p: p.exists(),
-#         error="Must be a valid path"
-#     )
+def path_validator(base_path: Path | str):
+    return And(
+        Use(Path),
+        Use(lambda p: resolve_relative_to_base(p, base_path)),
+        lambda p: p.exists(),
+        error="Must be a valid path"
+    )
+
+_reference_frame_schema = Schema({
+    "origin_lat": Use(float),
+    "origin_lon": Use(float),
+    "origin_alt": Use(float),
+    "field_inc": Use(float),
+    "field_dec": Use(float),
+})
+
+_reconstruction_bbox_schema = Schema({
+    "east_min": Use(float),
+    "east_max": Use(float),
+    "south_min": Use(float),
+    "south_max": Use(float),
+    "alt_min": Use(float),
+    "alt_max": Use(float),
+})
+
+def load_physical_model(yaml_path: Path | str):
+    yaml_path = Path(yaml_path)
+    relative_path = path_validator(yaml_path.parent)
+    schema = Schema({
+        "emis_mat": relative_path,
+        "dens_mat": relative_path,
+        "altitude_bins": relative_path,
+        "energy_bins": relative_path,
+    })
+    desc = load_yaml(yaml_path)
+    desc = schema.validate(desc)
+    return 
+
 
 def load_camera_images(cam_dir: Path | str):
     cam_dir = Path(cam_dir)
@@ -101,6 +132,21 @@ def load_radar_point_cloud(dat_path: Path | str):
     alts, lats, lons, dens = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
     return alts, lats, lons, dens
 
+def load_emission_matrix(dat_path: Path | str):
+    return load_matrix_data(dat_path).T
+
+def load_density_matrix(dat_path: Path | str):
+    return load_matrix_data(dat_path).T.square()
+
+def load_altitudes(dat_path: Path | str):
+    return load_matrix_data(dat_path).flatten()
+
+def load_altitude_bins(dat_path: Path | str):
+    return load_matrix_data(dat_path).flatten()
+
+def load_energy_bins(dat_path: Path | str):
+    return load_matrix_data(dat_path).flatten()
+
 def load_matrix_data(dat_path: Path | str):
     mat = []
     with open(dat_path, "r") as f:
@@ -151,3 +197,13 @@ def save_2d_grid_data(array: torch.Tensor, file_path: Path):
     values = array.ravel().reshape(-1, 1)
     data = np.hstack((indices, values))
     np.savetxt(file_path, data, fmt="%d %d %.6f")
+
+# def load_reference_flux(yaml_path: Path | str, device: torch.device):
+#     ref_info = load_yaml(yaml_path)
+#     return ReferenceFlux(
+#         image=load_3d_grid_data(ref_info["flux"]),
+#         E_edges=load_energy_bins(ref_info["energy_bins"]),
+#         range_x=(ref_info["x_min"], ref_info["x_max"]),
+#         range_y=(ref_info["y_min"], ref_info["y_max"]),
+#         device=device
+#     )

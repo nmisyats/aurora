@@ -221,21 +221,23 @@ class Reconstruction:
         self._training = True
 
 
-# def save_reonstruction(recon: Reconstruction, path: Path | str):
-#     torch.save({
-#         "flux_model": recon.flux_model,
-#         "bbox": recon.bbox,
-#         "M_emis": recon.M_emis,
-#         "M_dens": recon.M_dens,
-#         "z_edges": recon.z_edges
-#     }, path)
+def save_reonstruction(recon: Reconstruction, path: Path | str):
+    torch.save({
+        "flux_model": recon.flux_model,
+        "frame": recon.frame,
+        "bbox": recon.bbox,
+        "M_emis": recon.M_emis,
+        "M_dens": recon.M_dens,
+        "z_edges": recon.z_edges
+    }, path)
 
-# def load_reconstruction(path: Path | str, device: torch.device):
-#     data = torch.load(path, map_location=device, weights_only=False)
-#     return Reconstruction(
-#         data["flux_model"],
-#         data["bbox"],
-#         data["M_emis"],
-#         data["M_dens"],
-#         data["z_edges"]
-#     )
+def load_reconstruction(path: Path | str, device: torch.device):
+    data = torch.load(path, map_location=device, weights_only=False)
+    return Reconstruction(
+        data["flux_model"],
+        data["frame"],
+        data["bbox"],
+        data["M_emis"],
+        data["M_dens"],
+        data["z_edges"]
+    )

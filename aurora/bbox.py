@@ -33,6 +33,14 @@ class BBox:
 
         self.xyz_min = torch.tensor([x_min, y_min, z_min], device=frame.device)
         self.xyz_max = torch.tensor([x_max, y_max, z_max], device=frame.device)
+    
+    @property
+    def xy_min(self):
+        return self.xyz_min[:2]
+    
+    @property
+    def xy_max(self):
+        return self.xyz_max[:2]
 
     def __repr__(self):
         return f"BBbox(min={self.xyz_min.tolist()}, max={self.xyz_max.tolist()})"
