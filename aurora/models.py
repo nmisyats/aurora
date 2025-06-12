@@ -30,11 +30,8 @@ def register_model(name, config_cls):
 
 class FluxModel(ABC):
     @abstractmethod
-    def flux_distrib(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux(self, xy: torch.Tensor) -> torch.Tensor:
         ...
-    
-    def flux_curve(self, xy: torch.Tensor, E: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
     
     @property
     @abstractmethod
@@ -53,7 +50,7 @@ class FluxModel(ABC):
 
 
 class TrainableFluxModel(FluxModel, nn.Module):
-    def flux_distrib(self, xy: torch.Tensor):
+    def flux(self, xy: torch.Tensor):
         orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
         xy = xy.reshape(-1, 2) # (N, 2)
         f = self.forward(xy) # (N, n_bins)
@@ -97,7 +94,7 @@ class ReferenceFlux(FluxModel):
         res_y, res_x = self.image.shape
         return res_x, res_y
     
-    def flux_distrib(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux(self, xy: torch.Tensor) -> torch.Tensor:
         # xy: (..., 2) coordinates within xy_min and xy_max
         # self.image: (H, W, B)
         # Output: (..., B) sampled flux at each xy
