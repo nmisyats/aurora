@@ -6,7 +6,7 @@ and work within this environment:
 
 ```
 python -m venv .venv
-source .venv/bin/activate # linux
+source .venv/bin/activate
 ```
 
 Then, build and install the library `aurora` library and command line tool
