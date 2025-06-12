@@ -6,11 +6,9 @@ by the CLI and by users for custom visualization needs.
 """
 
 import math
-from pathlib import Path
-from typing import List, Optional, Tuple, Union, Dict, Any
+from typing import List, Optional, Tuple, Union
 
 import torch
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
@@ -22,6 +20,41 @@ from aurora.utils import bounds2d_to_tuple, bounds3d_to_tuple
 from aurora.camera import Camera
 import aurora.physics as phy
 
+
+def plot_training_losses(
+        ray_loss: list[float] | None = None,
+        radar_loss: list[float] | None = None,
+        total_loss: list[float] | None = None,
+    ):
+    if ray_loss and radar_loss:
+        fig, axs = plt.subplots(1, 3, figsize=(14,4))
+        ax1, ax2, ax3 = axs
+        ax1.plot(ray_loss)
+        ax1.set_title("Camera loss")
+        ax2.plot(radar_loss)
+        ax2.set_title("Radar loss")
+        ax3.plot(total_loss)
+        ax3.set_title("Total loss")
+        for ax in axs:
+            ax.set_xlabel("Iteration")
+            ax.set_ylabel("Loss")
+        return fig, axs
+    else:
+        fig, ax = plt.subplots()
+        if ray_loss:
+            ax.plot(ray_loss)
+            ax.set_title("Loss (camera)")
+        elif radar_loss:
+            ax.plot(radar_loss)
+            ax.set_title("Loss (radar)")
+        elif total_loss:
+            ax.plot(total_loss)
+            ax.set_title("Loss")
+        else:
+            raise ValueError("Empty loss arrays")
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Loss")
+        return fig, ax
 
 def plot_flux_2d(
     flux_data: torch.Tensor,

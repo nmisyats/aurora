@@ -164,7 +164,7 @@ class Reconstruction:
             weight_decay: float = 1.0,
             lr_step_size: int = 5000,
             lr_gamma: float = 0.1
-        ) -> list[float]:
+        ) -> tuple[list[float], list[float], list[float]]:
         
         if not isinstance(self.flux_model, TrainableFluxModel):
             raise ValueError("Flux model is not trainable.")
@@ -177,7 +177,12 @@ class Reconstruction:
 
         optimizer = torch.optim.Adam(self.flux_model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
+
+        has_ray_data = ray_data is not None and ray_loss_weight > 0.0
+        has_radar_data = radar_data is not None and radar_loss_weight > 0.0
         
+        ray_losses = [] if has_ray_data else None
+        radar_losses = [] if has_radar_data else None
         losses = []
 
         tq = tqdm.trange(num_iters)
@@ -186,17 +191,21 @@ class Reconstruction:
 
             ray_loss, radar_loss = 0.0, 0.0
 
-            if ray_data is not None and ray_loss_weight > 0.0:
+            if has_ray_data:
                 ro, rd, tn, tf, g_ref = ray_data.random_sample(ray_batch_size)
                 g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
                 ray_loss = (g - g_ref)**2
                 ray_loss = ray_loss.sum() / ray_batch_size
+                
+                ray_losses.append(ray_loss.item())
             
-            if radar_data is not None and radar_loss_weight > 0.0:
+            if has_radar_data:
                 p, d_ref = radar_data.random_sample(radar_batch_size)
                 d = self.elec_dens(p)
                 radar_loss = (d - d_ref)**2
                 radar_loss = radar_loss.sum() / radar_batch_size
+                
+                radar_losses.append(radar_loss.item())
 
             loss = ray_loss_weight*ray_loss + radar_loss_weight*radar_loss
             loss.backward()
@@ -212,7 +221,7 @@ class Reconstruction:
             )
         tq.close()
 
-        return losses
+        return ray_losses, radar_losses, losses
     
     def eval_mode(self):
         if isinstance(self.flux_model, TrainableFluxModel):

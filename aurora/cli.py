@@ -66,7 +66,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
         save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
-        plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
+        plot_loss: bool = typer.Option(False, help="Plot the training losses"),
+        plot_flux: bool = typer.Option(True, help="Plot the reconstructed flux after training complete"),
         plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
         plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
         ref_flux_data: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
@@ -123,7 +124,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         lr_step = get_param_value('lr_step', lr_step)
         lr_decay = get_param_value('lr_decay', lr_decay)
         save = get_param_value('save', save)
-        plot = get_param_value('plot', plot)
+        plot_flux = get_param_value('plot', plot_flux)
         plot_res_x = get_param_value('plot_res_x', plot_res_x)
         plot_res_y = get_param_value('plot_res_y', plot_res_y)
         ref_flux_data = get_param_value('ref_flux_data', ref_flux_data)
@@ -152,7 +153,13 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             ray_data = CameraRaysDataset(cams, frame, bbox)
         if radar_points is not None:
             points = data.load_radar_point_cloud(radar_points)
-            radar_data = RadarPointsDataset(*points, frame)
+            radar_data = RadarPointsDataset(
+                altitudes=points.altitudes,
+                latitudes=points.latitudes,
+                longitudes=points.longitudes,
+                densities=points.densities,
+                frame=frame
+            )
         
         # Build config args from final kwargs
         config_args = {}
@@ -177,7 +184,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         )
         
         # Train the reconstruction on the provided data
-        recon.train(
+        losses = recon.train(
             ray_data=ray_data,
             radar_data=radar_data,
             num_iters=iters,
@@ -194,8 +201,11 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         if save is not None:
             save_reonstruction(recon, save)
+        
+        if plot_loss:
+            aplt.plot_training_losses(*losses)
 
-        if plot:
+        if plot_flux:
             recon.eval_mode()
             recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
             estimated_f = recon.flux_distrib(recon_xy).cpu()
@@ -215,9 +225,12 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                 )
             else:
                 aplt.plot_flux_2d(
-                    flux_data=reference_f,
+                    flux_data=estimated_f,
                     xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
+                    energy_edges=E_edges.cpu()
                 )
+        
+        if plot_loss or plot_flux:
             plt.show()
     
     # Build parameter list dynamically
