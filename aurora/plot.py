@@ -9,12 +9,14 @@ import math
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import pyvista as pv
+import numpy as np
 
 from aurora.utils import bounds2d_to_tuple, bounds3d_to_tuple
 from aurora.camera import Camera
@@ -133,6 +135,45 @@ def plot_flux_2d(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
+    
+    return fig, ax
+
+
+def plot_flux_1d(
+    flux_data: torch.Tensor,
+    energy_edges: torch.Tensor,
+    title: str = "Electron flux",
+    xlabel: str = "E [eV]",
+    ylabel: str = "f [cm$^{-2}$s$^{-1}$eV$^{-1}$]",
+    figsize: Tuple[float, float] = (8, 6),
+    ax: Optional[Axes] = None,
+) -> Tuple[Figure, Axes]:
+    """
+    Plot 1D flux data.
+    
+    Args:
+        TODO
+        
+    Returns:
+        Tuple of (figure, axes)
+    """ 
+    # Create figure/axes if not provided
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+    
+    flux_data = flux_data.cpu().numpy()
+    energy_edges = energy_edges.cpu().numpy()
+    
+    plt.hist(flux_data, energy_edges)
+    
+    # Set labels and title
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     
     return fig, ax
 

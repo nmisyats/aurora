@@ -426,6 +426,34 @@ def generate_reconstructed_flux(
         )
         plt.show()
 
+@gen_app.command("flux-at", context_settings={"ignore_unknown_options": True})
+def generate_reconstructed_flux_at(
+    recon_path: Path = typer.Argument(..., help="Path to reconstructed model"),
+    x: float = typer.Argument(..., help="x coordinate"),
+    y: float = typer.Argument(..., help="y coordinate"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    plot: bool = typer.Option(True, help="Plot the generated flux"),
+    save: Path = typer.Option(None, help="Save flux data to file"),
+):
+    """Generate flux from reconstruction using generic plotting."""
+    device = choose_best_device(gpu)
+    recon = load_reconstruction(recon_path, device)
+    recon.eval_mode()
+    
+    xy = torch.tensor([x, y], device=device)
+    f = recon.flux(xy)
+
+    if save is not None:
+        data.save_matrix_data(f.unsqueeze(1), save)
+    
+    if plot:
+        fig, ax = aplt.plot_flux_1d(
+            flux_data=f,
+            energy_edges=recon.flux_model.E_edges,
+            title=f"Flux at (x, y) = ({x}, {y})"
+        )
+        plt.show()
+
 @gen_app.command("emis")
 def generate_volume_emission(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
