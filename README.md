@@ -130,7 +130,7 @@ The trained model will be saved as a self-contained file `recon.pth`.
 If a reference flux is available to compare the reconsutrction (simulated data) with, it
 can be added to the final flux plot by adding the following options:
 ```
-ref-flux-data path/to/flux.dat ref-flux-config path/to/flux_config.yaml
+--ref-flux-data path/to/flux.dat --ref-flux-config path/to/flux_config.yaml
 ```
 
 For convenience, it is possible to bundle training options into a YAML file
