@@ -139,7 +139,7 @@ and load the options from it. For example:
 # train.yaml
 
 cam_dir: path/to/camera/images
-cam_pos: path/to/camera_position.dat
+cam_pos: path/to/camera_position.set
 iters: 5000
 save: recon.pth
 ref_flux_data: path/to/flux.dat
