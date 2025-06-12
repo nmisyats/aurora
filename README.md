@@ -55,7 +55,7 @@ frame: # Oblique reference frame description
   origin_alt: 90.0
   field_inc: 77.9
   field_dec: 6.0
-bbox: # Rconstruction bounding box description
+bbox: # Reconstruction bounding box description
   east_min: -70.0
   east_max: 70.0
   south_min: -40.0
