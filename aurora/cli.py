@@ -358,6 +358,34 @@ def plot_flux(
     )
     plt.show()
 
+@plot_app.command("flux-at", context_settings={"ignore_unknown_options": True})
+def plot_flux_at(
+    flux_data: Path = typer.Argument(..., help="Path to flux data"),
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+    x: float = typer.Argument(..., help="x coordinate"),
+    y: float = typer.Argument(..., help="y coordinate"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    plot: bool = typer.Option(True, help="Plot the generated flux"),
+    save: Path = typer.Option(None, help="Save flux data to file"),
+):
+    """Generate flux from reconstruction using generic plotting."""
+    device = choose_best_device(gpu)
+    recon = load_reference_flux(flux_data, config_path, device)
+    
+    xy = torch.tensor([x, y], device=device)
+    f = recon.flux(xy)
+
+    if save is not None:
+        data.save_matrix_data(f.unsqueeze(1), save)
+    
+    if plot:
+        fig, ax = aplt.plot_flux_1d(
+            flux_data=f,
+            energy_edges=recon.flux_model.E_edges,
+            title=f"Flux at (x, y) = ({x}, {y})"
+        )
+        plt.show()
+
 @plot_app.command("emis")
 def plot_volume_emission():
     raise NotImplementedError

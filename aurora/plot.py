@@ -165,8 +165,9 @@ def plot_flux_1d(
     
     flux_data = flux_data.cpu().numpy()
     energy_edges = energy_edges.cpu().numpy()
+    energies = (energy_edges[1:] + energy_edges[:-1]) / 2.0
     
-    plt.hist(flux_data, energy_edges)
+    plt.plot(energies, flux_data)
     
     # Set labels and title
     ax.set_xlabel(xlabel)
