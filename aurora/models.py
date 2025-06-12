@@ -181,6 +181,34 @@ class FourierNNFluxModel(NNFluxModel):
 class LogFourierNNConfig(FourierNNConfig):
     log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
 
+@register_model("log_mlp", LogFourierNNConfig)
+class LogMLP(FourierNNFluxModel):
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, config: LogFourierNNConfig):
+        super().__init__(xy_min, xy_max, E_edges, config.encoding_exp)
+
+        self.log_scale = config.log_scale
+        
+        self.fc1 = nn.Linear(self.encoding_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, 128)
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128, self.output_size)
+    
+    def forward(self, xy: torch.Tensor):
+        xy = self.normalize_xy(xy)
+        x = self.position_encode(xy)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        x = F.sigmoid(self.fc5(x))
+        x = torch.pow(10.0, x * self.log_scale)
+        return x
+
+    @classmethod
+    def default_config(cls):
+        return LogFourierNNConfig()
+
 @register_model("log_res_mlp", LogFourierNNConfig)
 class LogResMLP(FourierNNFluxModel):
     def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, config: LogFourierNNConfig):
@@ -209,3 +237,27 @@ class LogResMLP(FourierNNFluxModel):
     @classmethod
     def default_config(cls):
         return LogFourierNNConfig()
+
+@register_model("log_mlp_tanh", LogFourierNNConfig)
+class LogMLPtanh(FourierNNFluxModel):
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, config: LogFourierNNConfig):
+        super().__init__(xy_min, xy_max, E_edges, config.encoding_exp)
+
+        self.log_scale = config.log_scale
+        
+        self.fc1 = nn.Linear(self.encoding_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, 128)
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128, self.output_size)
+    
+    def forward(self, xy: torch.Tensor):
+        xy = self.normalize_xy(xy)
+        x = self.position_encode(xy)
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
+        x = F.tanh(self.fc3(x))
+        x = F.tanh(self.fc4(x))
+        x = F.sigmoid(self.fc5(x))
+        x = torch.pow(10.0, x * self.log_scale)
+        return x
