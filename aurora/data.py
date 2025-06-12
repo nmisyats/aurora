@@ -7,6 +7,10 @@ try:
     from yaml import CLoader as Loader
 except ImportError:
     from yaml import Loader
+try:
+    from yaml import CDumper as Dumper
+except ImportError:
+    from yaml import Dumper
 import torch
 import numpy as np
 
@@ -21,6 +25,10 @@ def load_yaml(file_path: Path | str, schema: Schema | None = None) -> dict:
         return schema.validate(data)
     else:
         return data
+
+def save_yaml(file_path: Path | str, data) -> dict:
+    with open(file_path, "w") as f:
+        yaml.dump(data, f, Dumper=Dumper)
 
 def resolve_relative_to_base(target_path: Path | str, base_path: Path | str) -> Path:
     base_path = Path(base_path)

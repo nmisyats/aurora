@@ -5,15 +5,12 @@ import typer
 import inspect
 import torch
 from matplotlib import pyplot as plt
-from schema import Schema, Optional, Use
 
 from aurora.models import MODEL_REGISTRY, ReferenceFlux
 from aurora.reconstruction import Reconstruction, save_reonstruction, load_reconstruction
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
-from aurora.frame import Frame
-from aurora.bbox import BBox
 import aurora.data as data
-import aurora.physics as phy
+
 from aurora.utils import xy_grid, xyz_grid
 import aurora.plot as aplt
 
@@ -28,7 +25,9 @@ def choose_best_device(allow_gpu: bool = True):
         return torch.device("cpu")
 
 
-def load_reference_flux(data_path: Path, config_path: Path, device: torch.device):
+def load_reference_flux(data_path: Path | str, config_path: Path | str, device: torch.device):
+    data_path = Path(data_path)
+    config_path = Path(config_path)
     config = data.load_config(config_path, device)
     return Reconstruction(
         flux_model=ReferenceFlux(
@@ -50,21 +49,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     """Dynamically create a train command for a specific model"""
     
     def train_command(
-        origin_lat: float = typer.Argument(..., help="Latitude of the reference frame's origin"),
-        origin_lon: float = typer.Argument(..., help="Longitude of the reference frame's origin"),
-        origin_alt: float = typer.Argument(..., help="Altitude of the reference frame's origin"),
-        field_inc: float = typer.Argument(..., help="Magnetic field inclination"),
-        field_dec: float = typer.Argument(..., help="Magnetic field declination"),
-        east_min: float = typer.Argument(..., help="East minimum bound for reconstruction"),
-        east_max: float = typer.Argument(..., help="East maximum bound for reconstruction"),
-        south_min: float = typer.Argument(..., help="South minimum bound for reconstruction"),
-        south_max: float = typer.Argument(..., help="South maximum bound for reconstruction"),
-        alt_min: float = typer.Argument(..., help="Altitude minimum bound for reconstruction"),
-        alt_max: float = typer.Argument(..., help="Altitude maximum bound for reconstruction"),
-        emis_mat: Path = typer.Argument(..., help="Emission matrix"),
-        dens_mat: Path = typer.Argument(..., help="Electron density matrix"),
-        altitudes: Path = typer.Argument(..., help="Altitude bins"),
-        energies: Path = typer.Argument(..., help="Energy bins"),
+        config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
+        training_options: Path = typer.Option(None, help="Path to YAML training configuration file"),
         cam_pos: Path = typer.Option(None, help="Camera positions file"),
         cam_dir: Path = typer.Option(None, help="Cameras directory"),
         radar_points: Path = typer.Option(None, help="Radar point cloud file"),
@@ -88,32 +74,76 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         **config_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
+
+        # Get function signature to identify default values
+        sig = inspect.signature(train_command)
         
+        # Create a mapping of parameter names to their default values
+        param_defaults = {}
+        for param_name, param in sig.parameters.items():
+            if hasattr(param.default, 'default'):  # typer.Option/Argument
+                param_defaults[param_name] = param.default.default
+            else:
+                param_defaults[param_name] = param.default
+
+        # Load training options from YAML if provided
+        train_options = {}
+        if training_options is not None:
+            train_options = data.load_yaml(training_options)
+            typer.echo(f"Loaded training options from {training_options}")
+
+        # Helper function to get final parameter value
+        def get_param_value(param_name, current_value):
+            """Get parameter value with priority: CLI args > YAML file > defaults"""
+            default_value = param_defaults.get(param_name)
+            yaml_value = train_options.get(param_name)
+            
+            # If current value differs from default, it was explicitly set via CLI
+            if current_value != default_value:
+                return current_value
+            # Otherwise, use YAML value if available, else use current (default) value
+            elif yaml_value is not None:
+                return yaml_value
+            else:
+                return current_value
+
+        # Apply the priority logic to all parameters
+        cam_pos = get_param_value('cam_pos', cam_pos)
+        cam_dir = get_param_value('cam_dir', cam_dir)
+        radar_points = get_param_value('radar_points', radar_points)
+        gpu = get_param_value('gpu', gpu)
+        iters = get_param_value('iters', iters)
+        ray_batch_size = get_param_value('ray_batch_size', ray_batch_size)
+        ray_bins = get_param_value('ray_bins', ray_bins)
+        radar_batch_size = get_param_value('radar_batch_size', radar_batch_size)
+        ray_loss_weight = get_param_value('ray_loss_weight', ray_loss_weight)
+        radar_loss_weight = get_param_value('radar_loss_weight', radar_loss_weight)
+        lr = get_param_value('lr', lr)
+        reg_strength = get_param_value('reg_strength', reg_strength)
+        lr_step = get_param_value('lr_step', lr_step)
+        lr_decay = get_param_value('lr_decay', lr_decay)
+        save = get_param_value('save', save)
+        plot = get_param_value('plot', plot)
+        plot_res_x = get_param_value('plot_res_x', plot_res_x)
+        plot_res_y = get_param_value('plot_res_y', plot_res_y)
+        ref_flux_data = get_param_value('ref_flux_data', ref_flux_data)
+        ref_flux_config = get_param_value('ref_flux_config', ref_flux_config)
+
+        # Apply the same logic to config_kwargs (model-specific parameters)
+        final_config_kwargs = {}
+        for key, value in config_kwargs.items():
+            final_config_kwargs[key] = get_param_value(key, value)
+
         # Choose device
         device = choose_best_device(gpu)
 
-        # Create the oblique reference frame
-        frame = Frame(
-            origin_latitude=origin_lat,
-            origin_longitude=origin_lon,
-            origin_altitude=origin_alt,
-            field_inclination=field_inc,
-            field_declination=field_dec,
-            device=device
-        )
-
-        # Define the reconstruction bounding box
-        bbox = BBox(
-            frame=frame,
-            east_range=(east_min, east_max),
-            south_range=(south_min, south_max),
-            altitude_range=(alt_min, alt_max)
-        )
-
-        M_emis = data.load_emission_matrix(emis_mat).to(device)
-        M_dens = data.load_density_matrix(dens_mat).to(device)
-        E_edges = data.load_energy_bins(energies).to(device)
-        z_edges = data.load_altitude_bins(altitudes).to(device)
+        config = data.load_config(config_file, device)
+        frame = config.frame
+        bbox = config.bbox
+        M_emis = config.phys.emis_mat
+        M_dens = config.phys.dens_mat
+        E_edges = config.phys.energies
+        z_edges = config.phys.altitudes
 
         # Load the datasets
         ray_data, radar_data = None, None
@@ -124,12 +154,12 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             points = data.load_radar_point_cloud(radar_points)
             radar_data = RadarPointsDataset(*points, frame)
         
-        # Build config args from kwargs
+        # Build config args from final kwargs
         config_args = {}
         for field_obj in fields(config_cls):
             field_name = field_obj.name
-            if field_name in config_kwargs:
-                config_args[field_name] = config_kwargs[field_name]
+            if field_name in final_config_kwargs:
+                config_args[field_name] = final_config_kwargs[field_name]
         
         # Instantiate reconstruction model
         config = config_cls(**config_args)
@@ -265,113 +295,24 @@ def train_main(ctx: typer.Context):
             typer.echo(f"  {model_name}")
         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
 
-def get_full_args_with_defaults(func, config_dict):
-    sig = inspect.signature(func)
-    args = {}
-
-    for name, param in sig.parameters.items():
-        if name in config_dict:
-            args[name] = config_dict[name]
-        else:
-            default = param.default
-            if isinstance(default, typer.models.OptionInfo):
-                args[name] = default.default  # actual default
-            elif default is not inspect.Parameter.empty:
-                args[name] = default
+@train_app.command("prepare")
+def make_options_file_for_model(model_name: str, file_path: Path):
+    if model_name not in MODEL_REGISTRY:
+        typer.echo(f"No model named {model_name}")
+        raise typer.Exit(1)
+    train_command = MODEL_TRAINING_COMMANDS[model_name]
+    args_spec = inspect.getfullargspec(train_command)
+    yaml_dict = {}
+    for arg_name, arg_default in args_spec.kwonlydefaults.items():
+        if arg_name == "training_options":
+            continue
+        annotation = args_spec.annotations[arg_name]
+        if isinstance(arg_default, typer.models.OptionInfo):
+            if annotation is Path:
+                yaml_dict[arg_name] = "..."
             else:
-                raise ValueError(f"Missing required parameter: {name}")
-    return args
-
-def create_train_from_config_command_for_model(model_name: str, train_func):
-    args_spec = inspect.signature(train_func)
-    params = []
-
-    # Add config_path argument
-    params.append(inspect.Parameter(
-        "config_path",
-        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        annotation=Path,
-        default=...,
-    ))
-    # Add training_path argument
-    params.append(inspect.Parameter(
-        "options_file",
-        kind=inspect.Parameter.KEYWORD_ONLY,
-        default=typer.Option(None, help="YAML file containing training options and overrides"),
-        annotation=Path
-    ))
-
-    # For every parameter in train_func, add a matching Option to override
-    for name, param in args_spec.parameters.items():
-        if name in ("self", "config_path", "options_file"):
-            continue
-
-        annotation = param.annotation
-        default_val = param.default
-
-        if isinstance(default_val, typer.models.ArgumentInfo):
-            continue
-
-        if isinstance(default_val, typer.models.OptionInfo):
-            # Extract help text
-            help_text = default_val.help
-
-            # Treat everything as Option with default None (means: override optional)
-            default = typer.Option(None, help=help_text)
-        elif default_val != inspect._empty:
-            default = typer.Option(default_val)
-        else:
-            # No default known — make it explicitly optional
-            default = typer.Option(None)
-
-        params.append(inspect.Parameter(
-            name,
-            kind=inspect.Parameter.KEYWORD_ONLY,
-            default=default,
-            annotation=annotation
-        ))
-
-    # Create a wrapper function
-    def from_config_wrapper(config_path: Path, options_file: Path, **cli_kwargs):
-        config_schema = data.config_schema(config_path.parent)
-        config_dict = data.load_yaml(config_path, config_schema)
-        
-        training_dict = {}
-
-        if options_file is not None:
-            training_schema = {}
-            for param in params:
-                k = Optional(param.name)
-                if param.annotation is Path:
-                    training_schema[k] = data.path_validator(options_file.parent)
-                else:
-                    training_schema[k] = Use(param.annotation)
-            training_schema = Schema(training_schema)
-            training_dict = data.load_yaml(options_file, training_schema)
-
-        merged = {}
-        for v in config_dict.values():
-            merged.update(v) # Expend inner configuration blocks
-        # Add kwargs from training file
-        merged.update(training_dict)
-        # Add cli kwargs overrides
-        merged.update({k: v for k, v in cli_kwargs.items() if v is not None})
-
-        args = get_full_args_with_defaults(train_func, merged)
-        return train_func(**args)
-    
-    from_config_wrapper.__signature__ = inspect.Signature(params)
-    from_config_wrapper.__name__ = f"train_from_config_{model_name}"
-    return from_config_wrapper
-
-from_config_app = typer.Typer(help="Train models using config file + CLI override")
-train_app.add_typer(from_config_app, name="from-config")
-
-# Dynamically register all from-config commands
-for model_name, train_func in MODEL_TRAINING_COMMANDS.items():
-    from_config_func = create_train_from_config_command_for_model(model_name, train_func)
-    command = from_config_app.command(name=model_name, help=f"Train {model_name} using a config file and CLI overrides")
-    command(from_config_func)
+                yaml_dict[arg_name] = arg_default.default
+    data.save_yaml(file_path, yaml_dict)
 
 
 # Create subcommand for plotting
