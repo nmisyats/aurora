@@ -198,7 +198,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         if plot:
             recon.eval_mode()
             recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
-            estimated_f = recon.flux(recon_xy).cpu()
+            estimated_f = recon.flux_distrib(recon_xy).cpu()
             rec_xy_min = bbox.xy_min.cpu()
             rec_xy_max = bbox.xy_max.cpu()
             if ref_flux_data is not None and ref_flux_config is not None:
@@ -391,7 +391,7 @@ def generate_reconstructed_flux(
     xy_min = recon.bbox.xy_min
     xy_max = recon.bbox.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
-    f = recon.flux(xy)
+    f = recon.flux_distrib(xy)
 
     if save is not None:
         data.save_3d_grid_data(f, save)

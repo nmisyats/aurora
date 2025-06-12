@@ -39,9 +39,9 @@ class Reconstruction:
         else:
             self._training = False
 
-    def flux(self, xy: torch.Tensor) -> torch.Tensor:
+    def flux_distrib(self, xy: torch.Tensor) -> torch.Tensor:
         """
-        Calculate the electron flux at points xy.
+        Calculate the electron flux distribution at points xy.
         Args:
             xy (torch.Tensor): Tensor of shape (..., 2) in South-East coordinates.
         
@@ -51,9 +51,9 @@ class Reconstruction:
         """
         if not self._training:
             with torch.no_grad():
-                return self.flux_model.flux(xy)
+                return self.flux_model.flux_distrib(xy)
         else:
-            return self.flux_model.flux(xy)
+            return self.flux_model.flux_distrib(xy)
 
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
@@ -67,7 +67,7 @@ class Reconstruction:
         """
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
-        f = self.flux(xy)
+        f = self.flux_distrib(xy)
         return phy.emis_rate(z, f, self.M_emis, self.z_edges)
     
     def elec_dens(self, p_frame: torch.Tensor) -> torch.Tensor:
@@ -82,7 +82,7 @@ class Reconstruction:
         """
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
-        f = self.flux(xy)
+        f = self.flux_distrib(xy)
         return phy.elec_dens(z, f, self.M_dens, self.z_edges)
 
     def int_emis_ray(
@@ -121,7 +121,7 @@ class Reconstruction:
             t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
             p_enu = self.frame.to_local_enu(p_frame, is_point=True)
             xy, z = p_frame[:,:2], p_enu[:,2]
-            f = self.flux(xy)
+            f = self.flux_distrib(xy)
             l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
             g = phy.int_emis_rayleigh(t_frame, l)
             g = g # * self.frame.metric_scale(rd) not required?
