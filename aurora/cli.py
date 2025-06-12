@@ -368,7 +368,7 @@ def plot_flux_at(
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
 ):
-    """Generate flux from reconstruction using generic plotting."""
+    """Plots the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
     recon = load_reference_flux(flux_data, config_path, device)
     
@@ -463,7 +463,7 @@ def generate_reconstructed_flux_at(
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
 ):
-    """Generate flux from reconstruction using generic plotting."""
+    """Generate the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
     recon = load_reconstruction(recon_path, device)
     recon.eval_mode()
