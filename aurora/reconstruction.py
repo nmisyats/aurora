@@ -33,7 +33,11 @@ class Reconstruction:
         self.device = frame.device
         
         self._vmap_g_cache = {}
-        self._training = True
+
+        if isinstance(flux_model, TrainableFluxModel):
+            self._training = True
+        else:
+            self._training = False
 
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
         """
@@ -162,14 +166,14 @@ class Reconstruction:
             lr_gamma: float = 0.1
         ) -> list[float]:
         
+        if not isinstance(self.flux_model, TrainableFluxModel):
+            raise ValueError("Flux model is not trainable.")
+        
         if ray_data is None and radar_data is None:
             raise ValueError("At least one of ray_data or radar_data must be provided.")
         
         if not self._training:
             raise ValueError("Reconstruction not in training mode.")
-
-        if not isinstance(self.flux_model, TrainableFluxModel):
-            raise ValueError("Flux model is not trainable.")
 
         optimizer = torch.optim.Adam(self.flux_model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
@@ -218,7 +222,13 @@ class Reconstruction:
     def train_mode(self):
         if isinstance(self.flux_model, TrainableFluxModel):
             self.flux_model.train()
-        self._training = True
+            self._training = True
+        else:
+            ValueError("Flux model is not trainable")
+    
+    @property
+    def trainable(self):
+        return isinstance(self.flux_model, TrainableFluxModel)
 
 
 def save_reonstruction(recon: Reconstruction, path: Path | str):

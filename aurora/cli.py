@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import matplotlib.patches as patches
 import pyvista as pv
+from schema import Schema, Optional, Use
 
 from aurora.models import MODEL_REGISTRY, ReferenceFlux
 from aurora.reconstruction import Reconstruction, save_reonstruction, load_reconstruction
@@ -24,13 +25,34 @@ from aurora.utils import (
     bounds3d_to_tuple
 )
 
+
 app = typer.Typer()
+
 
 def choose_best_device(allow_gpu: bool = True):
     if allow_gpu:
         return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     else:
         return torch.device("cpu")
+
+
+def load_reference_flux(data_path: Path, config_path: Path, device: torch.device):
+    config = data.load_config(config_path, device)
+    return Reconstruction(
+        flux_model=ReferenceFlux(
+            image=data.load_3d_grid_data(data_path).to(device),
+            E_edges=config.phys.energies,
+            xy_min=config.bbox.xy_min,
+            xy_max=config.bbox.xy_max,
+            device=device
+        ),
+        frame=config.frame,
+        bbox=config.bbox,
+        M_emis=config.phys.emis_mat,
+        M_dens=config.phys.dens_mat,
+        z_edges=config.phys.altitudes
+    )
+
 
 def create_train_command_for_model(model_name: str, model_cls, config_cls):
     """Dynamically create a train command for a specific model"""
@@ -49,8 +71,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         alt_max: float = typer.Argument(..., help="Altitude maximum bound for reconstruction"),
         emis_mat: Path = typer.Argument(..., help="Emission matrix"),
         dens_mat: Path = typer.Argument(..., help="Electron density matrix"),
-        altitude_bins: Path = typer.Argument(..., help="Altitude bins"),
-        energy_bins: Path = typer.Argument(..., help="Energy bins"),
+        altitudes: Path = typer.Argument(..., help="Altitude bins"),
+        energies: Path = typer.Argument(..., help="Energy bins"),
         cam_pos: Path = typer.Option(None, help="Camera positions file"),
         cam_dir: Path = typer.Option(None, help="Cameras directory"),
         radar_points: Path = typer.Option(None, help="Radar point cloud file"),
@@ -69,7 +91,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         plot: bool = typer.Option(True, help="Plot the reconstruction after training complete"),
         plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
         plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
-        ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
+        ref_flux_data: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
+        ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
         **config_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
@@ -97,8 +120,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         M_emis = data.load_emission_matrix(emis_mat).to(device)
         M_dens = data.load_density_matrix(dens_mat).to(device)
-        E_edges = data.load_energy_bins(energy_bins).to(device)
-        z_edges = data.load_altitude_bins(altitude_bins).to(device)
+        E_edges = data.load_energy_bins(energies).to(device)
+        z_edges = data.load_altitude_bins(altitudes).to(device)
 
         # Load the datasets
         ray_data, radar_data = None, None
@@ -159,8 +182,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             x_rec_min, y_rec_min = bbox.xy_min.cpu()
             x_rec_max, y_rec_max = bbox.xy_max.cpu()
 
-            if ref_flux is not None:
-                ref = load_reference_flux(ref_flux, device)
+            if ref_flux_data is not None and ref_flux_config is not None:
+                ref = load_reference_flux(ref_flux_data, ref_flux_config, device)
 
                 # === Setup figure with 2 subplots and shared colorbar ===
                 fig = plt.figure(figsize=(8, 4))
@@ -173,15 +196,15 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                                 cbar_pad="10%")
 
                 # === Process reference flux ===
-                reference_q0 = phy.total_energy_flux(ref.image, E_edges).cpu()
+                reference_q0 = phy.total_energy_flux(ref.flux_model.image, E_edges).cpu()
 
                 # === Determine color range ===
                 vmin = min(estimated_q0.min(), reference_q0.min())
                 vmax = max(estimated_q0.max(), reference_q0.max())
 
                 # === Plot reference flux ===
-                x_ref_min, y_ref_min = ref.xy_min.cpu()
-                x_ref_max, y_ref_max = ref.xy_max.cpu()
+                x_ref_min, y_ref_min = ref.bbox.xy_min.cpu()
+                x_ref_max, y_ref_max = ref.bbox.xy_max.cpu()
 
                 grid[0].imshow(reference_q0,
                             interpolation='none',
@@ -205,7 +228,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
                 # === Compute and show MAE ===
                 ref_f_at_xy = ref.flux(recon_xy)
-                true_q0_at_grid = pm.total_energy_flux(ref_f_at_xy).cpu()
+                true_q0_at_grid = phy.total_energy_flux(ref_f_at_xy, E_edges).cpu()
                 mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
                 grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
                             transform=grid[1].transAxes,
@@ -343,6 +366,13 @@ def create_train_from_config_command_for_model(model_name: str, train_func):
         annotation=Path,
         default=...,
     ))
+    # Add training_path argument
+    params.append(inspect.Parameter(
+        "training_path",
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        annotation=Path,
+        default=...,
+    ))
 
     # For every parameter in train_func, add a matching Option to override
     for name, param in args_spec.parameters.items():
@@ -376,9 +406,27 @@ def create_train_from_config_command_for_model(model_name: str, train_func):
         ))
 
     # Create a wrapper function
-    def from_config_wrapper(config_path: Path, **cli_kwargs):
-        config_dict = data.load_yaml(config_path)
-        merged = {**config_dict, **{k: v for k, v in cli_kwargs.items() if v is not None}}
+    def from_config_wrapper(config_path: Path, training_path: Path, **cli_kwargs):
+        config_schema = data.config_schema(config_path.parent)
+
+        training_schema = {}
+        for param in params:
+            k = Optional(param.name)
+            if param.annotation is Path:
+                training_schema[k] = data.path_validator(training_path.parent)
+            else:
+                training_schema[k] = Use(param.annotation)
+        training_schema = Schema(training_schema)
+
+        config_dict = data.load_yaml(config_path, config_schema)
+        training_dict = data.load_yaml(training_path, training_schema)
+
+        merged = {}
+        for v in config_dict.values():
+            merged.update(v) # Expend inner configuration blocks
+        # Add cli kwargs overrides
+        merged.update({k: v for k, v in cli_kwargs.items() if v is not None})
+        merged.update(training_dict)
 
         args = get_full_args_with_defaults(train_func, merged)
         return train_func(**args)
@@ -401,43 +449,17 @@ for model_name, train_func in MODEL_TRAINING_COMMANDS.items():
 plot_app = typer.Typer(help="Plotting utilities")
 app.add_typer(plot_app, name="plot")
 
-@plot_app.command("m-emis")
-def plot_physical_model_matrix(path: Path = typer.Argument(..., help="Path to physical model")):
-    pm, _ = load_physical_model(path, "cpu")
-    m = pm.m_mat
-    z_edges = pm.z_edges
-    E_edges = pm.E_edges
-
-    plt.figure(figsize=(8, 6))
-
-    # Plot with pcolormesh using log scale for m
-    log_m = torch.log10(m)
-    log_m = torch.nan_to_num(log_m, neginf=torch.min(log_m[log_m != -torch.inf]))
-    mesh = plt.pcolormesh(E_edges, z_edges, log_m, shading='auto', cmap='jet')
-    
-    # Set x to log scale
-    plt.xscale('log')
-
-    # Axis labels and colorbar
-    plt.xlabel(r"$E$ [eV]")
-    plt.ylabel(r"$z$ [km]")
-    plt.title(r"$\mathbf{M}$")
-    plt.colorbar(mesh, label=r"$\log_{10}(m)$")
-
-    plt.tight_layout()
-    plt.show()
-
 @plot_app.command("flux")
 def plot_flux(
-    flux_path: Path = typer.Argument(..., help="Path to flux description"),
-    model_path: Path = typer.Argument(..., help="Path to model description")
+    flux_data: Path = typer.Argument(..., help="Path to flux data"),
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file")
 ):
-    ref = load_reference_flux(flux_path, "cpu")
-    pm = load_physical_model(model_path, "cpu")
+    f_image = data.load_3d_grid_data(flux_data)
+    config = data.load_config(config_path)
     
-    xy_min = ref.xy_min
-    xy_max = ref.xy_max
-    q0 = pm.total_energy_flux(ref.image)
+    xy_min = config.bbox.xy_min
+    xy_max = config.bbox.xy_max
+    q0 = phy.total_energy_flux(f_image)
     
     fig, ax = plt.subplots(figsize=(8, 6))
     x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
@@ -457,21 +479,21 @@ def plot_flux(
 
 @plot_app.command("cams")
 def plot_cameras(
-    dataset_path: Path = typer.Argument(..., help="Path to dataset description"),
-    name: str = typer.Option(None, help="Name of the camera to plot")
+    cam_pos: Path = typer.Argument(..., help="Camera positions file"),
+    cam_dir: Path = typer.Argument(..., help="Cameras directory"),
+    location: str = typer.Option(None, help="Name of the camera to plot")
 ):
-    cams = load_cameras(dataset_path)
+    cams = data.load_cameras(cam_pos, cam_dir)
 
-    if name is not None:
+    if location is not None:
         cams = {cam.name: cam for cam in cams}
-        cam = cams[name]
+        cam = cams[location]
         fig, ax = plt.subplots(figsize=(8, 6))
         im = ax.imshow(cam.image)
         cbar = ax.figure.colorbar(im)
         cbar.set_label("Rayleigh")
-        ax.set_title(f"{name} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
+        ax.set_title(f"{location} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
         plt.show()
-    
     else:
         n_imgs = len(cams)
         # Compute grid size (try to make it as square as possible)
@@ -510,7 +532,7 @@ app.add_typer(gen_app, name="gen")
 
 @gen_app.command("flux")
 def generate_reconstructed_flux(
-    reconstruction_path: Path = typer.Argument(..., help="Path to reconstruction"),
+    recon_path: Path = typer.Argument(..., help="Path to reconstructed model"),
     res_x: int = typer.Option(128),
     res_y: int = typer.Option(128),
     gpu: bool = typer.Option(True),
@@ -518,19 +540,18 @@ def generate_reconstructed_flux(
     save: Path = typer.Option(None)
 ):
     device = choose_best_device(gpu)
-    recon = load_reconstruction(reconstruction_path, device)
+    recon = load_reconstruction(recon_path, device)
     recon.eval_mode()
-    pm = recon.physical_model
-    xy_min = pm.frame.xy_min
-    xy_max = pm.frame.xy_max
+    xy_min = recon.bbox.xy_min
+    xy_max = recon.bbox.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
-    f = recon.flux(xy).detach()
+    f = recon.flux(xy)
 
     if save is not None:
-        save_3d_grid_data(f, save)
+        data.save_3d_grid_data(f, save)
     
     if plot:
-        q0 = pm.total_energy_flux(f)
+        q0 = phy.total_energy_flux(f, recon.flux_model.E_edges)
         fig, ax = plt.subplots(figsize=(8, 6))
         x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
         im = ax.imshow(q0.cpu(),
@@ -550,6 +571,7 @@ def generate_reconstructed_flux(
 @gen_app.command("emis")
 def generate_volume_emission(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
+    config: Path = typer.Option(None, help="Path to configuration for reference flux"),
     res_x: int = typer.Option(100),
     res_y: int = typer.Option(100),
     res_z: int = typer.Option(50),
@@ -564,50 +586,16 @@ def generate_volume_emission(
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = recon.emis_rate(xyz).detach().cpu()
-    else:
-        info = data.load_yaml(recon_or_ref_path)
-        # Create the oblique reference frame
-        frame = Frame(
-            origin_latitude=info["origin_lat"],
-            origin_longitude=info["origin_lon"],
-            origin_altitude=info["origin_alt"],
-            field_inclination=info["field_inc"],
-            field_declination=info["field_dec"],
-            device=device
-        )
-
-        # Define the reconstruction bounding box
-        bbox = BBox(
-            frame=frame,
-            east_range=(info["east_min"], info["east_max"]),
-            south_range=(info["south_min"], info["south_max"]),
-            altitude_range=(info["alt_min"], info["alt_max"])
-        )
-
-        M_emis = data.load_emission_matrix(info["emis_mat"]).to(device)
-        M_dens = data.load_density_matrix(info["dens_mat"]).to(device)
-        E_edges = data.load_energy_bins(info["energy_bins"]).to(device)
-        z_edges = data.load_altitude_bins(info["altitude_bins"]).to(device)
-        recon = Reconstruction(
-            flux_model=ReferenceFlux(
-                image=data.load_3d_grid_data(info["flux"]),
-                E_edges=E_edges,
-                xy_min=bbox.xy_min,
-                xy_max=bbox.xy_max,
-                device=device
-            ),
-            frame=frame,
-            bbox=bbox,
-            M_emis=M_emis,
-            M_dens=M_dens,
-            z_edges=z_edges
-        )
-
-        xyz_min = bbox.xyz_min
-        xyz_max = bbox.xyz_max
-        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = recon.emis_rate(xyz).cpu()
+    else:
+        if config is None:
+            typer.echo("Configuration file required for reference flux", err=True)
+            raise typer.Exit(1)
+        ref_recon = load_reference_flux(recon_or_ref_path, config, device)
+        xyz_min = ref_recon.bbox.xyz_min
+        xyz_max = ref_recon.bbox.xyz_max
+        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        l = ref_recon.emis_rate(xyz).cpu()
     
     if save is not None:
         data.save_3d_grid_data(l, save)
@@ -616,42 +604,35 @@ def generate_volume_emission(
         l = l.numpy()
         grid = pv.ImageData()
         grid.dimensions = (res_x+1, res_y+1, res_z+1)  # Add 1 because dimensions are number of points
-        
         x_min, x_max, y_min, y_max, z_min, z_max = bounds3d_to_tuple(xyz_min, xyz_max)
         x_scale = (x_max - x_min) / (z_max - z_min)
         y_scale = (y_max - y_min) / (z_max - z_min)
         z_scale = 1
-        
         grid.spacing = (x_scale, y_scale, z_scale)  # Voxel spacing
         grid.origin = (0, 0, 0)   # Origin of the grid
-
         # Add the density data to the grid as a cell array
         # Need to flatten the numpy array to match PyVista's expected format
         grid.cell_data["density"] = l.flatten(order="F")
-
         # Create a custom opacity transfer function
         # This maps density values to opacity
         opacity = [0, 0.1, 0.3, 0.6, 0.8, 1.0, 1.0]
-
         # Create the plotter
         pl = pv.Plotter()
-
         # Add the volume to the plotter with a colormap
         # pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=False)
         pl.add_volume(grid, scalars="density", cmap="coolwarm", opacity=opacity, shade=False)
-
         # Optional: Add axes for reference
         pl.show_axes()
         pl.add_bounding_box()
-
         # Display the plot
         pl.show()
 
-@gen_app.command("image")
+@gen_app.command("imgs")
 def generate_images(
-    reconstruction_or_reference_path: Path = typer.Argument(..., help="Path to reconstruction"),
-    dataset_path: Path = typer.Argument(..., help="Datset description"),
-    physical_model: Path = typer.Option(None, help="Path to physical model (for reference flux only)"),
+    recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction"),
+    cam_pos: Path = typer.Argument(..., help="Camera positions file"),
+    cam_dir: Path = typer.Argument(..., help="Cameras directory"),
+    config: Path = typer.Option(None, help="Path to configuration for reference flux"),
     locations: str = typer.Option(None, parser=lambda s: s.split(",")),
     ray_bins: int = typer.Option(100),
     downsample: int = typer.Option(None),
@@ -659,19 +640,14 @@ def generate_images(
     plot: bool = typer.Option(True),
 ):
     device = choose_best_device(gpu)
-    if reconstruction_or_reference_path.suffix == ".pth":
+    if recon_or_ref_path.suffix == ".pth":
         device = choose_best_device(gpu)
-        recon = load_reconstruction(reconstruction_or_reference_path, device)
+        recon = load_reconstruction(recon_or_ref_path, device)
     else:
-        ref = load_reference_flux(reconstruction_or_reference_path, device)
-        if physical_model is None:
-            typer.echo("Generating image from flux data requires a physical model.")
-            raise typer.Exit(1)
-        pm = load_physical_model(physical_model, device)
-        recon = Reconstruction(pm, ref, device)
+        recon = load_reference_flux(recon_or_ref_path, config, device)
     recon.eval_mode()
 
-    cams = load_cameras(dataset_path)
+    cams = data.load_cameras(cam_pos, cam_dir)
     if locations is not None:
         cams = list(filter(lambda c: c.name in locations, cams))
     n_cam = len(cams)
@@ -683,7 +659,8 @@ def generate_images(
     imgs = []
     for i, cam in enumerate(cams):
         print(f"Generating image {i+1}/{n_cam} ({cam.name})")
-        imgs.append(recon.image(cam, ray_bins))
+        img = recon.image(cam, ray_bins)
+        imgs.append(img)
 
     if plot:
         # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
@@ -698,17 +675,14 @@ def generate_images(
             refs.append(cams[i].image)
             all_mins.append(min(imgs[i].min(), refs[i].min()))
             all_maxs.append(max(imgs[i].max(), refs[i].max()))
-
         # Get global min and max
         vmin = min(all_mins)
         vmax = max(all_maxs)
-
         # Second pass to plot images with consistent color scale
         grid = ImageGrid(fig, 111,
                         nrows_ncols=(2, n_cam),
                         axes_pad=0.1,
                         cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
-        
         cat = [*imgs, *refs]
         ims = []
         for i, (ax, img) in enumerate(zip(grid, cat)):
@@ -718,11 +692,8 @@ def generate_images(
             ax.set_yticks([])
             if i < n_cam:
                 ax.set_title(cams[i].name)
-        
         cbar = grid[0].cax.colorbar(ims[0])
         cbar.set_label("Rayleigh")
-
         grid[0].set_ylabel("Generated image")
         grid[n_cam].set_ylabel("Reference image")
-
         plt.show()

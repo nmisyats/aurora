@@ -9,7 +9,7 @@ class Frame:
         origin_altitude: float,
         field_inclination: float,
         field_declination: float,
-        device: torch.device
+        device=torch.device("cpu")
     ):
         self.device = device
         
@@ -47,9 +47,12 @@ class Frame:
         self.field_to_ecef_mat = field_to_ecef
         self.metric_tensor = metric_tensor
 
-        self.origin_latitude = torch.scalar_tensor(o_lat, device=device)
-        self.origin_longitude = torch.scalar_tensor(o_lon, device=device)
-        self.origin_altitude = torch.scalar_tensor(o_alt, device=device)
+        self.origin_latitude = o_lat
+        self.origin_longitude = o_lon
+        self.origin_altitude = o_alt
+
+        self.field_inclination = field_inclination
+        self.field_declination = field_declination
 
     def metric_scale(self, d_frame: torch.Tensor) -> torch.Tensor:
         if d_frame.ndim != 1:
@@ -79,10 +82,3 @@ class Frame:
         if is_point:
             xyz_enu[..., 2] = xyz_enu[..., 2] + self.origin_altitude
         return xyz_enu
-    
-    def __repr__(self):
-        return "Frame(" + ", ".join([
-           f"origin_ecef={self.origin_ecef.tolist()}",
-           f"metric_tensor={self.metric_tensor.tolist()}"
-        ]) + ")"
-
