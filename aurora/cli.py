@@ -1,14 +1,10 @@
 from dataclasses import fields
 from pathlib import Path
-import math
 
 import typer
 import inspect
 import torch
 from matplotlib import pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
-import matplotlib.patches as patches
-import pyvista as pv
 from schema import Schema, Optional, Use
 
 from aurora.models import MODEL_REGISTRY, ReferenceFlux
@@ -18,12 +14,8 @@ from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.data as data
 import aurora.physics as phy
-from aurora.utils import (
-    xy_grid,
-    xyz_grid,
-    bounds2d_to_tuple,
-    bounds3d_to_tuple
-)
+from aurora.utils import xy_grid, xyz_grid
+import aurora.plot as aplt
 
 
 app = typer.Typer()
@@ -176,91 +168,26 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         if plot:
             recon.eval_mode()
             recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
-            estimated_f = recon.flux(recon_xy).detach()
-            estimated_q0 = phy.total_energy_flux(estimated_f, E_edges).cpu()
-
-            x_rec_min, y_rec_min = bbox.xy_min.cpu()
-            x_rec_max, y_rec_max = bbox.xy_max.cpu()
-
+            estimated_f = recon.flux(recon_xy).cpu()
+            rec_xy_min = bbox.xy_min.cpu()
+            rec_xy_max = bbox.xy_max.cpu()
             if ref_flux_data is not None and ref_flux_config is not None:
                 ref = load_reference_flux(ref_flux_data, ref_flux_config, device)
-
-                # === Setup figure with 2 subplots and shared colorbar ===
-                fig = plt.figure(figsize=(8, 4))
-                grid = ImageGrid(fig, 111,
-                                nrows_ncols=(1, 2),
-                                axes_pad=0.1,
-                                cbar_location="right",
-                                cbar_mode="single",
-                                cbar_size="7%",
-                                cbar_pad="10%")
-
-                # === Process reference flux ===
-                reference_q0 = phy.total_energy_flux(ref.flux_model.image, E_edges).cpu()
-
-                # === Determine color range ===
-                vmin = min(estimated_q0.min(), reference_q0.min())
-                vmax = max(estimated_q0.max(), reference_q0.max())
-
-                # === Plot reference flux ===
-                x_ref_min, y_ref_min = ref.bbox.xy_min.cpu()
-                x_ref_max, y_ref_max = ref.bbox.xy_max.cpu()
-
-                grid[0].imshow(reference_q0,
-                            interpolation='none',
-                            extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
-                            cmap="jet",
-                            vmin=vmin, vmax=vmax)
-
-                # Highlight reconstructed area on reference plot
-                rect = patches.Rectangle((y_rec_min, x_rec_min),
-                                        y_rec_max - y_rec_min,
-                                        x_rec_max - x_rec_min,
-                                        linewidth=1, edgecolor='r', facecolor='none')
-                grid[0].add_patch(rect)
-
-                # === Plot reconstructed flux ===
-                im = grid[1].imshow(estimated_q0,
-                                    interpolation='none',
-                                    extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-                                    cmap="jet",
-                                    vmin=vmin, vmax=vmax)
-
-                # === Compute and show MAE ===
-                ref_f_at_xy = ref.flux(recon_xy)
-                true_q0_at_grid = phy.total_energy_flux(ref_f_at_xy, E_edges).cpu()
-                mae = torch.mean(torch.abs(estimated_q0 - true_q0_at_grid))
-                grid[1].text(0.99, 0.01, f"MAE = {mae:.3f} mW/m$^2$",
-                            transform=grid[1].transAxes,
-                            ha='right', va='bottom',
-                            color='white', fontsize=10,
-                            bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.3'))
-
-                # === Add colorbar and labels ===
-                cbar = grid[0].cax.colorbar(im)
-                cbar.set_label("mW/m$^2$")
-
-                grid[0].set_title("Reference $Q_0$")
-                grid[1].set_title("Reconstructed $Q_0$")
-                grid[0].set_xlabel("y (km)")
-                grid[1].set_xlabel("y (km)")
-                grid[0].set_ylabel("x (km)")
+                reference_f = ref.flux_model.image.cpu()
+                ref_xy_min = ref.bbox.xy_min.cpu()
+                ref_xy_max = ref.bbox.xy_max.cpu()
+                aplt.plot_flux_2d_comparison(
+                    estimated_flux=estimated_f,
+                    reference_flux=reference_f,
+                    estimated_bounds=(rec_xy_min, rec_xy_max),
+                    reference_bounds=(ref_xy_min, ref_xy_max),
+                    energy_edges=E_edges.cpu(),
+                )
             else:
-                fig, ax = plt.subplots(figsize=(8, 6))
-                im = ax.imshow(estimated_q0,
-                            interpolation='none',
-                            extent=[y_rec_min, y_rec_max, x_rec_max, x_rec_min],
-                            cmap="jet",
-                            aspect="equal")
-                divider = make_axes_locatable(ax)
-                cax = divider.append_axes("right", size="5%", pad=0.1)
-                cbar = ax.figure.colorbar(im, cax=cax)
-                cbar.set_label("mW/m$^2$")
-                ax.set_xlabel("y (km)")
-                ax.set_ylabel("x (km)")
-                ax.set_title("$Q_0$")
-                plt.show()
-
+                aplt.plot_flux_2d(
+                    flux_data=reference_f,
+                    xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
+                )
             plt.show()
     
     # Build parameter list dynamically
@@ -368,25 +295,24 @@ def create_train_from_config_command_for_model(model_name: str, train_func):
     ))
     # Add training_path argument
     params.append(inspect.Parameter(
-        "training_path",
-        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        annotation=Path,
-        default=...,
+        "options_file",
+        kind=inspect.Parameter.KEYWORD_ONLY,
+        default=typer.Option(None, help="YAML file containing training options and overrides"),
+        annotation=Path
     ))
 
     # For every parameter in train_func, add a matching Option to override
     for name, param in args_spec.parameters.items():
-        if name == "self":
+        if name in ("self", "config_path", "options_file"):
             continue
 
-        # We skip config_path — already added
-        if name == "config_path":
-            continue
-        
         annotation = param.annotation
         default_val = param.default
 
-        if isinstance(default_val, typer.models.ArgumentInfo) or isinstance(default_val, typer.models.OptionInfo):
+        if isinstance(default_val, typer.models.ArgumentInfo):
+            continue
+
+        if isinstance(default_val, typer.models.OptionInfo):
             # Extract help text
             help_text = default_val.help
 
@@ -406,27 +332,30 @@ def create_train_from_config_command_for_model(model_name: str, train_func):
         ))
 
     # Create a wrapper function
-    def from_config_wrapper(config_path: Path, training_path: Path, **cli_kwargs):
+    def from_config_wrapper(config_path: Path, options_file: Path, **cli_kwargs):
         config_schema = data.config_schema(config_path.parent)
-
-        training_schema = {}
-        for param in params:
-            k = Optional(param.name)
-            if param.annotation is Path:
-                training_schema[k] = data.path_validator(training_path.parent)
-            else:
-                training_schema[k] = Use(param.annotation)
-        training_schema = Schema(training_schema)
-
         config_dict = data.load_yaml(config_path, config_schema)
-        training_dict = data.load_yaml(training_path, training_schema)
+        
+        training_dict = {}
+
+        if options_file is not None:
+            training_schema = {}
+            for param in params:
+                k = Optional(param.name)
+                if param.annotation is Path:
+                    training_schema[k] = data.path_validator(options_file.parent)
+                else:
+                    training_schema[k] = Use(param.annotation)
+            training_schema = Schema(training_schema)
+            training_dict = data.load_yaml(options_file, training_schema)
 
         merged = {}
         for v in config_dict.values():
             merged.update(v) # Expend inner configuration blocks
+        # Add kwargs from training file
+        merged.update(training_dict)
         # Add cli kwargs overrides
         merged.update({k: v for k, v in cli_kwargs.items() if v is not None})
-        merged.update(training_dict)
 
         args = get_full_args_with_defaults(train_func, merged)
         return train_func(**args)
@@ -452,78 +381,51 @@ app.add_typer(plot_app, name="plot")
 @plot_app.command("flux")
 def plot_flux(
     flux_data: Path = typer.Argument(..., help="Path to flux data"),
-    config_path: Path = typer.Argument(..., help="Path to configuration YAML file")
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+    title: str = typer.Option("$Q_0$", help="Plot title"),
+    cmap: str = typer.Option("jet", help="Colormap name"),
+    figsize: str = typer.Option("8,6", help="Figure size as 'width,height'")
 ):
+    """Plot flux data using the generic plotting function."""
     f_image = data.load_3d_grid_data(flux_data)
     config = data.load_config(config_path)
     
-    xy_min = config.bbox.xy_min
-    xy_max = config.bbox.xy_max
-    q0 = phy.total_energy_flux(f_image)
+    # Parse figsize
+    width, height = map(float, figsize.split(','))
     
-    fig, ax = plt.subplots(figsize=(8, 6))
-    x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
-    im = ax.imshow(q0.cpu(),
-                interpolation='none',
-                extent=[y_min, y_max, x_max, x_min],
-                cmap="jet",
-                aspect="equal")
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.1)
-    cbar = ax.figure.colorbar(im, cax=cax)
-    cbar.set_label("mW/m$^2$")
-    ax.set_xlabel("y (km)")
-    ax.set_ylabel("x (km)")
-    ax.set_title("$Q_0$")
+    # Use the generic plotting function
+    fig, ax = aplt.plot_flux_2d(
+        flux_data=f_image,
+        xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
+        energy_edges=config.phys.energies,
+        title=title,
+        cmap=cmap,
+        figsize=(width, height)
+    )
     plt.show()
 
 @plot_app.command("cams")
 def plot_cameras(
     cam_pos: Path = typer.Argument(..., help="Camera positions file"),
     cam_dir: Path = typer.Argument(..., help="Cameras directory"),
-    location: str = typer.Option(None, help="Name of the camera to plot")
+    location: str = typer.Option(None, help="Name of specific camera to plot"),
+    title_format: str = typer.Option("{name} ({latitude:.3f}°N {longitude:.3f}°E +{altitude:.3f}km)", help="Title format"),
+    cmap: str = typer.Option("viridis", help="Colormap name"),
+    figsize_per_image: float = typer.Option(3.0, help="Size factor per image"),
+    max_cols: int = typer.Option(None, help="Maximum columns in grid")
 ):
+    """Plot camera images using the generic plotting function."""
     cams = data.load_cameras(cam_pos, cam_dir)
 
-    if location is not None:
-        cams = {cam.name: cam for cam in cams}
-        cam = cams[location]
-        fig, ax = plt.subplots(figsize=(8, 6))
-        im = ax.imshow(cam.image)
-        cbar = ax.figure.colorbar(im)
-        cbar.set_label("Rayleigh")
-        ax.set_title(f"{location} ({cam.latitude:.3f}°N {cam.longitude:.3f}°E +{cam.altitude:.3f}km)")
-        plt.show()
-    else:
-        n_imgs = len(cams)
-        # Compute grid size (try to make it as square as possible)
-        cols = math.ceil(math.sqrt(n_imgs))
-        rows = math.ceil(n_imgs / cols)
-        # Find global min/max for consistent color scaling
-        vmin = min(cam.image.min() for cam in cams)
-        vmax = max(cam.image.max() for cam in cams)
-        # Create figure and image grid
-        fig = plt.figure(figsize=(cols * 3, rows * 3))
-        grid = ImageGrid(fig, 111,
-                        nrows_ncols=(rows, cols),
-                        axes_pad=0.4,
-                        share_all=True,
-                        cbar_location="right",
-                        cbar_mode="single",
-                        cbar_size="5%",
-                        cbar_pad=0.1)
-        # Plot images
-        for ax, cam in zip(grid, cams):
-            im = ax.imshow(cam.image, cmap='viridis', vmin=vmin, vmax=vmax)
-            ax.axis('off')
-            ax.set_title(cam.name)
-        # Turn off unused axes
-        for ax in grid[n_imgs:]:
-            ax.axis('off')
-        # Shared colorbar
-        cbar = grid.cbar_axes[0].colorbar(im)
-        cbar.set_label("Rayleigh")
-        plt.show()
+    fig, axes = aplt.plot_cameras_grid(
+        cameras=cams,
+        selected_camera=location,
+        figsize_per_image=figsize_per_image,
+        cmap=cmap,
+        title_format=title_format,
+        max_cols=max_cols
+    )
+    plt.show()
 
 
 # Create subcommand for generating
@@ -533,15 +435,18 @@ app.add_typer(gen_app, name="gen")
 @gen_app.command("flux")
 def generate_reconstructed_flux(
     recon_path: Path = typer.Argument(..., help="Path to reconstructed model"),
-    res_x: int = typer.Option(128),
-    res_y: int = typer.Option(128),
-    gpu: bool = typer.Option(True),
-    plot: bool = typer.Option(True),
-    save: Path = typer.Option(None)
+    res_x: int = typer.Option(128, help="X resolution"),
+    res_y: int = typer.Option(128, help="Y resolution"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    plot: bool = typer.Option(True, help="Plot the generated flux"),
+    save: Path = typer.Option(None, help="Save flux data to file"),
+    cmap: str = typer.Option("jet", help="Colormap for plotting")
 ):
+    """Generate flux from reconstruction using generic plotting."""
     device = choose_best_device(gpu)
     recon = load_reconstruction(recon_path, device)
     recon.eval_mode()
+    
     xy_min = recon.bbox.xy_min
     xy_max = recon.bbox.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
@@ -551,35 +456,30 @@ def generate_reconstructed_flux(
         data.save_3d_grid_data(f, save)
     
     if plot:
-        q0 = phy.total_energy_flux(f, recon.flux_model.E_edges)
-        fig, ax = plt.subplots(figsize=(8, 6))
-        x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
-        im = ax.imshow(q0.cpu(),
-                    interpolation='none',
-                    extent=[y_min, y_max, x_max, x_min],
-                    cmap="jet",
-                    aspect="equal")
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.1)
-        cbar = ax.figure.colorbar(im, cax=cax)
-        cbar.set_label("mW/m$^2$")
-        ax.set_xlabel("y (km)")
-        ax.set_ylabel("x (km)")
-        ax.set_title("$Q_0$")
+        fig, ax = aplt.plot_flux_2d(
+            flux_data=f,
+            xy_bounds=(xy_min, xy_max),
+            energy_edges=recon.flux_model.E_edges,
+            cmap=cmap
+        )
         plt.show()
 
 @gen_app.command("emis")
 def generate_volume_emission(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
-    res_x: int = typer.Option(100),
-    res_y: int = typer.Option(100),
-    res_z: int = typer.Option(50),
-    gpu: bool = typer.Option(True),
-    plot: bool = typer.Option(True),
-    save: Path = typer.Option(None)
+    res_x: int = typer.Option(100, help="X resolution"),
+    res_y: int = typer.Option(100, help="Y resolution"), 
+    res_z: int = typer.Option(50, help="Z resolution"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    plot: bool = typer.Option(True, help="Plot the volume"),
+    save: Path = typer.Option(None, help="Save volume data"),
+    cmap: str = typer.Option("coolwarm", help="Volume colormap"),
+    opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
+    """Generate volume emission using generic 3D plotting."""
     device = choose_best_device(gpu)
+    
     if recon_or_ref_path.suffix == ".pth":
         recon = load_reconstruction(recon_or_ref_path, device)
         recon.eval_mode()
@@ -601,31 +501,16 @@ def generate_volume_emission(
         data.save_3d_grid_data(l, save)
     
     if plot:
-        l = l.numpy()
-        grid = pv.ImageData()
-        grid.dimensions = (res_x+1, res_y+1, res_z+1)  # Add 1 because dimensions are number of points
-        x_min, x_max, y_min, y_max, z_min, z_max = bounds3d_to_tuple(xyz_min, xyz_max)
-        x_scale = (x_max - x_min) / (z_max - z_min)
-        y_scale = (y_max - y_min) / (z_max - z_min)
-        z_scale = 1
-        grid.spacing = (x_scale, y_scale, z_scale)  # Voxel spacing
-        grid.origin = (0, 0, 0)   # Origin of the grid
-        # Add the density data to the grid as a cell array
-        # Need to flatten the numpy array to match PyVista's expected format
-        grid.cell_data["density"] = l.flatten(order="F")
-        # Create a custom opacity transfer function
-        # This maps density values to opacity
-        opacity = [0, 0.1, 0.3, 0.6, 0.8, 1.0, 1.0]
-        # Create the plotter
-        pl = pv.Plotter()
-        # Add the volume to the plotter with a colormap
-        # pl.add_volume(grid, scalars="density", cmap="viridis", opacity=opacity, shade=False)
-        pl.add_volume(grid, scalars="density", cmap="coolwarm", opacity=opacity, shade=False)
-        # Optional: Add axes for reference
-        pl.show_axes()
-        pl.add_bounding_box()
-        # Display the plot
-        pl.show()
+        # Parse opacity values
+        opacity_vals = list(map(float, opacity.split(',')))
+        
+        plotter = aplt.plot_volume_3d(
+            volume_data=l,
+            xyz_bounds=(xyz_min, xyz_max),
+            cmap=cmap,
+            opacity=opacity_vals
+        )
+        plotter.show()
 
 @gen_app.command("imgs")
 def generate_images(
@@ -633,15 +518,18 @@ def generate_images(
     cam_pos: Path = typer.Argument(..., help="Camera positions file"),
     cam_dir: Path = typer.Argument(..., help="Cameras directory"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
-    locations: str = typer.Option(None, parser=lambda s: s.split(",")),
-    ray_bins: int = typer.Option(100),
-    downsample: int = typer.Option(None),
-    gpu: bool = typer.Option(True),
-    plot: bool = typer.Option(True),
+    locations: str = typer.Option(None, help="Comma-separated camera names"),
+    ray_bins: int = typer.Option(100, help="Number of ray bins"),
+    downsample: int = typer.Option(None, help="Downsample factor"),
+    gpu: bool = typer.Option(True, help="Use GPU"),
+    plot: bool = typer.Option(True, help="Plot comparison"),
+    cmap: str = typer.Option("viridis", help="Colormap"),
+    figsize_per_col: float = typer.Option(2.0, help="Figure size per column")
 ):
+    """Generate images using generic comparison plotting."""
     device = choose_best_device(gpu)
+    
     if recon_or_ref_path.suffix == ".pth":
-        device = choose_best_device(gpu)
         recon = load_reconstruction(recon_or_ref_path, device)
     else:
         recon = load_reference_flux(recon_or_ref_path, config, device)
@@ -649,51 +537,30 @@ def generate_images(
 
     cams = data.load_cameras(cam_pos, cam_dir)
     if locations is not None:
-        cams = list(filter(lambda c: c.name in locations, cams))
-    n_cam = len(cams)
-
+        location_list = locations.split(',')
+        cams = [c for c in cams if c.name in location_list]
+    
     if downsample is not None:
-        for i in range(n_cam):
-            cams[i] = cams[i].downsample(downsample)
+        cams = [cam.downsample(downsample) for cam in cams]
 
-    imgs = []
+    # Generate images
+    generated_imgs = []
+    reference_imgs = []
+    camera_names = []
+    
     for i, cam in enumerate(cams):
-        print(f"Generating image {i+1}/{n_cam} ({cam.name})")
+        print(f"Generating image {i+1}/{len(cams)} ({cam.name})")
         img = recon.image(cam, ray_bins)
-        imgs.append(img)
+        generated_imgs.append(img)
+        reference_imgs.append(cam.image)
+        camera_names.append(cam.name)
 
     if plot:
-        # fig, axs = plt.subplots(2, n_img, figsize=(n_img * 2, 4 + 0.5))  # Added extra space for colorbar
-        # plt.subplots_adjust(wspace=0.05, hspace=0.05)
-        fig = plt.figure(figsize=(n_cam * 2 + 3.0, 4 + 0.5))
-        # Lists to store min and max values for color scaling
-        all_mins, all_maxs = [], []
-        refs = []
-        # First pass to get min and max values across all images
-        for i in range(n_cam):
-            imgs[i] = imgs[i].numpy(force=True)
-            refs.append(cams[i].image)
-            all_mins.append(min(imgs[i].min(), refs[i].min()))
-            all_maxs.append(max(imgs[i].max(), refs[i].max()))
-        # Get global min and max
-        vmin = min(all_mins)
-        vmax = max(all_maxs)
-        # Second pass to plot images with consistent color scale
-        grid = ImageGrid(fig, 111,
-                        nrows_ncols=(2, n_cam),
-                        axes_pad=0.1,
-                        cbar_location="right", cbar_mode="single", cbar_size="7%", cbar_pad="10%")
-        cat = [*imgs, *refs]
-        ims = []
-        for i, (ax, img) in enumerate(zip(grid, cat)):
-            im = ax.imshow(img, vmin=vmin, vmax=vmax)
-            ims.append(im)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            if i < n_cam:
-                ax.set_title(cams[i].name)
-        cbar = grid[0].cax.colorbar(ims[0])
-        cbar.set_label("Rayleigh")
-        grid[0].set_ylabel("Generated image")
-        grid[n_cam].set_ylabel("Reference image")
+        fig, axes_rows = aplt.plot_image_comparison(
+            generated_images=generated_imgs,
+            reference_images=reference_imgs,
+            camera_names=camera_names,
+            figsize_per_col=figsize_per_col,
+            cmap=cmap
+        )
         plt.show()
