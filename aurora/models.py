@@ -33,6 +33,9 @@ class FluxModel(ABC):
     def flux_distrib(self, xy: torch.Tensor) -> torch.Tensor:
         ...
     
+    def flux_curve(self, xy: torch.Tensor, E: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+    
     @property
     @abstractmethod
     def E_edges(self) -> torch.Tensor:

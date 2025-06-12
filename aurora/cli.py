@@ -345,6 +345,14 @@ def plot_flux(
     )
     plt.show()
 
+@plot_app.command("emis")
+def plot_volume_emission():
+    raise NotImplementedError
+
+@plot_app.command("dens")
+def plot_electron_density():
+    raise NotImplementedError
+
 @plot_app.command("cams")
 def plot_cameras(
     cam_pos: Path = typer.Argument(..., help="Camera positions file"),
@@ -453,6 +461,10 @@ def generate_volume_emission(
         )
         plotter.show()
 
+@gen_app.command("dens")
+def generate_electron_density():
+    raise NotImplementedError
+
 @gen_app.command("imgs")
 def generate_images(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction"),
@@ -473,6 +485,9 @@ def generate_images(
     if recon_or_ref_path.suffix == ".pth":
         recon = load_reconstruction(recon_or_ref_path, device)
     else:
+        if config is None:
+            typer.echo("Configuration file required for reference flux", err=True)
+            raise typer.Exit(1)
         recon = load_reference_flux(recon_or_ref_path, config, device)
     recon.eval_mode()
 
