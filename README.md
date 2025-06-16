@@ -1,4 +1,4 @@
-# Installation
+## Installation
 
 Requires **3.11 or higher**. It is recommended to create a
 [virtual environment](https://docs.python.org/3/library/venv.html)
@@ -29,7 +29,7 @@ python -m pytest tests
 
 **Note**: the tool may take a while to start the first time it is run.
 
-# Command line usage
+## Command line usage
 
 Adding `--help` to any command will display help information about this
 command or its subcommands.
@@ -176,3 +176,107 @@ aurora plot emis emis_rate.dat config.yaml
 **Note**: it is required to provide the physical configuration to be used for
 vizualizing the generated data. Generated data only saves its raw content,
 unlike reconstruction models which bundles also physical information.
+
+
+## Library usage
+
+### Minimal example
+
+The following python script illustrates how to use `aurora`
+as a python library. This is especially useful to easily create more
+advanced custom experiments.
+
+```python
+# example.py
+
+import torch
+from matplotlib import pyplot as plt
+
+from aurora import Reconstruction, save_reconstruction
+from aurora import Frame, BBox
+from aurora.dataset import CameraRaysDataset
+from aurora.models import LogMLP
+import aurora.data as data
+import aurora.plot as aplt
+from aurora.utils import xy_grid
+
+# Choose a device to run the reconstruction on
+device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+# Define the oblique reference frame
+frame = Frame(
+    origin_latitude=69.348333333333,
+    origin_longitude=20.365000000000,
+    origin_altitude=90.0,
+    field_inclination=77.9,
+    field_declination=6.0,
+    device=device
+)
+print(frame)
+
+# Define the reconstruction bounding box
+bbox = BBox(
+    frame=frame,
+    south_range=(-40.0, 100.0),
+    east_range=(-70.0, 70.0),
+    altitude_range=(90.0, 190.0)
+)
+print(bbox)
+
+# Load physical model data
+z_edges = data.load_altitude_bins("../model/altitude.dat").to(device)
+E_edges = data.load_energy_bins("../model/energy.dat").to(device)
+M_emis = data.load_emission_matrix("../model/M_emis.dat").to(device)
+M_dens = data.load_density_matrix("../model/M_dens.dat").to(device)
+
+# Instantiate the trainable flux model
+flux_model = LogMLP(
+    xy_min=bbox.xy_min,
+    xy_max=bbox.xy_max,
+    E_edges=E_edges,
+    config=LogMLP.default_config()
+).to(device)
+print(flux_model)
+
+# Create te reconstruction using the flux model
+recon = Reconstruction(
+    flux_model=flux_model,
+    frame=frame,
+    bbox=bbox,
+    M_emis=M_emis,
+    M_dens=M_dens,
+    z_edges=z_edges
+)
+
+# Load the cameras dataset and preprocess ray data
+cameras = data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
+ray_data = CameraRaysDataset(cameras, frame, bbox)
+
+# Train the reconstruction
+recon.train(ray_data=ray_data, num_iters=2000)
+# Save the reconstruction after training
+save_reconstruction(recon, "./recon.pth")
+
+# Plot the reconstructed total energy flux
+
+# Set the reconstruction in evaluation mode
+# (this disables gradient computation for more efficiency)
+recon.eval_mode()
+# Create a uniform grid spanning the xy bounding box
+xy = xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
+# Plot the flux
+aplt.plot_flux_2d(
+    flux_data=recon.flux(xy),
+    xy_bounds=(bbox.xy_min, bbox.xy_max),
+    energy_edges=E_edges
+)
+plt.show()
+```
+Run the script directly with
+```
+python example.py
+```
+
+### Defining custom flux models
+
+TODO

@@ -240,7 +240,7 @@ class Reconstruction:
         return isinstance(self.flux_model, TrainableFluxModel)
 
 
-def save_reonstruction(recon: Reconstruction, path: Path | str):
+def save_reconstruction(recon: Reconstruction, path: Path | str):
     torch.save({
         "flux_model": recon.flux_model,
         "frame": recon.frame,
