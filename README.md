@@ -289,30 +289,30 @@ is shown below.
 from aurora.models import TrainableFluxModel
 
 class MyFluxModel(TrainableFluxModel):
-  def __init__(self, ...): # Custom constructioon
-      super().__init__()
-      ... # Custom initialization
+    def __init__(self, ...): # Custom constructioon
+        super().__init__()
+        ... # Custom initialization
 
-  def forward(self, xy: torch.Tensor):
-      # Pytorch's nn.Module forward method outputing the flux estimate
-      # input: (N, 2) xy tensor
-      # output: (N, n_bins) tensor
-      ...
-  
-  @property
-  def xy_min(self):
-      # output: (2,) tensor (lower xy bounds)
-      return ...
-  
-  @property
-  def xy_max(self):
-      # output: (2,) tensor (upper xy bounds)
-      return ...
-  
-  @property
-  def E_edges(self):
-      # output: (n_bins + 1,) tensor (energy bins edges)
-      return ...
+    def forward(self, xy: torch.Tensor):
+        # Pytorch's nn.Module forward method outputing the flux estimate
+        # input: (N, 2) xy tensor
+        # output: (N, n_bins) tensor
+        return ...
+    
+    @property
+    def xy_min(self):
+        # output: (2,) tensor, lower xy bounds
+        return ...
+    
+    @property
+    def xy_max(self):
+        # output: (2,) tensor, upper xy bounds
+        return ...
+    
+    @property
+    def E_edges(self):
+        # output: (n_bins + 1,) tensor, energy bins edges
+        return ...
 ```
 It can then be used when instantiating a reconstruction as follows:
 ```python
@@ -339,38 +339,40 @@ class MyModelConfig:
 
 # Define and register model with its name in the CLI
 @register_model("my_model", MyModelConfig)
-class LogMLP(TrainableFluxModel):
+class MyModel(TrainableFluxModel):
+    "Short description of model" # Shown in the `aurora train` command
+
     def __init__(
-          self,
-          # Mandatory argument
-          xy_min: torch.Tensor,
-          xy_max: torch.Tensor,
-          E_edges: torch.Tensor,
-          # Command line arguments
-          config: MyModelConfig
-      ):
-      super().__init__()
-      ...
+            self,
+            # Mandatory argument
+            xy_min: torch.Tensor,
+            xy_max: torch.Tensor,
+            E_edges: torch.Tensor,
+            # Command line arguments
+            config: MyModelConfig
+        ):
+        super().__init__()
+        ...
 
-  def forward(self, xy: torch.Tensor):
-      ...
-  
-  @property
-  def xy_min(self):
-      return ...
-  
-  @property
-  def xy_max(self):
-      return ...
-  
-  @property
-  def E_edges(self):
-      return ...
+    def forward(self, xy: torch.Tensor):
+        ...
+    
+    @property
+    def xy_min(self):
+        return ...
+    
+    @property
+    def xy_max(self):
+        return ...
+    
+    @property
+    def E_edges(self):
+        return ...
 
-  # Optional, useful when using as library
-  @classmethod
-  def default_config(cls):
-      return MyModelConfig()
+    # Optional, useful when using as library
+    @classmethod
+    def default_config(cls):
+        return MyModelConfig()
 ```
 It can be then be trained as any other model using its registered name, with
 custom extra arguments:
