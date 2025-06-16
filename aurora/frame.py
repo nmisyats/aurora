@@ -82,3 +82,15 @@ class Frame:
         if is_point:
             xyz_enu[..., 2] = xyz_enu[..., 2] + self.origin_altitude
         return xyz_enu
+    
+    def __repr__(self):
+        return (
+            f"Frame("
+            f"o_lat={self.origin_latitude}, "
+            f"o_lon={self.origin_longitude}, "
+            f"o_alt={self.origin_altitude}, "
+            f"mf_inc={self.field_inclination}, "
+            f"mf_dec={self.field_declination}, "
+            f"device={self.device}"
+            f")"
+        )

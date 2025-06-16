@@ -45,13 +45,18 @@ class BBox:
     @property
     def xy_max(self):
         return self.xyz_max[:2]
-
-    def __repr__(self):
-        return f"BBbox(min={self.xyz_min.tolist()}, max={self.xyz_max.tolist()})"
     
     def contains(self, p: torch.Tensor):
         return geom.inside_box_mask(p, self.xyz_min, self.xyz_max)
     
     def intersection(self, ro: torch.Tensor, rd: torch.Tensor):
         return geom.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
+
+    def __repr__(self):
+        return (
+            f"BBbox("
+            f"xyz_min={self.xyz_min.tolist()}, "
+            f"xyz_max={self.xyz_max.tolist()}"
+            f")"
+        )
 
