@@ -54,6 +54,4 @@ class BBox:
     
     def intersection(self, ro: torch.Tensor, rd: torch.Tensor):
         return geom.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
-    
-    def __repr__(self):
-        return f"BBox(xyz_min={self.xyz_min.tolist()}, xyz_max={self.xyz_max.tolist()})"
+
