@@ -279,4 +279,101 @@ python example.py
 
 ### Defining custom flux models
 
-TODO
+To create a custom flux model to use for training a reconstruction,
+it is simply a matter of defining a new class that inherits from
+the `TrainableFluxModel` base class in `aurora.models`, and fill
+the required abstract properties and methods. A rough template
+is shown below.
+
+```python
+from aurora.models import TrainableFluxModel
+
+class MyFluxModel(TrainableFluxModel):
+  def __init__(self, ...): # Custom constructioon
+      super().__init__()
+      ... # Custom initialization
+
+  def forward(self, xy: torch.Tensor):
+      # Pytorch's nn.Module forward method outputing the flux estimate
+      # input: (N, 2) xy tensor
+      # output: (N, n_bins) tensor
+      ...
+  
+  @property
+  def xy_min(self):
+      # output: (2,) tensor (lower xy bounds)
+      return ...
+  
+  @property
+  def xy_max(self):
+      # output: (2,) tensor (upper xy bounds)
+      return ...
+  
+  @property
+  def E_edges(self):
+      # output: (n_bins + 1,) tensor (energy bins edges)
+      return ...
+```
+It can then be used when instantiating a reconstruction as follows:
+```python
+recon = Reconstruction(
+    flux_model=MyFluxModel(...),
+    frame=frame,
+    bbox=bbox,
+    M_emis=M_emis,
+    M_dens=M_dens,
+    z_edges=z_edges
+)
+```
+
+In order to add a custom model to the `aurora train` command
+line, the custom model class **must** be defined in the `aurora/models.py`
+file. It must also follow a specific format as described below:
+```python
+# Define extra command line arguments with their default values
+# and help string
+@dataclass
+class MyModelConfig:
+    param1: int = config_field(42, help="Custom param 1")
+    param2: float = config_field(3.14, help="Custom param 2")
+
+# Define and register model with its name in the CLI
+@register_model("my_model", MyModelConfig)
+class LogMLP(TrainableFluxModel):
+    def __init__(
+          self,
+          # Mandatory argument
+          xy_min: torch.Tensor,
+          xy_max: torch.Tensor,
+          E_edges: torch.Tensor,
+          # Command line arguments
+          config: MyModelConfig
+      ):
+      super().__init__()
+      ...
+
+  def forward(self, xy: torch.Tensor):
+      ...
+  
+  @property
+  def xy_min(self):
+      return ...
+  
+  @property
+  def xy_max(self):
+      return ...
+  
+  @property
+  def E_edges(self):
+      return ...
+
+  # Optional, useful when using as library
+  @classmethod
+  def default_config(cls):
+      return MyModelConfig()
+```
+It can be then be trained as any other model using its registered name, with
+custom extra arguments:
+```
+aurora train my_model path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save recon.pth --param1 74 --param2 2.718
+```
