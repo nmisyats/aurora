@@ -367,8 +367,18 @@ def plot_flux_at(
         plt.show()
 
 @plot_app.command("emis")
-def plot_volume_emission():
-    raise NotImplementedError
+def plot_volume_emission(
+    emis_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+):
+    emis_data = data.load_3d_grid_data(emis_data_path)
+    config = data.load_config(config_path)
+    pl = aplt.plot_volume_3d(
+        volume_data=emis_data,
+        xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
+        scalars_name="Volume emission rate"
+    )
+    pl.show()
 
 @plot_app.command("dens")
 def plot_electron_density():
@@ -505,6 +515,7 @@ def generate_volume_emission(
         plotter = aplt.plot_volume_3d(
             volume_data=l,
             xyz_bounds=(xyz_min, xyz_max),
+            scalars_name="Volume emission rate",
             cmap=cmap,
             opacity=opacity_vals
         )
