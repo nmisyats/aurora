@@ -6,12 +6,13 @@ import torch.optim.lr_scheduler as lr_scheduler
 import tqdm
 
 from aurora.camera import Camera
-from aurora.models import FluxModel, TrainableFluxModel
+from aurora.models import FluxModel, TrainableFluxModel, StaticFlux
 from aurora.frame import Frame
 from aurora.bbox import BBox
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.geometry as geom
 import aurora.physics as phy
+import aurora.data as data
 
 class Reconstruction:
     def __init__(
@@ -259,4 +260,23 @@ def load_reconstruction(path: Path | str, device: torch.device):
         data["M_emis"],
         data["M_dens"],
         data["z_edges"]
+    )
+
+def load_static_reconstruction(flux_data_path: Path | str, config_path: Path | str, device: torch.device):
+    flux_data_path = Path(flux_data_path)
+    config_path = Path(config_path)
+    config = data.load_config(config_path, device)
+    return Reconstruction(
+        flux_model=StaticFlux(
+            data=data.load_3d_grid_data(flux_data_path).to(device),
+            E_edges=config.phys.energies,
+            xy_min=config.bbox.xy_min,
+            xy_max=config.bbox.xy_max,
+            device=device
+        ),
+        frame=config.frame,
+        bbox=config.bbox,
+        M_emis=config.phys.emis_mat,
+        M_dens=config.phys.dens_mat,
+        z_edges=config.phys.altitudes
     )

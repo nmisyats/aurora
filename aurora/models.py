@@ -62,16 +62,16 @@ class TrainableFluxModel(FluxModel, nn.Module):
         return None
 
 
-class ReferenceFlux(FluxModel):
+class StaticFlux(FluxModel):
     def __init__(
             self,
-            image: torch.Tensor,
+            data: torch.Tensor,
             E_edges: torch.Tensor,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             device: torch.device
         ):
-        self.image = image.to(device)
+        self.data = data.to(device)
         self._xy_min = xy_min.to(device)
         self._xy_max = xy_max.to(device)
         self._E_edges = E_edges.to(device)
@@ -91,7 +91,7 @@ class ReferenceFlux(FluxModel):
     
     @property
     def resolution(self):
-        res_y, res_x = self.image.shape
+        res_y, res_x = self.data.shape
         return res_x, res_y
     
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
@@ -99,7 +99,7 @@ class ReferenceFlux(FluxModel):
         # self.image: (H, W, B)
         # Output: (..., B) sampled flux at each xy
 
-        H, W, B = self.image.shape
+        H, W, B = self.data.shape
 
         # Save original shape (excluding the last dimension, which is 2)
         orig_shape = xy.shape[:-1]  # (k1, ..., kn)
@@ -120,7 +120,7 @@ class ReferenceFlux(FluxModel):
         grid = grid.expand(B, -1, -1, -1)  # (B, N, 1, 2)
 
         # Prepare input image tensor for grid_sample
-        flux = self.image.permute(2, 0, 1).unsqueeze(1)  # (B, 1, H, W)
+        flux = self.data.permute(2, 0, 1).unsqueeze(1)  # (B, 1, H, W)
 
         # Perform bilinear sampling
         sampled = torch.nn.functional.grid_sample(
@@ -134,7 +134,7 @@ class ReferenceFlux(FluxModel):
 
 class NNFluxModel(TrainableFluxModel):
     def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, input_size: int):
-        super(NNFluxModel, self).__init__()
+        super().__init__()
         self._xy_min = xy_min
         self._xy_max = xy_max
         self._E_edges = E_edges

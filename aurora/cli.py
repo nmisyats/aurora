@@ -6,8 +6,8 @@ import inspect
 import torch
 from matplotlib import pyplot as plt
 
-from aurora.models import MODEL_REGISTRY, ReferenceFlux
-from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction
+from aurora.models import MODEL_REGISTRY
+from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction, load_static_reconstruction
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.data as data
 
@@ -23,26 +23,6 @@ def choose_best_device(allow_gpu: bool = True):
         return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     else:
         return torch.device("cpu")
-
-
-def load_reference_flux(data_path: Path | str, config_path: Path | str, device: torch.device):
-    data_path = Path(data_path)
-    config_path = Path(config_path)
-    config = data.load_config(config_path, device)
-    return Reconstruction(
-        flux_model=ReferenceFlux(
-            image=data.load_3d_grid_data(data_path).to(device),
-            E_edges=config.phys.energies,
-            xy_min=config.bbox.xy_min,
-            xy_max=config.bbox.xy_max,
-            device=device
-        ),
-        frame=config.frame,
-        bbox=config.bbox,
-        M_emis=config.phys.emis_mat,
-        M_dens=config.phys.dens_mat,
-        z_edges=config.phys.altitudes
-    )
 
 
 def create_train_command_for_model(model_name: str, model_cls, config_cls):
@@ -212,8 +192,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             rec_xy_min = bbox.xy_min.cpu()
             rec_xy_max = bbox.xy_max.cpu()
             if ref_flux_data is not None and ref_flux_config is not None:
-                ref = load_reference_flux(ref_flux_data, ref_flux_config, device)
-                reference_f = ref.flux_model.image.cpu()
+                ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+                reference_f = ref.flux_model.data.cpu()
                 ref_xy_min = ref.bbox.xy_min.cpu()
                 ref_xy_max = ref.bbox.xy_max.cpu()
                 aplt.plot_flux_2d_comparison(
@@ -370,7 +350,7 @@ def plot_flux_at(
 ):
     """Plots the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
-    recon = load_reference_flux(flux_data, config_path, device)
+    recon = load_static_reconstruction(flux_data, config_path, device)
     
     xy = torch.tensor([x, y], device=device)
     f = recon.flux(xy)
@@ -509,7 +489,7 @@ def generate_volume_emission(
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        ref_recon = load_reference_flux(recon_or_ref_path, config, device)
+        ref_recon = load_static_reconstruction(recon_or_ref_path, config, device)
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -557,7 +537,7 @@ def generate_images(
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        recon = load_reference_flux(recon_or_ref_path, config, device)
+        recon = load_static_reconstruction(recon_or_ref_path, config, device)
     recon.eval_mode()
 
     cams = data.load_cameras(cam_pos, cam_dir)
