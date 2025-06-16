@@ -200,6 +200,7 @@ class LogMLPConfig:
 
 @register_model("log_mlp", LogMLPConfig)
 class LogMLP(LogFourierNNFluxModel):
+    """MLP 4x128 hidden layers. Learns log(f)"""
     def __init__(
             self,
             xy_min: torch.Tensor,
@@ -243,6 +244,7 @@ class LogResMLPConfig:
 
 @register_model("log_res_mlp", LogResMLPConfig)
 class LogResMLP(LogFourierNNFluxModel):
+    """MLP 4x128 hidden layers with residual connection. Learns log(f)"""
     def __init__(
             self,
             xy_min: torch.Tensor,

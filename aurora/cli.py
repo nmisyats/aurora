@@ -284,8 +284,11 @@ for model_name, model_entry in MODEL_REGISTRY.items():
 def train_main(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         typer.echo("Available models:")
-        for model_name in MODEL_REGISTRY.keys():
-            typer.echo(f"  {model_name}")
+        for model_name, (model_cls, _) in MODEL_REGISTRY.items():
+            if model_cls.__doc__ is not None:
+                typer.echo(f"  {model_name}\t{model_cls.__doc__}")
+            else:
+                typer.echo(f"  {model_name}")
         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
 
 @train_app.command("prepare")
