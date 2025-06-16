@@ -289,7 +289,7 @@ is shown below.
 from aurora.models import TrainableFluxModel
 
 class MyFluxModel(TrainableFluxModel):
-    def __init__(self, ...): # Custom constructioon
+    def __init__(self, ...): # Custom construction
         super().__init__()
         ... # Custom initialization
 
