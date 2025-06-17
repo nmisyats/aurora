@@ -237,6 +237,65 @@ class LogMLP(LogFourierNNFluxModel):
     def default_config(cls):
         return LogMLPConfig()
 
+@register_model("log_mlp2", LogMLPConfig)
+class LogMLP2(LogFourierNNFluxModel):
+    """MLP 4x128 hidden layers with xyE input. Learns log(f)"""
+    def __init__(
+            self,
+            xy_min: torch.Tensor,
+            xy_max: torch.Tensor,
+            E_edges: torch.Tensor,
+            config: LogMLPConfig
+        ):
+        super().__init__(
+            xy_min, 
+            xy_max, 
+            E_edges, 
+            config.encoding_exp, 
+            config.log_scale
+        )
+        
+        self.fc1 = nn.Linear(self.encoding_size + 1, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, 128)
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128, 1)
+    
+    def forward(self, xy: torch.Tensor):
+        xy = self.normalize_xy(xy)
+        x = self.position_encode(xy)
+        x = self.make_energy_combinations(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        x = F.sigmoid(self.fc5(x))
+        x = torch.pow(10.0, x * self.log_scale)
+        x = x.reshape(xy.shape[0], self.output_size)
+        return x
+    
+    def make_energy_combinations(self, x: torch.Tensor):
+        # x: (n, p = self.encoding_size)
+        # E: (m,)
+        # out: (n * m, p+1)
+
+        e = (self.E_edges[1:] + self.E_edges[:-1]) / 2.0
+        e = (e - self.E_edges[0]) / (self.E_edges[-1] - self.E_edges[0])
+
+        x_exp = x.unsqueeze(1)  # shape (n, 1, p)
+        e_exp = e.unsqueeze(0).unsqueeze(-1)  # shape (1, m, 1)
+
+        x_rep = x_exp.expand(-1, e.shape[0], -1) # shape (n, m, p)
+        e_rep = e_exp.expand(x.shape[0], -1, -1) # shape (n, m, 1)
+
+        combined = torch.cat((x_rep, e_rep), dim=2) # shape (n, m, p+1)
+
+        return combined.reshape(-1, self.encoding_size + 1) # (n * m, p+1)
+
+    @classmethod
+    def default_config(cls):
+        return LogMLPConfig()
+
 @dataclass
 class LogResMLPConfig:
     encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
