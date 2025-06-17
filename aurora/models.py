@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import aurora.dnn as ann
+
 
 ModelEntry = namedtuple("RegisteredModel", ("model_cls", "config_cls"))
 
@@ -132,17 +134,22 @@ class StaticFlux(FluxModel):
         return output.reshape(*orig_shape, B)     # (..., B)
 
 
-class NNFluxModel(TrainableFluxModel):
-    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor, input_size: int):
+class NNFlux(TrainableFluxModel):
+    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor):
         super().__init__()
         self._xy_min = xy_min
         self._xy_max = xy_max
         self._E_edges = E_edges
-        self.input_size = input_size
+        self.input_size = 2
         self.output_size = len(E_edges) - 1  # Number of energy bins
     
     def normalize_xy(self, xy: torch.Tensor):
-        return (xy - self._xy_min) / (self._xy_max - self._xy_min)
+        xy_min, xy_max = self._xy_min, self._xy_max
+        return (xy - xy_min) / (xy_max - xy_min)
+    
+    def normalize_E(self, E: torch.Tensor):
+        E_min, E_max = self._E_edges[0], self._E_edges[-1]
+        return (E - E_min) / (E_max - E_min)
     
     @property
     def xy_min(self):
@@ -157,66 +164,27 @@ class NNFluxModel(TrainableFluxModel):
         return self._E_edges
 
 
-class FourierNNFluxModel(NNFluxModel):
-    def __init__(
-            self,
-            xy_min: torch.Tensor,
-            xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
-            encoding_exp: int
-        ):
-        assert encoding_exp >= 1
-
-        super().__init__(xy_min, xy_max, E_edges, 2)
-        
-        self.encoding_exp = encoding_exp
-        self.encoding_size = (2 * self.encoding_exp + 1) * self.input_size
-        self.freqs = [(2**i) * torch.pi for i in range(self.encoding_exp)]
-    
-    def position_encode(self, x: torch.Tensor):
-        cos_x = [torch.cos(f * x) for f in self.freqs]
-        sin_x = [torch.sin(f * x) for f in self.freqs]
-        return torch.cat((x, *cos_x, *sin_x), dim=-1)
-
-
-class LogFourierNNFluxModel(FourierNNFluxModel):
-    def __init__(
-            self,
-            xy_min: torch.Tensor,
-            xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
-            encoding_exp: int,
-            log_scale: float
-        ):
-        super().__init__(xy_min, xy_max, E_edges, encoding_exp)
-        
-        self.log_scale = log_scale
-
-
 @dataclass
-class LogMLPConfig:
+class MLPConfig:
     encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
     log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
 
-@register_model("log_mlp", LogMLPConfig)
-class LogMLP(LogFourierNNFluxModel):
-    """MLP 4x128 hidden layers. Learns log(f)"""
+@register_model("mlp1", MLPConfig)
+class MLP1(NNFlux):
+    """MLP 4x128 hidden layers."""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            config: LogMLPConfig
+            config: MLPConfig
         ):
-        super().__init__(
-            xy_min, 
-            xy_max, 
-            E_edges, 
-            config.encoding_exp, 
-            config.log_scale
-        )
+        super().__init__(xy_min, xy_max, E_edges)
+
+        self.fourier_encoder = ann.FourierEncoder(2, config.encoding_exp)
+        self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.encoding_size, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 128)
         self.fc4 = nn.Linear(128, 128)
@@ -224,7 +192,7 @@ class LogMLP(LogFourierNNFluxModel):
     
     def forward(self, xy: torch.Tensor):
         xy = self.normalize_xy(xy)
-        x = self.position_encode(xy)
+        x = self.fourier_encoder(xy)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
@@ -235,99 +203,103 @@ class LogMLP(LogFourierNNFluxModel):
 
     @classmethod
     def default_config(cls):
-        return LogMLPConfig()
+        return MLPConfig()
 
-@register_model("log_mlp2", LogMLPConfig)
-class LogMLP2(LogFourierNNFluxModel):
-    """MLP 4x128 hidden layers with xyE input. Learns log(f)"""
+@register_model("mlp2", MLPConfig)
+class MLP2(NNFlux):
+    """MLP 4x128 hidden layers with energy input."""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            config: LogMLPConfig
+            config: MLPConfig
         ):
-        super().__init__(
-            xy_min, 
-            xy_max, 
-            E_edges, 
-            config.encoding_exp, 
-            config.log_scale
-        )
+        super().__init__(xy_min, xy_max, E_edges)
+
+        self.fourier_encoder = ann.FourierEncoder(3, config.encoding_exp)
+        self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.encoding_size + 1, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 128)
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, 1)
     
     def forward(self, xy: torch.Tensor):
-        xy = self.normalize_xy(xy)
-        x = self.position_encode(xy)
-        x = self.make_energy_combinations(x)
+        if xy.dim() == 1:
+            return self._forward_single(xy)
+        else:
+            return self._forward_batch(xy)
+    
+    def _forward_single(self, xy: torch.Tensor):
+        # xy: (2,) -> output: (N,)
+        return self._forward_batch(xy.unsqueeze(0)).squeeze(0)
+
+    def _forward_batch(self, xy: torch.Tensor):
+        # xy: (B, 2)
+        B = xy.shape[0]
+        xy_norm = self.normalize_xy(xy)
+        
+        # Create all (x,y,E) combinations efficiently
+        if self.training:
+            # Random sampling within each bin during training
+            rand_uniform = torch.rand(self.output_size, device=xy.device)
+            # Linear interpolation in log space
+            log_e_low = torch.log(self.E_edges[:-1])
+            log_e_high = torch.log(self.E_edges[1:])
+            log_e = log_e_low + rand_uniform * (log_e_high - log_e_low)
+            e = torch.exp(log_e)
+        else:
+            # Use geometric mean during inference for consistency
+            e = torch.sqrt(self.E_edges[1:] * self.E_edges[:-1])
+        e_norm = self.normalize_E(e)
+        
+        # Expand to create all combinations: (B*N, 3)
+        xy_expanded = xy_norm.unsqueeze(1).expand(B, self.output_size, 2).reshape(B * self.output_size, 2)
+        e_expanded = e_norm.unsqueeze(0).expand(B, self.output_size).reshape(B * self.output_size, 1)
+        x_input = torch.cat((xy_expanded, e_expanded), dim=1)  # (B*N, 3)
+        
+        # Single forward pass through the network
+        x = self.fourier_encoder(x_input)  # (B*N, encoding_size)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         x = F.relu(self.fc4(x))
         x = F.sigmoid(self.fc5(x))
         x = torch.pow(10.0, x * self.log_scale)
-        x = x.reshape(xy.shape[0], self.output_size)
-        return x
-    
-    def make_energy_combinations(self, x: torch.Tensor):
-        # x: (n, p = self.encoding_size)
-        # E: (m,)
-        # out: (n * m, p+1)
-
-        e = (self.E_edges[1:] + self.E_edges[:-1]) / 2.0
-        e = (e - self.E_edges[0]) / (self.E_edges[-1] - self.E_edges[0])
-
-        x_exp = x.unsqueeze(1)  # shape (n, 1, p)
-        e_exp = e.unsqueeze(0).unsqueeze(-1)  # shape (1, m, 1)
-
-        x_rep = x_exp.expand(-1, e.shape[0], -1) # shape (n, m, p)
-        e_rep = e_exp.expand(x.shape[0], -1, -1) # shape (n, m, 1)
-
-        combined = torch.cat((x_rep, e_rep), dim=2) # shape (n, m, p+1)
-
-        return combined.reshape(-1, self.encoding_size + 1) # (n * m, p+1)
+        
+        # Reshape back to (B, N)
+        return x.reshape(B, self.output_size)
 
     @classmethod
     def default_config(cls):
-        return LogMLPConfig()
+        return MLPConfig()
 
-@dataclass
-class LogResMLPConfig:
-    encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
-    log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
-
-@register_model("log_res_mlp", LogResMLPConfig)
-class LogResMLP(LogFourierNNFluxModel):
-    """MLP 4x128 hidden layers with residual connection. Learns log(f)"""
+@register_model("res_mlp1", MLPConfig)
+class ResMLP1(NNFlux):
+    """MLP 4x128 hidden layers with residual connection."""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            config: LogResMLPConfig
+            config: MLPConfig
         ):
-        super().__init__(
-            xy_min,
-            xy_max,
-            E_edges,
-            config.encoding_exp,
-            config.log_scale
-        )
+        super().__init__(xy_min, xy_max, E_edges)
+
+        self.fourier_encoder = ann.FourierEncoder(2, config.encoding_exp)
+        self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.encoding_size, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
         self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128 + self.encoding_size, 128)
+        self.fc3 = nn.Linear(128 + self.fourier_encoder.output_dim, 128)
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
     def forward(self, xy: torch.Tensor):
         xy = self.normalize_xy(xy)
-        x = self.position_encode(xy)
+        x = self.fourier_encoder(xy)
         x0 = x
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -339,4 +311,4 @@ class LogResMLP(LogFourierNNFluxModel):
 
     @classmethod
     def default_config(cls):
-        return LogResMLPConfig()
+        return MLPConfig()
