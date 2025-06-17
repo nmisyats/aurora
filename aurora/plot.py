@@ -140,9 +140,10 @@ def plot_flux_2d(
 
 
 def plot_flux_1d(
-    flux_data: torch.Tensor,
+    flux_data: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...],
     energy_edges: torch.Tensor,
     title: str = "Electron flux",
+    labels: tuple[str, ...] | None = None,
     xlabel: str = "E [eV]",
     ylabel: str = "f [cm$^{-2}$s$^{-1}$eV$^{-1}$]",
     figsize: Tuple[float, float] = (8, 6),
@@ -163,11 +164,17 @@ def plot_flux_1d(
     else:
         fig = ax.figure
     
-    flux_data = flux_data.cpu().numpy()
-    energy_edges = energy_edges.cpu().numpy()
+    if not isinstance(flux_data, (list, tuple)):
+        flux_data = (flux_data,)
     energies = (energy_edges[1:] + energy_edges[:-1]) / 2.0
     
-    plt.plot(energies, flux_data)
+    if labels is not None:
+        for data, label in zip(flux_data, labels):
+            ax.plot(energies, data, label=label)
+        ax.legend()
+    else:
+        for data in flux_data:
+            ax.plot(energies, data)
     
     # Set labels and title
     ax.set_xlabel(xlabel)

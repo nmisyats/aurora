@@ -424,7 +424,9 @@ def generate_reconstructed_flux(
     gpu: bool = typer.Option(True, help="Use GPU if available"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
-    cmap: str = typer.Option("jet", help="Colormap for plotting")
+    cmap: str = typer.Option("jet", help="Colormap for plotting"),
+    ref_flux_data: Path = typer.Option(None, help="Reference flux to compare with"),
+    ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate flux from reconstruction using generic plotting."""
     device = choose_best_device(gpu)
@@ -434,18 +436,34 @@ def generate_reconstructed_flux(
     xy_min = recon.bbox.xy_min
     xy_max = recon.bbox.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
-    f = recon.flux(xy)
+    estimated_f = recon.flux(xy).cpu()
 
     if save is not None:
-        data.save_3d_grid_data(f, save)
+        data.save_3d_grid_data(estimated_f, save)
     
     if plot:
-        fig, ax = aplt.plot_flux_2d(
-            flux_data=f,
-            xy_bounds=(xy_min, xy_max),
-            energy_edges=recon.flux_model.E_edges,
-            cmap=cmap
-        )
+        rec_xy_min = xy_min.cpu()
+        rec_xy_max = xy_max.cpu()
+        if ref_flux_data is not None and ref_flux_config is not None:
+            ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+            reference_f = ref.flux_model.data.cpu()
+            ref_xy_min = ref.bbox.xy_min.cpu()
+            ref_xy_max = ref.bbox.xy_max.cpu()
+            aplt.plot_flux_2d_comparison(
+                estimated_flux=estimated_f,
+                reference_flux=reference_f,
+                estimated_bounds=(rec_xy_min, rec_xy_max),
+                reference_bounds=(ref_xy_min, ref_xy_max),
+                energy_edges=recon.flux_model.E_edges.cpu(),
+                cmap=cmap
+            )
+        else:
+            aplt.plot_flux_2d(
+                flux_data=estimated_f,
+                xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
+                energy_edges=recon.flux_model.E_edges.cpu(),
+                cmap=cmap
+            )
         plt.show()
 
 @gen_app.command("flux-at", context_settings={"ignore_unknown_options": True})
@@ -456,6 +474,8 @@ def generate_reconstructed_flux_at(
     gpu: bool = typer.Option(True, help="Use GPU if available"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
+    ref_flux_data: Path = typer.Option(None, help="Reference flux to compare with"),
+    ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
@@ -463,17 +483,27 @@ def generate_reconstructed_flux_at(
     recon.eval_mode()
     
     xy = torch.tensor([x, y], device=device)
-    f = recon.flux(xy)
+    estimated_f = recon.flux(xy).cpu()
 
     if save is not None:
-        data.save_matrix_data(f.unsqueeze(1), save)
+        data.save_matrix_data(estimated_f.unsqueeze(1), save)
     
     if plot:
-        fig, ax = aplt.plot_flux_1d(
-            flux_data=f,
-            energy_edges=recon.flux_model.E_edges,
-            title=f"Flux at (x, y) = ({x}, {y})"
-        )
+        if ref_flux_data is not None and ref_flux_config is not None:
+            ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+            reference_f = ref.flux_model.flux(xy).cpu()
+            aplt.plot_flux_1d(
+                flux_data=(reference_f, estimated_f),
+                energy_edges=recon.flux_model.E_edges.cpu(),
+                title=f"Flux at (x, y) = ({x}, {y})",
+                labels=("Reference", "Reconstructed")
+            )
+        else:
+            aplt.plot_flux_1d(
+                flux_data=estimated_f,
+                energy_edges=recon.flux_model.E_edges.cpu(),
+                title=f"Flux at (x, y) = ({x}, {y})"
+            )
         plt.show()
 
 @gen_app.command("emis")
