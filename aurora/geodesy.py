@@ -3,38 +3,48 @@ import numpy as np
 
 from aurora.utils import TensorLike, as_tensor
 
-def az_ze_to_enu(azimuth: TensorLike, zenith: TensorLike):
+def geodetic_to_ecef(lat: TensorLike, lon: TensorLike, altitude: TensorLike = 0.0):
     """
-    Convert azimuth and zenith angles to East-North-Up (ENU) coordinate system vectors.
+    Convert latitude and longitude (in degrees) to ECEF coordinates.
+    Based on https://en.wikipedia.org/wiki/Geographic_coordinate_conversion
+    and using the [WGS84](https://en.wikipedia.org/wiki/World_Geodetic_System#WGS_84)
+    model.
     
-    Args:
-        azimuth: Azimuth angle in degrees measured clockwise from North (0° at North, 
-            90° at East, 180° at South, 270° at West)
-        zenith : Zenith angle in degrees measured from the vertical (0° at zenith/up, 
-            90° at horizon, 180° at nadir/down)
+    Parameters:
+        lat: Latitude in degrees.
+        lon: Longitude in degrees.
+        alt: Altitude in kilometers (default is 0).
     
     Returns:
-        torch.Tensor: A tensor of shape (*azimuth.shape, 3) where the components of the last dimension
-            represent the ENU vector for the corresponding azimuth/zenith values:
-            - east: Component pointing toward geographic East
-            - north: Component pointing toward geographic North
-            - up: Vertical component pointing away from Earth's center
-            
-    Note:
-        The returned vector components form a unit vector (magnitude = 1)
-        when the input angles represent a direction in 3D space.
+        torch.Tensor: coordinates in ECEF in kilometers.
     """
-    azimuth = as_tensor(azimuth)
-    zenith = as_tensor(zenith)
+    phi = as_tensor(lat)
+    lam = as_tensor(lon)
+    h = as_tensor(altitude)
+
+    # WGS84
+    a = as_tensor(6378.1370)
+    b = as_tensor(6356.752314140)
+    a2 = a.square()
+    b2 = b.square()
     
-    az_rad = torch.deg2rad(azimuth)
-    ze_rad = torch.deg2rad(zenith)
+    phi_rad = torch.deg2rad(phi)
+    lam_rad = torch.deg2rad(lam)
+    
+    sin_phi = torch.sin(phi_rad)
+    cos_phi = torch.cos(phi_rad)
+    sin_lam = torch.sin(lam_rad)
+    cos_lam = torch.cos(lam_rad)
 
-    east = torch.sin(az_rad) * torch.sin(ze_rad)
-    north = torch.cos(az_rad) * torch.sin(ze_rad)
-    up = torch.cos(ze_rad)
+    n_phi = a2 / torch.sqrt(a2*cos_phi**2 + b2*sin_phi**2)
 
-    return torch.stack((east, north, up), dim=-1)
+    x = (n_phi + h) * cos_phi * cos_lam
+    y = (n_phi + h) * cos_phi * sin_lam
+    z = ((b2/a2) * n_phi + h) * sin_phi
+
+    ecef = torch.stack((x, y, z), dim=-1)
+
+    return ecef
 
 def rotate_enu_to_ecef(enu: TensorLike, lat: float, lon: float):
     """
@@ -106,37 +116,6 @@ def rotate_ecef_to_enu(ecef: TensorLike, lat: float, lon: float):
     
     return torch.stack((east, north, up), dim=-1).to(torch.float32)
 
-def geodetic_to_ecef(lat: TensorLike, lon: TensorLike, alt: TensorLike = 0.0):
-    """
-    Convert latitude and longitude (in degrees) to ECEF coordinates.
-    
-    Parameters:
-        lat: Latitude in degrees.
-        lon: Longitude in degrees.
-        alt: Altitude in kilometers (default is 0).
-    
-    Returns:
-        torch.Tensor: coordinates in ECEF.
-    """
-    lat = as_tensor(lat)
-    lon = as_tensor(lon)
-
-    # Convert lat/lon to radians
-    lat_rad = torch.deg2rad(lat)
-    lon_rad = torch.deg2rad(lon)
-
-    x = torch.cos(lat_rad) * torch.cos(lon_rad)
-    y = torch.cos(lat_rad) * torch.sin(lon_rad)
-    z = torch.sin(lat_rad)
-
-    ecef_unit = torch.stack((x, y, z), dim=-1)
-
-    r = earth_radius(lat, lon) + as_tensor(alt)
-
-    ecef = ecef_unit * r.unsqueeze(-1)
-
-    return ecef
-
 def enu_basis_vectors_ecef(lat: float, lon: float):
     """
     Get the ENU basis vectors in ECEF coordinates for a given location.
@@ -154,11 +133,38 @@ def enu_basis_vectors_ecef(lat: float, lon: float):
     
     return east_dir, north_dir, up_dir
 
-def earth_radius(lat: TensorLike, lon: TensorLike):
+def az_ze_to_enu(azimuth: TensorLike, zenith: TensorLike):
     """
-    Get the approximate Earth radius at a given latitude and longitude.
+    Convert azimuth and zenith angles to East-North-Up (ENU) coordinate system vectors.
+    
+    Args:
+        azimuth: Azimuth angle in degrees measured clockwise from North (0° at North, 
+            90° at East, 180° at South, 270° at West)
+        zenith : Zenith angle in degrees measured from the vertical (0° at zenith/up, 
+            90° at horizon, 180° at nadir/down)
+    
+    Returns:
+        torch.Tensor: A tensor of shape (*azimuth.shape, 3) where the components of the last dimension
+            represent the ENU vector for the corresponding azimuth/zenith values:
+            - east: Component pointing toward geographic East
+            - north: Component pointing toward geographic North
+            - up: Vertical component pointing away from Earth's center
+            
+    Note:
+        The returned vector components form a unit vector (magnitude = 1)
+        when the input angles represent a direction in 3D space.
     """
-    return torch.full_like(as_tensor(lat), 6371.0) # Approximate Earth radius in km
+    azimuth = as_tensor(azimuth)
+    zenith = as_tensor(zenith)
+    
+    az_rad = torch.deg2rad(azimuth)
+    ze_rad = torch.deg2rad(zenith)
+
+    east = torch.sin(az_rad) * torch.sin(ze_rad)
+    north = torch.cos(az_rad) * torch.sin(ze_rad)
+    up = torch.cos(ze_rad)
+
+    return torch.stack((east, north, up), dim=-1)
 
 def inc_dec_to_enu(inclination: TensorLike, declination: TensorLike):
     """
