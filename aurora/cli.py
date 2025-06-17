@@ -181,6 +181,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         if save is not None:
             save_reconstruction(recon, save)
+            print(f"Saved model in {save}")
         
         if plot_loss:
             aplt.plot_training_losses(*losses)
