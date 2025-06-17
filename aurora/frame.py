@@ -22,9 +22,16 @@ class Frame:
         ecef_to_enu = torch.linalg.inv(enu_to_ecef)
         field_dir_enu = geo.inc_dec_to_enu(field_inclination, field_declination)
         z_dir_enu = -field_dir_enu
+        x_dir_enu = torch.tensor([
+            -field_dir_enu[0].item(),
+            -field_dir_enu[1].item(),
+             0.0
+        ])
+        x_dir_enu /= torch.linalg.vector_norm(x_dir_enu)
+        y_dir_enu = torch.linalg.cross(z_dir_enu, x_dir_enu)
         field_to_enu = torch.tensor([
-            [0.0, -1.0, 0.0],
-            [1.0,  0.0, 0.0],
+            x_dir_enu.tolist(),
+            y_dir_enu.tolist(),
             z_dir_enu.tolist()
         ]).T
         enu_to_field = torch.linalg.inv(field_to_enu)
