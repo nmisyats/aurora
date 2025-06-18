@@ -187,7 +187,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             aplt.plot_training_losses(*losses)
 
         if plot_flux:
-            recon.eval_mode()
+            recon.eval()
             recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
             estimated_f = recon.flux(recon_xy).cpu()
             rec_xy_min = bbox.xy_min.cpu()
@@ -431,7 +431,7 @@ def generate_reconstructed_flux(
     """Generate flux from reconstruction using generic plotting."""
     device = choose_best_device(gpu)
     recon = load_reconstruction(recon_path, device)
-    recon.eval_mode()
+    recon.eval()
     
     xy_min = recon.bbox.xy_min
     xy_max = recon.bbox.xy_max
@@ -480,7 +480,7 @@ def generate_reconstructed_flux_at(
     """Generate the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
     recon = load_reconstruction(recon_path, device)
-    recon.eval_mode()
+    recon.eval()
     
     xy = torch.tensor([x, y], device=device)
     estimated_f = recon.flux(xy).cpu()
@@ -524,7 +524,7 @@ def generate_volume_emission(
     
     if recon_or_ref_path.suffix == ".pth":
         recon = load_reconstruction(recon_or_ref_path, device)
-        recon.eval_mode()
+        recon.eval()
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -583,7 +583,7 @@ def generate_images(
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
         recon = load_static_reconstruction(recon_or_ref_path, config, device)
-    recon.eval_mode()
+    recon.eval()
 
     cams = data.load_cameras(cam_pos, cam_dir)
     if locations is not None:

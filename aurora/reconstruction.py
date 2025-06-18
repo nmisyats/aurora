@@ -152,93 +152,27 @@ class Reconstruction:
         img = torch.nan_to_num(img, nan=nan)
         return img
     
-    def train(self, *,
-            ray_data: CameraRaysDataset | None = None,
-            radar_data: RadarPointsDataset | None = None,
-            num_iters: int = 1000,
-            ray_batch_size: int = 4096,
-            ray_bins: int = 100,
-            radar_batch_size: int = 1000,
-            ray_loss_weight: float = 1.0,
-            radar_loss_weight: float = 1.0,
-            lr: float = 5e-5,
-            weight_decay: float = 1.0,
-            lr_step_size: int = 5000,
-            lr_gamma: float = 0.1
-        ) -> tuple[list[float], list[float], list[float]]:
-        
-        if not isinstance(self.flux_model, TrainableFluxModel):
-            raise ValueError("Flux model is not trainable.")
-        
-        if ray_data is None and radar_data is None:
-            raise ValueError("At least one of ray_data or radar_data must be provided.")
-        
-        if not self._training:
-            raise ValueError("Reconstruction not in training mode.")
-
-        optimizer = torch.optim.Adam(self.flux_model.parameters(), lr=lr, weight_decay=weight_decay)
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
-
-        has_ray_data = ray_data is not None and ray_loss_weight > 0.0
-        has_radar_data = radar_data is not None and radar_loss_weight > 0.0
-        
-        ray_losses = [] if has_ray_data else None
-        radar_losses = [] if has_radar_data else None
-        losses = []
-
-        tq = tqdm.trange(num_iters)
-        for iter in tq:
-            optimizer.zero_grad()
-
-            ray_loss, radar_loss = 0.0, 0.0
-
-            if has_ray_data:
-                ro, rd, tn, tf, g_ref = ray_data.random_sample(ray_batch_size)
-                g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
-                ray_loss = (g - g_ref)**2
-                ray_loss = ray_loss.sum() / ray_batch_size
-                
-                ray_losses.append(ray_loss.item())
-            
-            if has_radar_data:
-                p, d_ref = radar_data.random_sample(radar_batch_size)
-                d = self.elec_dens(p)
-                radar_loss = (d - d_ref)**2
-                radar_loss = radar_loss.sum() / radar_batch_size
-                
-                radar_losses.append(radar_loss.item())
-
-            loss = ray_loss_weight*ray_loss + radar_loss_weight*radar_loss
-            loss.backward()
-
-            optimizer.step()
-            scheduler.step()
-
-            losses.append(loss.item())
-
-            tq.set_postfix(
-                loss=f"{loss.item():.0f}",
-                lr=f"{scheduler.get_last_lr()[0]:.2e}"
-            )
-        tq.close()
-
-        return ray_losses, radar_losses, losses
-    
-    def eval_mode(self):
+    def eval(self):
         if isinstance(self.flux_model, TrainableFluxModel):
             self.flux_model.eval()
         self._training = False
+        return self
     
-    def train_mode(self):
+    def train(self):
         if isinstance(self.flux_model, TrainableFluxModel):
             self.flux_model.train()
             self._training = True
         else:
             ValueError("Flux model is not trainable")
+        return self
     
     @property
     def trainable(self):
         return isinstance(self.flux_model, TrainableFluxModel)
+    
+    @property
+    def training(self):
+        return self._training
 
 
 def save_reconstruction(recon: Reconstruction, path: Path | str):
