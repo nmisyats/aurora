@@ -1,36 +1,49 @@
 import torch
 
-def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: float, max_t: float, num_bins: int, device: torch.device):
+def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: torch.Tensor, max_t: torch.Tensor, num_bins: int):
     """
     Create points along a ray defined by origin `ro` and direction `rd` within the range [min_t, max_t].
     The points are uniformly distributed in `num_bins` bins.
     Parameters:
         ro: (n, 3) tensor representing the ray origins.
         rd: (n, 3) tensor representing the ray directions.
-        min_t: Minimum distance along the ray.
-        max_t: Maximum distance along the ray.
+        min_t: (n,) tensor representing distance along the ray.
+        max_t: (n,) tensor representing maximum distance along the ray.
         num_bins: Number of bins to divide the range [min_t, max_t].
-        device: Device to create tensors on.
 
     Returns:
-        t: (num_bins,) tensor of uniformly distributed distances along the ray.
-        p: (num_bins, 3) tensor of points along the ray.
+        (t, p): t (n, num_bins) tensor of uniformly distributed distances along the ray
+        and p (n, num_bins, 3) tensor of points along the ray.
     """
-    bin_edges = torch.linspace(min_t, max_t, num_bins + 1, device=device) # num_bins + 1 edges
+    device = ro.device
+    n = ro.shape[0]
+
+    bin_edges = torch.linspace(0.0, 1.0, num_bins + 1, device=device) # num_bins + 1 edges (num_bins + 1,)
+    bin_edges = bin_edges.expand(n, -1) # (n, num_bins + 1)
+    min_t = min_t.unsqueeze(-1) # (n, 1)
+    max_t = max_t.unsqueeze(-1) # (n, 1)
+    bin_edges = bin_edges * (max_t - min_t) + min_t
+    
     # Lower and upper edges of each bin
-    lower_edges = bin_edges[:-1]
-    upper_edges = bin_edges[1:]
+    lower_edges = bin_edges[:, :-1] # (n, num_bins)
+    upper_edges = bin_edges[:, 1:] # (n, num_bins)
+
     # Generate random values in each bin
-    t = lower_edges + torch.rand(num_bins, device=device) * (upper_edges - lower_edges)
+    t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
+    t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
     # Create points
-    return t, ro + t.reshape(t.shape[0], 1) * rd
+    # (n, 3) -> (n, 1, 3) -> (n, num_bins, 3)
+    ro = ro.unsqueeze(1).expand(-1, num_bins, -1)
+    rd = rd.unsqueeze(1).expand(-1, num_bins, -1)
+    p = ro + t.unsqueeze(-1) * rd # t: (n, num_bins, 1)
+    return t, p
 
 def inside_box_mask(p: torch.Tensor, box_min: torch.Tensor, box_max: torch.Tensor):
     """
     Check if points are inside an axis-aligned bounding box.
     
     Parameters:
-        p: (*, 3) tensor representing the points.
+        p: (n, 3) tensor representing the points.
         box_min: 1D tensor [x_min, y_min, z_min] representing the min coordinates of the box.
         box_max: 1D tensor [x_max, y_max, z_max] representing the max coordinates of the box.
     

@@ -29,7 +29,6 @@ class Reconstruction:
         self.bbox = bbox
         self.device = frame.device
         
-        self._batched_integrators = {}
         self._training = False
 
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
@@ -84,51 +83,70 @@ class Reconstruction:
             rd: torch.Tensor, 
             tn: torch.Tensor, 
             tf: torch.Tensor,
-            ray_bins: int
+            num_bins: int
         ) -> torch.Tensor:
         """
         Integrate the emission along rays along a ray.
         
         Args:
-            ray_bins (int): Number of bins to use for ray integration.
-            ro (torch.Tensor): Ray origins of shape (n, ..., 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (n, ..., 3) in frame coordinates.
-            tn (torch.Tensor): Near intersection distances of shape (n, ...,).
-            tf (torch.Tensor): Far intersection distances of shape (n, ...,).
+            ro (torch.Tensor): Ray origins of shape (..., 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (..., 3) in frame coordinates.
+            tn (torch.Tensor): Near intersection distances of shape (...,).
+            tf (torch.Tensor): Far intersection distances of shape (...,).
+            num_bins (int): Number of bins to divide the ray in.
         
         Returns:
-            torch.Tensor: Integrated emission tensor of shape (n, ...,).
+            torch.Tensor: Integrated emission tensor of shape (...,).
         """
         if ro.ndim == 1:
             ro = ro.unsqueeze(0)
             rd = rd.unsqueeze(0)
             tn = tn.unsqueeze(0)
             tf = tf.unsqueeze(0)
-        if ray_bins not in self._batched_integrators:
-            self._batched_integrators[ray_bins] = self._make_vmapped_integrator(ray_bins)
-        batched_integrator = self._batched_integrators[ray_bins]
-        return batched_integrator(ro, rd, tn, tf)
-
-    def _make_vmapped_integrator(self, ray_bins: int):
-        def int_single_ray(ro, rd, tn, tf):
-            t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
-            p_enu = self.frame.to_local_enu(p_frame, is_point=True)
-            xy, z = p_frame[:,:2], p_enu[:,2]
-            f = self.flux(xy)
-            l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
-            g = phy.int_emis_rayleigh(t_frame, l)
-            g = g # * self.frame.metric_scale(rd) not required?
-            return g
-        return torch.vmap(int_single_ray, randomness='different')
+            g = self._int_emis_ray_batched(ro, rd, tn, tf, num_bins)
+            g = g.squeeze(0)
+        else:
+            g = self._int_emis_ray_batched(ro, rd, tn, tf, num_bins)
+        return g
+    
+    def _int_emis_ray_batched(
+            self, 
+            ro: torch.Tensor, 
+            rd: torch.Tensor, 
+            tn: torch.Tensor, 
+            tf: torch.Tensor,
+            num_bins: int
+        ) -> torch.Tensor:
+        """
+        Integrate the emission along rays along a ray.
+        
+        Args:
+            ro (torch.Tensor): Ray origins of shape (n, ..., 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, ..., 3) in frame coordinates.
+            tn (torch.Tensor): Near intersection distances of shape (n, ...,).
+            tf (torch.Tensor): Far intersection distances of shape (n, ...,).
+            num_bins (int): Number of bins to divide the ray in.
+        
+        Returns:
+            torch.Tensor: Integrated emission tensor of shape (n, ...,).
+        """
+        t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, num_bins)
+        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
+        xy, z = p_frame[...,:2], p_enu[...,2]
+        f = self.flux(xy)
+        l = phy.emis_rate(z, f, self.M_emis, self.z_edges)
+        g = phy.int_emis_rayleigh(t_frame, l)
+        # g = g * self.frame.metric_scale(rd) not required?
+        return g
     
     @torch.no_grad()
-    def image(self, cam: Camera, ray_bins: int, nan=0.0):
+    def image(self, cam: Camera, num_bins: int, nan=0.0):
         """
         Generate an image from the camera using the integrated emission along rays.
         
         Args:
             cam (Camera): Camera object to generate the image from.
-            ray_bins (int): Number of bins to use for ray integration.
+            num_bins (int): Number of bins to use for ray integration.
             nan (float): Value to replace NaN values in the image.
         
         Returns:
@@ -138,7 +156,7 @@ class Reconstruction:
         ro = self.frame.from_ecef(ro, is_point=True)
         rd = self.frame.from_ecef(rd, is_point=False)
         tn, tf = geom.ray_box_intersection(ro, rd, self.bbox.xyz_min, self.bbox.xyz_max)
-        g = self.int_emis_ray(ro, rd, tn, tf, ray_bins)
+        g = self.int_emis_ray(ro, rd, tn, tf, num_bins)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)
