@@ -59,6 +59,6 @@ class Camera:
         rd_ecef = geo.rotate_enu_to_ecef(rd_enu, lat, lon)
 
         ro_ecef = geo.geodetic_to_ecef(lat, lon, alt).to(device)
-        ro_ecef = ro_ecef.repeat(rd_ecef.shape[0], 1)
+        ro_ecef = ro_ecef.expand(rd_ecef.shape[0], -1)
 
         return ro_ecef, rd_ecef
