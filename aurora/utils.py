@@ -3,8 +3,8 @@ from typing import Union, Tuple, List
 import numpy as np
 import torch
 
-
-TensorLike = Union[torch.Tensor, np.ndarray, float, List[float], Tuple[float, ...]]
+Number = int | float
+TensorLike = Union[torch.Tensor, np.ndarray, Number, List[Number], Tuple[Number, ...]]
 
 def as_tensor(data: TensorLike) -> torch.Tensor:
     """
@@ -13,11 +13,11 @@ def as_tensor(data: TensorLike) -> torch.Tensor:
     if isinstance(data, torch.Tensor):
         return data
     elif isinstance(data, np.ndarray):
-        return torch.from_numpy(data).to(torch.float32)
+        return torch.from_numpy(data)
     elif isinstance(data, (list, tuple)):
-        return torch.tensor(data, dtype=torch.float32)
-    elif isinstance(data, float):
-        return torch.tensor(data, dtype=torch.float32)
+        return torch.tensor(data)
+    elif isinstance(data, (float, int)):
+        return torch.tensor(data)
     else:
         raise TypeError(f"Unsupported type for conversion to tensor: {type(data)}")
 
