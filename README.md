@@ -194,8 +194,9 @@ from matplotlib import pyplot as plt
 
 from aurora import Reconstruction, save_reconstruction
 from aurora import Frame, BBox
+from aurora import RayLoss, train
 from aurora.dataset import CameraRaysDataset
-from aurora.models import LogMLP
+from aurora.models import MLP1
 import aurora.data as data
 import aurora.plot as aplt
 from aurora.utils import xy_grid
@@ -230,11 +231,11 @@ M_emis = data.load_emission_matrix("../model/M_emis.dat").to(device)
 M_dens = data.load_density_matrix("../model/M_dens.dat").to(device)
 
 # Instantiate the trainable flux model
-flux_model = LogMLP(
+flux_model = MLP1(
     xy_min=bbox.xy_min,
     xy_max=bbox.xy_max,
     E_edges=E_edges,
-    config=LogMLP.default_config()
+    config=MLP1.default_config()
 ).to(device)
 print(flux_model)
 
@@ -252,8 +253,10 @@ recon = Reconstruction(
 cameras = data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
 ray_data = CameraRaysDataset(cameras, frame, bbox)
 
+# Define loss terms for training
+loss_terms = [RayLoss(ray_data, batch_size=4096)]
 # Train the reconstruction
-recon.train(ray_data=ray_data, num_iters=2000)
+train(recon, loss_terms, iters=2000)
 # Save the reconstruction after training
 save_reconstruction(recon, "./recon.pth")
 
@@ -261,7 +264,7 @@ save_reconstruction(recon, "./recon.pth")
 
 # Set the reconstruction in evaluation mode
 # (this disables gradient computation for more efficiency)
-recon.eval_mode()
+recon.eval()
 # Create a uniform grid spanning the xy bounding box
 xy = xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
 # Plot the flux
