@@ -1,29 +1,25 @@
 from pathlib import Path
-from abc import ABC, abstractmethod
 
 import torch
-import torch.optim.lr_scheduler as lr_scheduler
-import tqdm
 
 from aurora.camera import Camera
 from aurora.models import FluxModel, TrainableFluxModel, StaticFlux
 from aurora.frame import Frame
 from aurora.bbox import BBox
-from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.geometry as geom
 import aurora.physics as phy
 import aurora.data as data
 
 class Reconstruction:
     def __init__(
-        self,
-        flux_model: FluxModel,
-        frame: Frame,
-        bbox: BBox,
-        M_emis: torch.Tensor,
-        M_dens: torch.Tensor,
-        z_edges: torch.Tensor
-    ):
+            self,
+            flux_model: FluxModel,
+            frame: Frame,
+            bbox: BBox,
+            M_emis: torch.Tensor,
+            M_dens: torch.Tensor,
+            z_edges: torch.Tensor
+        ):
         self.flux_model = flux_model
         self.M_emis = M_emis
         self.M_dens = M_dens
@@ -33,12 +29,8 @@ class Reconstruction:
         self.bbox = bbox
         self.device = frame.device
         
-        self._vmap_g_cache = {}
-
-        if isinstance(flux_model, TrainableFluxModel):
-            self._training = True
-        else:
-            self._training = False
+        self._batched_integrators = {}
+        self._training = False
 
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
         """
@@ -112,12 +104,12 @@ class Reconstruction:
             rd = rd.unsqueeze(0)
             tn = tn.unsqueeze(0)
             tf = tf.unsqueeze(0)
-        if ray_bins not in self._vmap_g_cache:
-            self._vmap_g_cache[ray_bins] = self._make_vmapped_g(ray_bins)
-        vmap_g = self._vmap_g_cache[ray_bins]
-        return vmap_g(ro, rd, tn, tf)
+        if ray_bins not in self._batched_integrators:
+            self._batched_integrators[ray_bins] = self._make_vmapped_integrator(ray_bins)
+        batched_integrator = self._batched_integrators[ray_bins]
+        return batched_integrator(ro, rd, tn, tf)
 
-    def _make_vmapped_g(self, ray_bins: int):
+    def _make_vmapped_integrator(self, ray_bins: int):
         def int_single_ray(ro, rd, tn, tf):
             t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, ray_bins, self.device)
             p_enu = self.frame.to_local_enu(p_frame, is_point=True)

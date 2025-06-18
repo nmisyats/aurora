@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction, load_static_reconstruction
+from aurora.optim import train, RadarLoss, RayLoss
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.data as data
 
@@ -30,7 +31,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     
     def train_command(
         config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
-        training_options: Path = typer.Option(None, help="Path to YAML training configuration file"),
+        options: Path = typer.Option(None, help="Path to YAML training configuration file"),
         cam_pos: Path = typer.Option(None, help="Camera positions file"),
         cam_dir: Path = typer.Option(None, help="Cameras directory"),
         radar_points: Path = typer.Option(None, help="Radar point cloud file"),
@@ -69,9 +70,9 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         # Load training options from YAML if provided
         train_options = {}
-        if training_options is not None:
-            train_options = data.load_yaml(training_options)
-            typer.echo(f"Loaded training options from {training_options}")
+        if options is not None:
+            train_options = data.load_yaml(options)
+            typer.echo(f"Loaded training options from {options}")
 
         # Helper function to get final parameter value
         def get_param_value(param_name, current_value):
@@ -164,19 +165,20 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         )
         
         # Train the reconstruction on the provided data
-        losses = recon.train(
-            ray_data=ray_data,
-            radar_data=radar_data,
-            num_iters=iters,
-            ray_batch_size=ray_batch_size,
-            ray_bins=ray_bins,
-            radar_batch_size=radar_batch_size,
-            ray_loss_weight=ray_loss_weight,
-            radar_loss_weight=radar_loss_weight,
+        loss_terms = []
+        if ray_data is not None:
+            loss_terms.append(RayLoss(ray_data, ray_batch_size, ray_loss_weight, ray_bins))
+        if radar_data is not None:
+            loss_terms.append(RadarLoss(radar_data, radar_batch_size, radar_loss_weight))
+        
+        history = train(
+            recon=recon,
+            loss_terms=loss_terms,
+            iters=iters,
             lr=lr,
             weight_decay=reg_strength,
-            lr_step_size=lr_step,
-            lr_gamma=lr_decay
+            lr_step=lr_step,
+            lr_decay=lr_decay
         )
 
         if save is not None:
@@ -184,7 +186,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             print(f"Saved model in {save}")
         
         if plot_loss:
-            aplt.plot_training_losses(*losses)
+            aplt.plot_training_losses(history)
 
         if plot_flux:
             recon.eval()
