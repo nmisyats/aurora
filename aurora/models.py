@@ -44,18 +44,12 @@ class FluxModel(nn.Module, ABC):
         self.register_buffer("E_edges", E_edges)
 
         self.input_dim = 2
-        self.output_dim = len(E_edges)
+        self.output_dim = len(E_edges) - 1
     
     @abstractmethod
     def forward(self, xy: torch.Tensor) -> torch.Tensor:
+        # xy: (n, 2)
         ...
-    
-    def flux(self, xy: torch.Tensor):
-        orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
-        xy = xy.reshape(-1, 2) # (N, 2)
-        f = self.forward(xy) # (N, n_bins)
-        n_bins = f.shape[-1]
-        return f.reshape(*orig_shape, n_bins)
     
     def normalize_energy(self, E: torch.Tensor):
         E_min, E_max = self.E_edges[0], self.E_edges[-1]
@@ -64,10 +58,6 @@ class FluxModel(nn.Module, ABC):
     def normalize_xy(self, xy: torch.Tensor):
         xy_min, xy_max = self.xy_min, self.xy_max
         return (xy - xy_min) / (xy_max - xy_min)
-    
-    @classmethod
-    def default_config(cls):
-        return None
 
 
 class StaticFlux(FluxModel):
@@ -128,26 +118,26 @@ class MLPConfig:
 
 @register_model("spectral_mlp", MLPConfig)
 class SpectralMLP(FluxModel):
-    """MLP 4x128 hidden layers."""
+    """MLP outputing the energy spectrum from the xy position"""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            config: MLPConfig
+            config: MLPConfig = MLPConfig()
         ):
         super().__init__(xy_min, xy_max, E_edges)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
 
-        self.mlp = nn.Sequential([
+        self.mlp = nn.Sequential(
             nn.Linear(self.fourier_encoder.output_dim(2), 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, len(E_edges)), nn.Sigmoid()
-        ])
+            nn.Linear(128, self.output_dim), nn.Sigmoid()
+        )
     
     def forward(self, xy: torch.Tensor):
         x = self.normalize_xy(xy)
@@ -156,30 +146,65 @@ class SpectralMLP(FluxModel):
         x = torch.pow(10.0, x * self.log_scale)
         return x
 
-    @classmethod
-    def default_config(cls):
-        return MLPConfig()
-
-@register_model("direct_mlp", MLPConfig)
-class DirectMLP(FluxModel):
-    """MLP 4x128 hidden layers with energy input."""
+@register_model("spectral_res_mlp", MLPConfig)
+class SpectralResMLP(FluxModel):
+    """Spectral MLP with a residual connection"""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            config: MLPConfig
+            config: MLPConfig = MLPConfig()
         ):
         super().__init__(xy_min, xy_max, E_edges)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
-        
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(3), 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, 1)
+
+        encode_dim = self.fourier_encoder.output_dim(2)
+
+        self.mlp1 = nn.Sequential(
+            nn.Linear(encode_dim, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU()
+        )
+        self.mlp2 = nn.Sequential(
+            nn.Linear(128 + encode_dim, 128), nn.ReLU(),
+            nn.Linear(128, self.output_dim), nn.Sigmoid()
+        )
+    
+    def forward(self, xy: torch.Tensor):
+        xy = self.normalize_xy(xy)
+        x = self.fourier_encoder(xy)
+        x0 = x
+        x = self.mlp1(x)
+        x = torch.cat([x, x0], dim=-1)
+        x = self.mlp2(x)
+        x = torch.pow(10.0, x * self.log_scale)
+        return x
+
+@register_model("direct_mlp", MLPConfig)
+class DirectMLP(FluxModel):
+    """MLP with position and energy input"""
+    def __init__(
+            self,
+            xy_min: torch.Tensor,
+            xy_max: torch.Tensor,
+            E_edges: torch.Tensor,
+            config: MLPConfig = MLPConfig()
+        ):
+        super().__init__(xy_min, xy_max, E_edges)
+
+        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
+        self.log_scale = config.log_scale
+
+        self.mlp = nn.Sequential(
+            nn.Linear(self.fourier_encoder.output_dim(3), 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 1), nn.Sigmoid()
+        )
     
     def forward(self, xy: torch.Tensor):
         if xy.dim() == 1:
@@ -199,7 +224,7 @@ class DirectMLP(FluxModel):
         # Create all (x,y,E) combinations efficiently
         if self.training:
             # Random sampling within each bin during training
-            rand_uniform = torch.rand(self.output_size, device=xy.device)
+            rand_uniform = torch.rand(self.output_dim, device=xy.device)
             # Linear interpolation in log space
             log_e_low = torch.log(self.E_edges[:-1])
             log_e_high = torch.log(self.E_edges[1:])
@@ -208,62 +233,18 @@ class DirectMLP(FluxModel):
         else:
             # Use geometric mean during inference for consistency
             e = torch.sqrt(self.E_edges[1:] * self.E_edges[:-1])
-        e_norm = self.normalize_E(e)
+        e_norm = self.normalize_energy(e)
         
         # Expand to create all combinations: (B*N, 3)
-        xy_expanded = xy_norm.unsqueeze(1).expand(B, self.output_size, 2).reshape(B * self.output_size, 2)
-        e_expanded = e_norm.unsqueeze(0).expand(B, self.output_size).reshape(B * self.output_size, 1)
+        xy_expanded = xy_norm.unsqueeze(1).expand(B, self.output_dim, 2).reshape(B * self.output_dim, 2)
+        e_expanded = e_norm.unsqueeze(0).expand(B, self.output_dim).reshape(B * self.output_dim, 1)
         x_input = torch.cat((xy_expanded, e_expanded), dim=1)  # (B*N, 3)
         
         # Single forward pass through the network
         x = self.fourier_encoder(x_input)  # (B*N, encoding_size)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
-        x = F.sigmoid(self.fc5(x))
+        x = self.mlp(x)
         x = torch.pow(10.0, x * self.log_scale)
         
         # Reshape back to (B, N)
-        return x.reshape(B, self.output_size)
+        return x.reshape(B, self.output_dim)
 
-    @classmethod
-    def default_config(cls):
-        return MLPConfig()
-
-@register_model("res_mlp1", MLPConfig)
-class ResMLP1(NNFlux):
-    """MLP 4x128 hidden layers with residual connection."""
-    def __init__(
-            self,
-            xy_min: torch.Tensor,
-            xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
-            config: MLPConfig
-        ):
-        super().__init__(xy_min, xy_max, E_edges)
-
-        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.log_scale = config.log_scale
-        
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(2), 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128 + self.fourier_encoder.output_dim(2), 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, self.output_size)
-    
-    def forward(self, xy: torch.Tensor):
-        xy = self.normalize_xy(xy)
-        x = self.fourier_encoder(xy)
-        x0 = x
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(torch.cat([x, x0], dim=-1)))
-        x = F.relu(self.fc4(x))
-        x = F.sigmoid(self.fc5(x))
-        x = torch.pow(10.0, x * self.log_scale)
-        return x
-
-    @classmethod
-    def default_config(cls):
-        return MLPConfig()

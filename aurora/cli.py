@@ -499,7 +499,7 @@ def generate_reconstructed_flux_at(
     if plot:
         if ref_flux is not None and ref_config is not None:
             ref = load_static_reconstruction(ref_flux, ref_config, device)
-            reference_f = ref.flux_model.flux(xy).cpu()
+            reference_f = ref.flux(xy).cpu()
             aplt.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
                 energy_edges=recon.flux_model.E_edges.cpu(),

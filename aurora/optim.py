@@ -127,9 +127,6 @@ def train(
     Returns:
         Dictionary mapping loss term names to their training history
     """
-    if not recon.trainable:
-        raise ValueError("Reconstruction is not trainable")
-    
     if not loss_terms:
         raise ValueError("At least one loss term must be provided")
     

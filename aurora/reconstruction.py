@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 
 from aurora.camera import Camera
-from aurora.models import FluxModel, TrainableFluxModel, StaticFlux
+from aurora.models import FluxModel, StaticFlux
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.geometry as geom
@@ -32,6 +32,7 @@ class Reconstruction:
         
         self._training = False
 
+    @normalize_batch_dims({"xy": 1}, 0)
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron flux distribution at points xy.
@@ -44,9 +45,9 @@ class Reconstruction:
         """
         if not self._training:
             with torch.no_grad():
-                return self.flux_model.flux(xy)
+                return self.flux_model(xy)
         else:
-            return self.flux_model.flux(xy)
+            return self.flux_model(xy)
 
     @normalize_batch_dims({"p_frame": 1}, 0)
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
@@ -135,22 +136,14 @@ class Reconstruction:
         return img
     
     def eval(self):
-        if isinstance(self.flux_model, TrainableFluxModel):
-            self.flux_model.eval()
+        self.flux_model.eval()
         self._training = False
         return self
     
     def train(self):
-        if isinstance(self.flux_model, TrainableFluxModel):
-            self.flux_model.train()
-            self._training = True
-        else:
-            ValueError("Flux model is not trainable")
+        self.flux_model.train()
+        self._training = True
         return self
-    
-    @property
-    def trainable(self):
-        return isinstance(self.flux_model, TrainableFluxModel)
     
     @property
     def training(self):
@@ -178,21 +171,20 @@ def load_reconstruction(path: Path | str, device: torch.device):
         data["z_edges"]
     )
 
-def load_static_reconstruction(flux_data_path: Path | str, config_path: Path | str, device: torch.device):
-    flux_data_path = Path(flux_data_path)
+def load_static_reconstruction(flux_path: Path | str, config_path: Path | str, device: torch.device):
+    flux_path = Path(flux_path)
     config_path = Path(config_path)
     config = data.load_config(config_path, device)
     return Reconstruction(
         flux_model=StaticFlux(
-            data=data.load_3d_grid_data(flux_data_path).to(device),
+            data=data.load_3d_grid_data(flux_path).to(device),
             E_edges=config.phys.energies,
             xy_min=config.bbox.xy_min,
             xy_max=config.bbox.xy_max,
-            device=device
-        ),
+        ).to(device),
         frame=config.frame,
         bbox=config.bbox,
         M_emis=config.phys.emis_mat,
         M_dens=config.phys.dens_mat,
         z_edges=config.phys.altitudes
-    )
+    ).eval()
