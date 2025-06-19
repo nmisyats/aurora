@@ -86,23 +86,25 @@ model-specific arguments. The command to train a model
 ```
 $ aurora train <model_name>
 ```
-For example, running `--help` for `log_mlp` outputs:
+For example, running `aurora train spectral_mlp --help` outputs:
 ```
 Arguments
     config_file      PATH  Path to YAML configuration file [default: None] [required]
 
 Options
-    --training-options                       PATH     Path to YAML training configuration file [default: None]
+    ---options                               PATH     Path to YAML training configuration file [default: None]
     --cam-pos                                PATH     Camera positions file [default: None]
     --cam-dir                                PATH     Cameras directory [default: None]
-    --radar-points                           PATH     Radar point cloud file [default: None]
+    --radar                                  PATH     Radar point cloud file [default: None]
     --gpu                  --no-gpu                   Use GPU if available [default: gpu]
     --iters                                  INTEGER  Number of training iterations [default: 2000]
-    --ray-batch-size                         INTEGER  Batch size for ray loss [default: 4096]
+    --ray-batch                              INTEGER  Batch size for ray loss [default: 4096]
     --ray-bins                               INTEGER  Number of bins for ray integration [default: 100]
-    --radar-batch-size                       INTEGER  Batch size for radar loss [default: 1000]
-    --ray-loss-weight                        FLOAT    Weight for ray loss [default: 1.0]
-    --radar-loss-weight                      FLOAT    Weight for radar loss [default: 1.0]
+    --radar-batch                            INTEGER  Batch size for radar loss [default: 1000]
+    --smooth-batch                           INTEGER  Batch size for spectral smoothness loss [default: 1024]
+    --ray-weight                             FLOAT    Weight for ray loss [default: 1.0]
+    --radar-weight                           FLOAT    Weight for radar loss [default: 1.0]
+    --smooth-weight                          FLOAT    Weight for spectral smoothness loss [default: 0.0]
     --lr                                     FLOAT    Initial learning rate [default: 5e-05]
     --reg-strength                           FLOAT    Regularization strength [default: 1.0]
     --lr-step                                INTEGER  Learning rate scheduler step [default: 1000]
@@ -112,10 +114,10 @@ Options
     --plot-flux            --no-plot-flux             Plot the reconstructed flux after training complete [default: plot-flux]
     --plot-res-x                             INTEGER  x resolution for plotting [default: 128]
     --plot-res-y                             INTEGER  y resolution for plotting [default: 128]
-    --ref-flux-data                          PATH     Reference flux to compare the reconstruction with [default: None]
-    --ref-flux-config                        PATH     Path to configuration file for reference flux [default: None]
+    --ref-flux                               PATH     Reference flux to compare the reconstruction with [default: None]
+    --ref-config                             PATH     Path to configuration file for reference flux [default: None]
     --encoding-exp                           INTEGER  Fourier embedding maximum exponent [default: 4]
-    --log-scale                              FLOAT    Logarithmic range of the flux [default: 7.0]
+    --max-log_flux                           FLOAT    Logarithmic range of the flux [default: 7.0]
     --help                                            Show this message and exit.
 ```
 
@@ -130,7 +132,7 @@ The trained model will be saved as a self-contained file `recon.pth`.
 If a reference flux is available to compare the reconsutrction (simulated data) with, it
 can be added to the final flux plot by adding the following options:
 ```
---ref-flux-data path/to/flux.dat --ref-flux-config path/to/flux_config.yaml
+--ref-flux path/to/flux.dat --ref-config path/to/flux_config.yaml
 ```
 
 For convenience, it is possible to bundle training options into a YAML file
@@ -142,40 +144,40 @@ cam_dir: path/to/camera/images
 cam_pos: path/to/camera_position.set
 iters: 5000
 save: recon.pth
-ref_flux_data: path/to/flux.dat
-ref_flux_config: path/to/flux_config.yaml
+ref_flux: path/to/flux.dat
+ref_config: path/to/flux_config.yaml
 ```
 ```
-aurora train log_mlp config.yaml --training-options train.yaml
+aurora train spectral_mlp config.yaml --options train.yaml
 ```
 
 Missing options from the training file will use their default value.
 It is still possible to add manual options to the command line and override
 options set in the file. For example:
 ```
-aurora train log_mlp config.yaml --training-options train.yaml --iters 500 --lr 1e-4
+aurora train spectral_mlp config.yaml --options train.yaml --iters 2000 --lr 1e-4
 ```
 
 ### Generating and plotting data
 
 `aurora plot` contains utility commands for plotting data that is static
 or has already been generated. To generate new data (total flux, emission rate, images)
-from a pretrained reconstruction, use `aurora gen`.
+from a pretrained reconstruction (or reference flux), use `aurora gen`.
 
-For example, to generate plot, and save a 3D emission rate volume from a pretrained
-`recon.pth` model, use:
+For example, to generate, plot, and save a 3D emission volume rate from a pretrained
+`recon.pth` reconstruction, use:
 ```
 aurora gen emis recon.pth --save emis_rate.dat
 ```
 This will both save the generated emission and plot it for vizualization.
-To vizualize the generated emission rate later use:
+To vizualize the generated emission rate later, use:
 ```
 aurora plot emis emis_rate.dat config.yaml
 ```
 
 **Note**: it is required to provide the physical configuration to be used for
 vizualizing the generated data. Generated data only saves its raw content,
-unlike reconstruction models which bundles also physical information.
+unlike reconstruction models which bundles also physical configuration.
 
 
 ## Library usage
@@ -194,9 +196,9 @@ from matplotlib import pyplot as plt
 
 from aurora import Reconstruction, save_reconstruction
 from aurora import Frame, BBox
-from aurora import RayLoss, train
+from aurora import train, RayLoss, SpectralSmoothnessLoss
 from aurora.dataset import CameraRaysDataset
-from aurora.models import MLP1
+from aurora.models import SpectralMLP
 import aurora.data as data
 import aurora.plot as aplt
 from aurora.utils import xy_grid
@@ -231,11 +233,10 @@ M_emis = data.load_emission_matrix("../model/M_emis.dat").to(device)
 M_dens = data.load_density_matrix("../model/M_dens.dat").to(device)
 
 # Instantiate the trainable flux model
-flux_model = MLP1(
+flux_model = SpectralMLP(
     xy_min=bbox.xy_min,
     xy_max=bbox.xy_max,
-    E_edges=E_edges,
-    config=MLP1.default_config()
+    E_edges=E_edges
 ).to(device)
 print(flux_model)
 
@@ -254,11 +255,14 @@ cameras = data.load_cameras("../datasets/camera_position.set", "../datasets/simu
 ray_data = CameraRaysDataset(cameras, frame, bbox)
 
 # Define loss terms for training
-loss_terms = [RayLoss(ray_data, batch_size=4096)]
+loss_terms = [
+    RayLoss(ray_data, batch_size=4096),
+    SpectralSmoothnessLoss(batch_size=1024, weight=0.001),
+]
 # Train the reconstruction
 train(recon, loss_terms, iters=2000)
 # Save the reconstruction after training
-save_reconstruction(recon, "./recon.pth")
+save_reconstruction(recon, "./example.pth")
 
 # Plot the reconstructed total energy flux
 
@@ -284,37 +288,22 @@ python example.py
 
 To create a custom flux model to use for training a reconstruction,
 it is simply a matter of defining a new class that inherits from
-the `TrainableFluxModel` base class in `aurora.models`, and fill
+the `FluxModel` base class in `aurora.models`, and fill
 the required abstract properties and methods. A rough template
 is shown below.
 
 ```python
-from aurora.models import TrainableFluxModel
+from aurora.models import FluxModel
 
-class MyFluxModel(TrainableFluxModel):
-    def __init__(self, ...): # Custom construction
-        super().__init__()
+class MyFluxModel(FluxModel):
+    def __init__(self, xy_min, xy_max, E_edges, ...): # Custom construction
+        super().__init__(xy_min, xy_max, E_edges)
         ... # Custom initialization
 
     def forward(self, xy: torch.Tensor):
         # Pytorch's nn.Module forward method outputing the flux estimate
         # input: (N, 2) xy tensor
         # output: (N, n_bins) tensor
-        return ...
-    
-    @property
-    def xy_min(self):
-        # output: (2,) tensor, lower xy bounds
-        return ...
-    
-    @property
-    def xy_max(self):
-        # output: (2,) tensor, upper xy bounds
-        return ...
-    
-    @property
-    def E_edges(self):
-        # output: (n_bins + 1,) tensor, energy bins edges
         return ...
 ```
 It can then be used when instantiating a reconstruction as follows:
@@ -329,12 +318,12 @@ recon = Reconstruction(
 )
 ```
 
-In order to add a custom model to the `aurora train` command
-line, the custom model class **must** be defined in the `aurora/models.py`
+In order to add a custom model to the `aurora train` command,
+the custom model class **must** be defined in the `aurora/models.py`
 file. It must also follow a specific format as described below:
 ```python
 # Define extra command line arguments with their default values
-# and help string
+# and help string. Must be defined even if empty
 @dataclass
 class MyModelConfig:
     param1: int = config_field(42, help="Custom param 1")
@@ -351,31 +340,14 @@ class MyModel(TrainableFluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             E_edges: torch.Tensor,
-            # Command line arguments
-            config: MyModelConfig
+            # Command line arguments with default
+            config: MyModelConfig = MyModelConfig()
         ):
-        super().__init__()
+        super().__init__(xy_min, xy_max, E_edges)
         ...
 
     def forward(self, xy: torch.Tensor):
         ...
-    
-    @property
-    def xy_min(self):
-        return ...
-    
-    @property
-    def xy_max(self):
-        return ...
-    
-    @property
-    def E_edges(self):
-        return ...
-
-    # Optional, useful when using as library
-    @classmethod
-    def default_config(cls):
-        return MyModelConfig()
 ```
 It can be then be trained as any other model using its registered name, with
 custom extra arguments:
