@@ -9,7 +9,7 @@ from aurora.bbox import BBox
 from aurora.optim import (
     RayLoss,
     RadarLoss,
-    FluxRegularization,
+    SpectralSmoothnessLoss,
     train
 )
 
@@ -20,8 +20,9 @@ __all__ = [
     "Camera",
     "Frame",
     "BBox",
+    "train",
     "RayLoss",
     "RadarLoss",
     "FluxRegularization",
-    "train"
+    "SpectralSmoothnessLoss",
 ]
