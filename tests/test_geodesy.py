@@ -139,6 +139,3 @@ def test_enu_basis_orthonormal(tol):
         assert torch.allclose(torch.dot(east, north), torch.tensor(0.0), atol=tol)
         assert torch.allclose(torch.dot(east, up), torch.tensor(0.0), atol=tol)
         assert torch.allclose(torch.dot(north, up), torch.tensor(0.0), atol=tol)
-
-if __name__ == "__main__":
-    pytest.main(["-v", "-s"])

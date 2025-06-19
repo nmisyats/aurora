@@ -22,6 +22,3 @@ def test_ray_box_intersection():
 
     assert torch.allclose(torch.nan_to_num(expected_t_n), torch.nan_to_num(t_n))
     assert torch.allclose(torch.nan_to_num(expected_t_f), torch.nan_to_num(t_f))
-
-if __name__ == "__main__":
-    pytest.main(["-v", "-s"])

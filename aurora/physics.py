@@ -1,6 +1,8 @@
 import torch
 
+from aurora.utils import normalize_batch_dims
 
+@normalize_batch_dims({"z": 0, "f": 1}, 0)
 def emis_rate(
         z: torch.Tensor,
         f: torch.Tensor,
@@ -11,13 +13,13 @@ def emis_rate(
     Calculate the emission rate based on altitude and flux.
     
     Args:
-        z (torch.Tensor): Altitude tensor of shape (...,) [km].
-        f (torch.Tensor): Flux tensor of shape (..., n_E) [cm-2 s-1 eV-1].
+        z (torch.Tensor): Altitude tensor of shape (n,) [km].
+        f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
         M_emis (torch.Tensor): Emission matrix of shape (n_z, n_E) [TODO].
         z_edges (torch.Tensor): Edges of altitude bins of shape (n_z+1,) [km].
     
     Returns:
-        torch.Tensor: Voume emission rate tensor of shape (...,) [cm-3 s-1].
+        torch.Tensor: Voume emission rate tensor of shape (n,) [cm-3 s-1].
     """
     z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
     z_idx = torch.clamp(z_idx, 0, M_emis.shape[1]-1)
@@ -26,6 +28,7 @@ def emis_rate(
     l = torch.sum(m_z * f, dim=-1)
     return l
 
+@normalize_batch_dims({"z": 0, "f": 1}, 0)
 def elec_dens(
         z: torch.Tensor,
         f: torch.Tensor,
@@ -36,13 +39,13 @@ def elec_dens(
     Calculate the electron density based on altitude and flux.
     
     Args:
-        z (torch.Tensor): Altitude tensor of shape (...,) [km].
-        f (torch.Tensor): Flux tensor of shape (..., n_E) [cm-2 s-1 eV-1].
+        z (torch.Tensor): Altitude tensor of shape (n,) [km].
+        f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
         M_dens (torch.Tensor): Density matrix of shape (n_z, n_E) [TODO].
         z_edges (torch.Tensor): Edges of altitude bins of shape (n_z+1,) [km].
         
     Returns:
-        torch.Tensor: Electron density tensor of shape (...,) [cm-3].
+        torch.Tensor: Electron density tensor of shape (n,) [cm-3].
     """
     z_idx = torch.bucketize(z.contiguous(), z_edges) - 1
     z_idx = torch.clamp(z_idx, 0, M_dens.shape[1]-1)
@@ -52,6 +55,7 @@ def elec_dens(
     d = torch.sqrt(d2)
     return d
 
+@normalize_batch_dims({"t": 1, "l": 1}, 0)
 def int_emis_rayleigh(
         t: torch.Tensor,
         l: torch.Tensor,
@@ -61,16 +65,17 @@ def int_emis_rayleigh(
     of Rayleigh.
     
     Args:
-        t (torch.Tensor): Distances from view point of each emission sample (...,) [km].
-        l (torch.Tensor): Emission rate at each sampled distance (..., 3) [cm-3 s-1].
+        t (torch.Tensor): Distances from view point of each emission sample (n, n_samples) [km].
+        l (torch.Tensor): Emission rate at each sampled distance (n, n_samples) [cm-3 s-1].
     
     Returns:
-        torch.Tensor: Rayleigh gray level tensor of shape (...,) [Rayleigh].
+        torch.Tensor: Rayleigh gray level tensor of shape (n,) [Rayleigh].
     """
     g = torch.trapezoid(l, t)
     g /= 10.0 # scale to Rayleigh units
     return g
 
+@normalize_batch_dims({"f": 1}, 0)
 def total_energy_flux(
         f: torch.Tensor,
         E_edges: torch.Tensor
@@ -79,11 +84,11 @@ def total_energy_flux(
     Calculate the total energy flux from the flux tensor.
     
     Args:
-        f (torch.Tensor): Flux tensor of shape (..., n_E) [cm-2 s-1 eV-1].
+        f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
         E_edges (torch.Tensor): Edges of energy bins of shape (n_E+1,) [eV].
     
     Returns:
-        torch.Tensor: Total energy flux tensor of shape (...) [W m-2].
+        torch.Tensor: Total energy flux tensor of shape (n) [W m-2].
     """
     e = 1.602e-19
     lower_E, upper_E = E_edges[:-1], E_edges[1:]

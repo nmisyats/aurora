@@ -9,6 +9,7 @@ from aurora.bbox import BBox
 import aurora.geometry as geom
 import aurora.physics as phy
 import aurora.data as data
+from aurora.utils import normalize_batch_dims
 
 class Reconstruction:
     def __init__(
@@ -35,10 +36,10 @@ class Reconstruction:
         """
         Calculate the electron flux distribution at points xy.
         Args:
-            xy (torch.Tensor): Tensor of shape (..., 2) in South-East coordinates.
+            xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
         
         Returns:
-            torch.Tensor: Flux tensor at the points xy of shape (..., n_E)
+            torch.Tensor: Flux tensor at the points xy of shape (n, n_E)
                 where n_E is the number of energy bins.
         """
         if not self._training:
@@ -47,36 +48,39 @@ class Reconstruction:
         else:
             return self.flux_model.flux(xy)
 
+    @normalize_batch_dims({"p_frame": 1}, 0)
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the emission rate at points p.
         
         Args:
-            p_frame (torch.Tensor): Tensor of shape (..., 3) in frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (n, 3) in frame coordinates.
         
         Returns:
-            torch.Tensor: Emission rate tensor at the points p of shape (...,).
+            torch.Tensor: Emission rate tensor at the points p of shape (n,).
         """
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
         return phy.emis_rate(z, f, self.M_emis, self.z_edges)
     
+    @normalize_batch_dims({"p_frame": 1}, 0)
     def elec_dens(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron density at points p.
         
         Args:
-            p_frame (torch.Tensor): Tensor of shape (..., 3) in frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (n, 3) in frame coordinates.
         
         Returns:
-            torch.Tensor: Emission rate tensor at the points p of shape (...,).
+            torch.Tensor: Emission rate tensor at the points p of shape (n,).
         """
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
         return phy.elec_dens(z, f, self.M_dens, self.z_edges)
 
+    @normalize_batch_dims({"ro": 1, "rd": 1, "tn": 0, "tf": 0}, 0)
     def int_emis_ray(
             self, 
             ro: torch.Tensor, 
@@ -89,46 +93,14 @@ class Reconstruction:
         Integrate the emission along rays along a ray.
         
         Args:
-            ro (torch.Tensor): Ray origins of shape (..., 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (..., 3) in frame coordinates.
-            tn (torch.Tensor): Near intersection distances of shape (...,).
-            tf (torch.Tensor): Far intersection distances of shape (...,).
+            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            tn (torch.Tensor): Near intersection distances of shape (n,).
+            tf (torch.Tensor): Far intersection distances of shape (n,).
             num_bins (int): Number of bins to divide the ray in.
         
         Returns:
-            torch.Tensor: Integrated emission tensor of shape (...,).
-        """
-        if ro.ndim == 1:
-            ro = ro.unsqueeze(0)
-            rd = rd.unsqueeze(0)
-            tn = tn.unsqueeze(0)
-            tf = tf.unsqueeze(0)
-            g = self._int_emis_ray_batched(ro, rd, tn, tf, num_bins)
-            g = g.squeeze(0)
-        else:
-            g = self._int_emis_ray_batched(ro, rd, tn, tf, num_bins)
-        return g
-    
-    def _int_emis_ray_batched(
-            self, 
-            ro: torch.Tensor, 
-            rd: torch.Tensor, 
-            tn: torch.Tensor, 
-            tf: torch.Tensor,
-            num_bins: int
-        ) -> torch.Tensor:
-        """
-        Integrate the emission along rays along a ray.
-        
-        Args:
-            ro (torch.Tensor): Ray origins of shape (n, ..., 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (n, ..., 3) in frame coordinates.
-            tn (torch.Tensor): Near intersection distances of shape (n, ...,).
-            tf (torch.Tensor): Far intersection distances of shape (n, ...,).
-            num_bins (int): Number of bins to divide the ray in.
-        
-        Returns:
-            torch.Tensor: Integrated emission tensor of shape (n, ...,).
+            torch.Tensor: Integrated emission tensor of shape (n,).
         """
         t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, num_bins)
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
