@@ -181,10 +181,10 @@ class MLP1(NNFlux):
         ):
         super().__init__(xy_min, xy_max, E_edges)
 
-        self.fourier_encoder = ann.FourierEncoder(2, config.encoding_exp)
+        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(2), 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 128)
         self.fc4 = nn.Linear(128, 128)
@@ -217,10 +217,10 @@ class MLP2(NNFlux):
         ):
         super().__init__(xy_min, xy_max, E_edges)
 
-        self.fourier_encoder = ann.FourierEncoder(3, config.encoding_exp)
+        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(3), 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 128)
         self.fc4 = nn.Linear(128, 128)
@@ -288,12 +288,12 @@ class ResMLP1(NNFlux):
         ):
         super().__init__(xy_min, xy_max, E_edges)
 
-        self.fourier_encoder = ann.FourierEncoder(2, config.encoding_exp)
+        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
         
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim, 128)
+        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(2), 128)
         self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128 + self.fourier_encoder.output_dim, 128)
+        self.fc3 = nn.Linear(128 + self.fourier_encoder.output_dim(2), 128)
         self.fc4 = nn.Linear(128, 128)
         self.fc5 = nn.Linear(128, self.output_size)
     
