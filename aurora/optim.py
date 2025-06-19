@@ -27,7 +27,7 @@ class LossTerm(ABC):
         """Compute weighted loss for this term"""
         loss = self.eval_raw_batch_loss(recon)
         weighted_loss = self.weight * loss
-        self.history.append(loss.item())
+        self.history.append(weighted_loss.item())
         return weighted_loss
     
     @abstractmethod

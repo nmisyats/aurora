@@ -33,6 +33,8 @@ def plot_training_losses(losses: list[float] | dict[str, list[float]]):
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
     ax.set_title("Training loss")
+    ax.legend()
+    ax.set_yscale("log")
     return fig, ax
 
 def plot_flux_2d(

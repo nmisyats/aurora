@@ -174,7 +174,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             loss_terms.append(RayLoss(ray_data, ray_batch, ray_weight, ray_bins))
         if radar_data is not None:
             loss_terms.append(RadarLoss(radar_data, radar_batch, radar_weight))
-        if smooth_weight >= 0.0:
+        if smooth_weight > 0.0:
             loss_terms.append(SpectralSmoothnessLoss(smooth_batch, smooth_weight))
         
         history = train(
