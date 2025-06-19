@@ -40,7 +40,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         ray_batch: int = typer.Option(4096, help="Batch size for ray loss"),
         ray_bins: int = typer.Option(100, help="Number of bins for ray integration"),
         radar_batch: int = typer.Option(1024, help="Batch size for radar loss"),
-        smooth_batch: int = typer.Option(1024, help="Batch size for radar loss"),
+        smooth_batch: int = typer.Option(1024, help="Batch size for spectral smoothness loss"),
         ray_weight: float = typer.Option(1.0, help="Weight for ray loss"),
         radar_weight: float = typer.Option(1.0, help="Weight for radar loss"),
         smooth_weight: float = typer.Option(0.0, help="Weight for spectral smoothness loss"),
