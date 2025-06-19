@@ -30,35 +30,41 @@ def register_model(name, config_cls):
 
 
 
-class FluxModel(ABC):
-    @abstractmethod
-    def flux(self, xy: torch.Tensor) -> torch.Tensor:
-        ...
-    
-    @property
-    @abstractmethod
-    def E_edges(self) -> torch.Tensor:
-        ...
-    
-    @property
-    @abstractmethod
-    def xy_min(self) -> torch.Tensor:
-        ...
-    
-    @property
-    @abstractmethod
-    def xy_max(self) -> torch.Tensor:
-        ...
+class FluxModel(nn.Module, ABC):
+    def __init__(
+            self,
+            xy_min: torch.Tensor,
+            xy_max: torch.Tensor,
+            E_edges: torch.Tensor,
+        ):
+        super().__init__()
 
+        self.register_buffer("xy_min", xy_min)
+        self.register_buffer("xy_max", xy_max)
+        self.register_buffer("E_edges", E_edges)
 
-class TrainableFluxModel(FluxModel, nn.Module):
+        self.input_dim = 2
+        self.output_dim = len(E_edges)
+    
+    @abstractmethod
+    def forward(self, xy: torch.Tensor) -> torch.Tensor:
+        ...
+    
     def flux(self, xy: torch.Tensor):
         orig_shape = xy.shape[:-1] # (k1, k2, ..., kn, 2)
         xy = xy.reshape(-1, 2) # (N, 2)
         f = self.forward(xy) # (N, n_bins)
         n_bins = f.shape[-1]
         return f.reshape(*orig_shape, n_bins)
-
+    
+    def normalize_energy(self, E: torch.Tensor):
+        E_min, E_max = self.E_edges[0], self.E_edges[-1]
+        return (E - E_min) / (E_max - E_min)
+    
+    def normalize_xy(self, xy: torch.Tensor):
+        xy_min, xy_max = self.xy_min, self.xy_max
+        return (xy - xy_min) / (xy_max - xy_min)
+    
     @classmethod
     def default_config(cls):
         return None
@@ -67,48 +73,29 @@ class TrainableFluxModel(FluxModel, nn.Module):
 class StaticFlux(FluxModel):
     def __init__(
             self,
-            data: torch.Tensor,
-            E_edges: torch.Tensor,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            device: torch.device
+            E_edges: torch.Tensor,
+            data: torch.Tensor
         ):
-        self.data = data.to(device)
-        self._xy_min = xy_min.to(device)
-        self._xy_max = xy_max.to(device)
-        self._E_edges = E_edges.to(device)
-        self.device = device
-    
-    @property
-    def xy_min(self):
-        return self._xy_min
-    
-    @property
-    def xy_max(self):
-        return self._xy_max
-    
-    @property
-    def E_edges(self):
-        return self._E_edges
+        super().__init__(xy_min, xy_max, E_edges)
+        
+        self.register_buffer("data", data)
     
     @property
     def resolution(self):
-        res_y, res_x = self.data.shape
+        res_y, res_x, _ = self.data.shape
         return res_x, res_y
     
-    def flux(self, xy: torch.Tensor) -> torch.Tensor:
-        # xy: (..., 2) coordinates within xy_min and xy_max
-        # self.image: (H, W, B)
-        # Output: (..., B) sampled flux at each xy
+    def forward(self, xy: torch.Tensor):
+        # xy: (N, 2) coordinates within xy_min and xy_max
+        # self.data: (H, W, B)
+        # Output: (N, B) sampled flux at each xy
 
         H, W, B = self.data.shape
 
-        # Save original shape (excluding the last dimension, which is 2)
-        orig_shape = xy.shape[:-1]  # (k1, ..., kn)
-        xy_flat = xy.reshape(-1, 2)  # (N, 2)
-
         # Normalize xy to [0, 1]
-        norm_xy = (xy_flat - self.xy_min) / (self.xy_max - self.xy_min)
+        norm_xy = self.normalize_xy(xy)
         norm_xy = torch.clamp(norm_xy, 0, 1)
 
         # Scale to image pixel coordinates
@@ -129,39 +116,9 @@ class StaticFlux(FluxModel):
             flux, grid, mode='bilinear', align_corners=True
         )  # (B, 1, N, 1)
 
-        # Reshape result to (..., B)
+        # Reshape result to (N, B)
         output = sampled.squeeze(3).squeeze(1).T  # (N, B)
-        return output.reshape(*orig_shape, B)     # (..., B)
-
-
-class NNFlux(TrainableFluxModel):
-    def __init__(self, xy_min: torch.Tensor, xy_max: torch.Tensor, E_edges: torch.Tensor):
-        super().__init__()
-        self._xy_min = xy_min
-        self._xy_max = xy_max
-        self._E_edges = E_edges
-        self.input_size = 2
-        self.output_size = len(E_edges) - 1  # Number of energy bins
-    
-    def normalize_xy(self, xy: torch.Tensor):
-        xy_min, xy_max = self._xy_min, self._xy_max
-        return (xy - xy_min) / (xy_max - xy_min)
-    
-    def normalize_E(self, E: torch.Tensor):
-        E_min, E_max = self._E_edges[0], self._E_edges[-1]
-        return (E - E_min) / (E_max - E_min)
-    
-    @property
-    def xy_min(self):
-        return self._xy_min
-    
-    @property
-    def xy_max(self):
-        return self._xy_max
-    
-    @property
-    def E_edges(self):
-        return self._E_edges
+        return output
 
 
 @dataclass
@@ -169,8 +126,8 @@ class MLPConfig:
     encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
     log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
 
-@register_model("mlp1", MLPConfig)
-class MLP1(NNFlux):
+@register_model("spectral_mlp", MLPConfig)
+class SpectralMLP(FluxModel):
     """MLP 4x128 hidden layers."""
     def __init__(
             self,
@@ -183,21 +140,19 @@ class MLP1(NNFlux):
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.log_scale = config.log_scale
-        
-        self.fc1 = nn.Linear(self.fourier_encoder.output_dim(2), 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, self.output_size)
+
+        self.mlp = nn.Sequential([
+            nn.Linear(self.fourier_encoder.output_dim(2), 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, len(E_edges)), nn.Sigmoid()
+        ])
     
     def forward(self, xy: torch.Tensor):
-        xy = self.normalize_xy(xy)
-        x = self.fourier_encoder(xy)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
-        x = F.sigmoid(self.fc5(x))
+        x = self.normalize_xy(xy)
+        x = self.fourier_encoder(x)
+        x = self.mlp(x)
         x = torch.pow(10.0, x * self.log_scale)
         return x
 
@@ -205,8 +160,8 @@ class MLP1(NNFlux):
     def default_config(cls):
         return MLPConfig()
 
-@register_model("mlp2", MLPConfig)
-class MLP2(NNFlux):
+@register_model("direct_mlp", MLPConfig)
+class DirectMLP(FluxModel):
     """MLP 4x128 hidden layers with energy input."""
     def __init__(
             self,
