@@ -48,3 +48,33 @@ class FourierEncoder(nn.Module):
     
     def __repr__(self):
         return f"FourierEncoder(encoding_exp={self.encoding_exp})"
+
+class Exponentiate(nn.Module):
+    def __init__(
+            self,
+            base: float = None,
+            log_min: float | None = None,
+            log_max: float | None = None
+        ):
+        super().__init__()
+
+        self.base = base
+        self.log_min = log_min
+        self.log_max = log_max
+
+    def forward(self, x: torch.Tensor):
+        x = torch.clamp(x, min=self.log_min, max=self.log_max)
+        if self.base is None:
+            exp_x = torch.exp(x)
+        else:
+            exp_x = torch.pow(self.base, x)
+        return exp_x
+    
+    def __repr__(self):
+        return (
+            f"Exponentiate("
+            f"base={self.base if self.base else 'e'}, "
+            f"log_min={self.log_min}, "
+            f"log_max={self.log_max}"
+            f")"
+        )

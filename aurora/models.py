@@ -114,7 +114,7 @@ class StaticFlux(FluxModel):
 @dataclass
 class MLPConfig:
     encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
-    log_scale: float = config_field(7.0, help="Logarithmic range of the flux")
+    max_log_flux: float = config_field(7.0, help="Maximum logarithmic value of the flux")
 
 @register_model("spectral_mlp", MLPConfig)
 class SpectralMLP(FluxModel):
@@ -129,21 +129,26 @@ class SpectralMLP(FluxModel):
         super().__init__(xy_min, xy_max, E_edges)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.log_scale = config.log_scale
+        self.max_log_flux = config.max_log_flux
 
         self.mlp = nn.Sequential(
             nn.Linear(self.fourier_encoder.output_dim(2), 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, self.output_dim), nn.Sigmoid()
+            nn.Linear(128, self.output_dim)
         )
+
+        self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+
+        nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
+        nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)
     
     def forward(self, xy: torch.Tensor):
         x = self.normalize_xy(xy)
         x = self.fourier_encoder(x)
         x = self.mlp(x)
-        x = torch.pow(10.0, x * self.log_scale)
+        x = self.exp10(x)
         return x
 
 @register_model("spectral_res_mlp", MLPConfig)
@@ -159,7 +164,7 @@ class SpectralResMLP(FluxModel):
         super().__init__(xy_min, xy_max, E_edges)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.log_scale = config.log_scale
+        self.max_log_flux = config.max_log_flux
 
         encode_dim = self.fourier_encoder.output_dim(2)
 
@@ -172,6 +177,11 @@ class SpectralResMLP(FluxModel):
             nn.Linear(128 + encode_dim, 128), nn.ReLU(),
             nn.Linear(128, self.output_dim), nn.Sigmoid()
         )
+
+        self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+
+        nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
+        nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)
     
     def forward(self, xy: torch.Tensor):
         xy = self.normalize_xy(xy)
@@ -180,7 +190,7 @@ class SpectralResMLP(FluxModel):
         x = self.mlp1(x)
         x = torch.cat([x, x0], dim=-1)
         x = self.mlp2(x)
-        x = torch.pow(10.0, x * self.log_scale)
+        x = self.exp10(x)
         return x
 
 @register_model("direct_mlp", MLPConfig)
@@ -196,15 +206,20 @@ class DirectMLP(FluxModel):
         super().__init__(xy_min, xy_max, E_edges)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.log_scale = config.log_scale
+        self.max_log_flux = config.max_log_flux
 
         self.mlp = nn.Sequential(
             nn.Linear(self.fourier_encoder.output_dim(3), 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1), nn.Sigmoid()
+            nn.Linear(128, 1)
         )
+
+        self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+
+        nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
+        nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)
     
     def forward(self, xy: torch.Tensor):
         if xy.dim() == 1:
@@ -243,7 +258,7 @@ class DirectMLP(FluxModel):
         # Single forward pass through the network
         x = self.fourier_encoder(x_input)  # (B*N, encoding_size)
         x = self.mlp(x)
-        x = torch.pow(10.0, x * self.log_scale)
+        x = self.exp10(x)
         
         # Reshape back to (B, N)
         return x.reshape(B, self.output_dim)
