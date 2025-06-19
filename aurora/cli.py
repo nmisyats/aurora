@@ -34,14 +34,14 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         options: Path = typer.Option(None, help="Path to YAML training configuration file"),
         cam_pos: Path = typer.Option(None, help="Camera positions file"),
         cam_dir: Path = typer.Option(None, help="Cameras directory"),
-        radar_points: Path = typer.Option(None, help="Radar point cloud file"),
+        radar: Path = typer.Option(None, help="Radar point cloud file"),
         gpu: bool = typer.Option(True, help="Use GPU if available"),
         iters: int = typer.Option(2000, help="Number of training iterations"),
-        ray_batch_size: int = typer.Option(4096, help="Batch size for ray loss"),
+        ray_batch: int = typer.Option(4096, help="Batch size for ray loss"),
         ray_bins: int = typer.Option(100, help="Number of bins for ray integration"),
-        radar_batch_size: int = typer.Option(1000, help="Batch size for radar loss"),
-        ray_loss_weight: float = typer.Option(1.0, help="Weight for ray loss"),
-        radar_loss_weight: float = typer.Option(1.0, help="Weight for radar loss"),
+        radar_batch: int = typer.Option(1000, help="Batch size for radar loss"),
+        ray_weight: float = typer.Option(1.0, help="Weight for ray loss"),
+        radar_weight: float = typer.Option(1.0, help="Weight for radar loss"),
         lr: float = typer.Option(5e-5, help="Initial learning rate"),
         reg_strength: float = typer.Option(1.0, help="Regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
@@ -51,8 +51,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         plot_flux: bool = typer.Option(True, help="Plot the reconstructed flux after training complete"),
         plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
         plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
-        ref_flux_data: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
-        ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+        ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
+        ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
         **config_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
@@ -92,14 +92,14 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         # Apply the priority logic to all parameters
         cam_pos = get_param_value('cam_pos', cam_pos)
         cam_dir = get_param_value('cam_dir', cam_dir)
-        radar_points = get_param_value('radar_points', radar_points)
+        radar = get_param_value('radar_points', radar)
         gpu = get_param_value('gpu', gpu)
         iters = get_param_value('iters', iters)
-        ray_batch_size = get_param_value('ray_batch_size', ray_batch_size)
+        ray_batch = get_param_value('ray_batch_size', ray_batch)
         ray_bins = get_param_value('ray_bins', ray_bins)
-        radar_batch_size = get_param_value('radar_batch_size', radar_batch_size)
-        ray_loss_weight = get_param_value('ray_loss_weight', ray_loss_weight)
-        radar_loss_weight = get_param_value('radar_loss_weight', radar_loss_weight)
+        radar_batch = get_param_value('radar_batch_size', radar_batch)
+        ray_weight = get_param_value('ray_loss_weight', ray_weight)
+        radar_weight = get_param_value('radar_loss_weight', radar_weight)
         lr = get_param_value('lr', lr)
         reg_strength = get_param_value('reg_strength', reg_strength)
         lr_step = get_param_value('lr_step', lr_step)
@@ -108,8 +108,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         plot_flux = get_param_value('plot', plot_flux)
         plot_res_x = get_param_value('plot_res_x', plot_res_x)
         plot_res_y = get_param_value('plot_res_y', plot_res_y)
-        ref_flux_data = get_param_value('ref_flux_data', ref_flux_data)
-        ref_flux_config = get_param_value('ref_flux_config', ref_flux_config)
+        ref_flux = get_param_value('ref_flux', ref_flux)
+        ref_config = get_param_value('ref_config', ref_config)
 
         # Apply the same logic to config_kwargs (model-specific parameters)
         final_config_kwargs = {}
@@ -132,8 +132,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         if cam_pos is not None and cam_dir is not None:
             cams = data.load_cameras(cam_pos, cam_dir)
             ray_data = CameraRaysDataset(cams, frame, bbox)
-        if radar_points is not None:
-            points = data.load_radar_point_cloud(radar_points)
+        if radar is not None:
+            points = data.load_radar_point_cloud(radar)
             radar_data = RadarPointsDataset(
                 altitudes=points.altitudes,
                 latitudes=points.latitudes,
@@ -167,9 +167,9 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         # Train the reconstruction on the provided data
         loss_terms = []
         if ray_data is not None:
-            loss_terms.append(RayLoss(ray_data, ray_batch_size, ray_loss_weight, ray_bins))
+            loss_terms.append(RayLoss(ray_data, ray_batch, ray_weight, ray_bins))
         if radar_data is not None:
-            loss_terms.append(RadarLoss(radar_data, radar_batch_size, radar_loss_weight))
+            loss_terms.append(RadarLoss(radar_data, radar_batch, radar_weight))
         
         history = train(
             recon=recon,
@@ -194,8 +194,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             estimated_f = recon.flux(recon_xy).cpu()
             rec_xy_min = bbox.xy_min.cpu()
             rec_xy_max = bbox.xy_max.cpu()
-            if ref_flux_data is not None and ref_flux_config is not None:
-                ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+            if ref_flux is not None and ref_config is not None:
+                ref = load_static_reconstruction(ref_flux, ref_config, device)
                 reference_f = ref.flux_model.data.cpu()
                 ref_xy_min = ref.bbox.xy_min.cpu()
                 ref_xy_max = ref.bbox.xy_max.cpu()
@@ -427,8 +427,8 @@ def generate_reconstructed_flux(
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
     cmap: str = typer.Option("jet", help="Colormap for plotting"),
-    ref_flux_data: Path = typer.Option(None, help="Reference flux to compare with"),
-    ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+    ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
+    ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate flux from reconstruction using generic plotting."""
     device = choose_best_device(gpu)
@@ -446,8 +446,8 @@ def generate_reconstructed_flux(
     if plot:
         rec_xy_min = xy_min.cpu()
         rec_xy_max = xy_max.cpu()
-        if ref_flux_data is not None and ref_flux_config is not None:
-            ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+        if ref_flux is not None and ref_config is not None:
+            ref = load_static_reconstruction(ref_flux, ref_config, device)
             reference_f = ref.flux_model.data.cpu()
             ref_xy_min = ref.bbox.xy_min.cpu()
             ref_xy_max = ref.bbox.xy_max.cpu()
@@ -476,8 +476,8 @@ def generate_reconstructed_flux_at(
     gpu: bool = typer.Option(True, help="Use GPU if available"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
-    ref_flux_data: Path = typer.Option(None, help="Reference flux to compare with"),
-    ref_flux_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+    ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
+    ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
@@ -491,8 +491,8 @@ def generate_reconstructed_flux_at(
         data.save_matrix_data(estimated_f.unsqueeze(1), save)
     
     if plot:
-        if ref_flux_data is not None and ref_flux_config is not None:
-            ref = load_static_reconstruction(ref_flux_data, ref_flux_config, device)
+        if ref_flux is not None and ref_config is not None:
+            ref = load_static_reconstruction(ref_flux, ref_config, device)
             reference_f = ref.flux_model.flux(xy).cpu()
             aplt.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
