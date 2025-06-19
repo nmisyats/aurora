@@ -295,7 +295,7 @@ def train_main(ctx: typer.Context):
         typer.echo("Available models:")
         for model_name, (model_cls, _) in MODEL_REGISTRY.items():
             if model_cls.__doc__ is not None:
-                typer.echo(f"  {model_name}\t{model_cls.__doc__}")
+                typer.echo(f"  {model_name} - {model_cls.__doc__}")
             else:
                 typer.echo(f"  {model_name}")
         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
