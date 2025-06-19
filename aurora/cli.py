@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 
 from aurora.models import MODEL_REGISTRY
 from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction, load_static_reconstruction
-from aurora.optim import train, RadarLoss, RayLoss
+from aurora.optim import train, RadarLoss, RayLoss, SpectralSmoothnessLoss
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
 import aurora.data as data
 
@@ -39,11 +39,13 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         iters: int = typer.Option(2000, help="Number of training iterations"),
         ray_batch: int = typer.Option(4096, help="Batch size for ray loss"),
         ray_bins: int = typer.Option(100, help="Number of bins for ray integration"),
-        radar_batch: int = typer.Option(1000, help="Batch size for radar loss"),
+        radar_batch: int = typer.Option(1024, help="Batch size for radar loss"),
+        smooth_batch: int = typer.Option(1024, help="Batch size for radar loss"),
         ray_weight: float = typer.Option(1.0, help="Weight for ray loss"),
         radar_weight: float = typer.Option(1.0, help="Weight for radar loss"),
+        smooth_weight: float = typer.Option(0.0, help="Weight for spectral smoothness loss"),
         lr: float = typer.Option(5e-5, help="Initial learning rate"),
-        reg_strength: float = typer.Option(1.0, help="Regularization strength"),
+        reg_strength: float = typer.Option(1.0, help="Parameter L2 regularization strength"),
         lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
         lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
         save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
@@ -92,14 +94,16 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         # Apply the priority logic to all parameters
         cam_pos = get_param_value('cam_pos', cam_pos)
         cam_dir = get_param_value('cam_dir', cam_dir)
-        radar = get_param_value('radar_points', radar)
+        radar = get_param_value('radar', radar)
         gpu = get_param_value('gpu', gpu)
         iters = get_param_value('iters', iters)
-        ray_batch = get_param_value('ray_batch_size', ray_batch)
+        ray_batch = get_param_value('ray_batch', ray_batch)
         ray_bins = get_param_value('ray_bins', ray_bins)
-        radar_batch = get_param_value('radar_batch_size', radar_batch)
-        ray_weight = get_param_value('ray_loss_weight', ray_weight)
-        radar_weight = get_param_value('radar_loss_weight', radar_weight)
+        radar_batch = get_param_value('radar_batch', radar_batch)
+        smooth_batch = get_param_value('smooth_batch', smooth_batch)
+        ray_weight = get_param_value('ray_weight', ray_weight)
+        radar_weight = get_param_value('radar_weight', radar_weight)
+        smooth_weight = get_param_value('smooth_weight', smooth_weight)
         lr = get_param_value('lr', lr)
         reg_strength = get_param_value('reg_strength', reg_strength)
         lr_step = get_param_value('lr_step', lr_step)
@@ -170,6 +174,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             loss_terms.append(RayLoss(ray_data, ray_batch, ray_weight, ray_bins))
         if radar_data is not None:
             loss_terms.append(RadarLoss(radar_data, radar_batch, radar_weight))
+        if smooth_weight >= 0.0:
+            loss_terms.append(SpectralSmoothnessLoss(smooth_batch, smooth_weight))
         
         history = train(
             recon=recon,
@@ -303,7 +309,7 @@ def make_options_file_for_model(model_name: str, file_path: Path):
     args_spec = inspect.getfullargspec(train_command)
     yaml_dict = {}
     for arg_name, arg_default in args_spec.kwonlydefaults.items():
-        if arg_name == "training_options":
+        if arg_name == "options":
             continue
         annotation = args_spec.annotations[arg_name]
         if isinstance(arg_default, typer.models.OptionInfo):
