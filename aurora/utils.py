@@ -172,3 +172,10 @@ def normalize_batch_dims(
 
         return wrapper
     return decorator
+
+def iter_chunks(numel: int, chunk_size: int):
+    num_chunks = -(-numel // chunk_size) # ceil(numel/chunk_size)
+    for i in range(num_chunks):
+        chunk_start = i * chunk_size
+        chunk_stop = min((i+1) * chunk_size, numel)
+        yield chunk_start, chunk_stop
