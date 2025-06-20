@@ -241,6 +241,7 @@ class DirectMLP(FluxModel):
         # Reshape back to (B, N)
         return x.reshape(B, self.num_bins)
 
+
 class PolyMLP(FluxModel):
     """MLP learning a polynomial basis of the flux"""
     def __init__(
