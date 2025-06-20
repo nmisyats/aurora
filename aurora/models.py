@@ -60,7 +60,7 @@ class FluxModel(nn.Module, ABC):
         return (xy - xy_min) / (xy_max - xy_min)
 
 
-class StaticFlux(FluxModel):
+class GridSampledFlux(FluxModel):
     def __init__(
             self,
             xy_min: torch.Tensor,

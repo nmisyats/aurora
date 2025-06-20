@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 
 from aurora.camera import Camera
-from aurora.models import FluxModel, StaticFlux
+from aurora.models import FluxModel, GridSampledFlux
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.geometry as geom
@@ -176,7 +176,7 @@ def load_static_reconstruction(flux_path: Path | str, config_path: Path | str, d
     config_path = Path(config_path)
     config = data.load_config(config_path, device)
     return Reconstruction(
-        flux_model=StaticFlux(
+        flux_model=GridSampledFlux(
             xy_min=config.bbox.xy_min,
             xy_max=config.bbox.xy_max,
             energy_bins=config.physics.energy_bins,
