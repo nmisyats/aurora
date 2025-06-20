@@ -6,11 +6,9 @@ class FourierEncoder(nn.Module):
     def __init__(self, encoding_exp: int):
         """
         Args:
-            input_dim: Dimension of input (e.g., 2 for xy, 3 for xyE)
-            encoding_exp: Number of frequency levels (2^0, 2^1, ..., 2^(encoding_exp-1))
+            encoding_exp: Number of frequency levels (2^0, 2^1, ..., 2^(encoding_exp-1)).
+                Setting encoding_exp = 0 is equivalent to identity.
         """
-        assert encoding_exp >= 1, "encoding_exp must be at least 1"
-
         super().__init__()
         
         self.encoding_exp = encoding_exp
@@ -33,6 +31,15 @@ class FourierEncoder(nn.Module):
         Returns:
             Encoded tensor of shape (..., output_dim)
         """
+        if x.dim() == 1:
+            return self._forward_single(x)
+        else:
+            return self._forward_batch(x)
+    
+    def _forward_single(self, x: torch.Tensor) -> torch.Tensor:
+        return self._forward_batch(x.unsqueeze(0)).squeeze(0)
+    
+    def _forward_batch(self, x: torch.Tensor) -> torch.Tensor:
         # Move frequencies to same device as input
         
         # Compute sin/cos features efficiently
