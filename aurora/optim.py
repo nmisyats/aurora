@@ -88,10 +88,10 @@ class SpectralSmoothnessLoss(LossTerm):
         device = recon.device
         xy_samples = torch.rand(self.batch_size, 2, device=device) * (xy_max - xy_min) + xy_min
         f_pred = recon.flux(xy_samples)
-        E_edges = recon.flux_model.E_edges
+        energy_bins = recon.flux_model.energy_bins
         # Calculate bin centers and widths
-        bin_centers = 0.5 * (E_edges[:-1] + E_edges[1:])  # (num_bins,)
-        # bin_widths = E_edges[1:] - E_edges[:-1]  # (num_bins,)
+        bin_centers = 0.5 * (energy_bins[:-1] + energy_bins[1:])  # (num_bins,)
+        # bin_widths = energy_bins[1:] - energy_bins[:-1]  # (num_bins,)
         # Log-scale bin centers for proper weighting
         log_centers = torch.log(bin_centers)
         log_spacing = torch.diff(log_centers)  # (num_bins-1,)

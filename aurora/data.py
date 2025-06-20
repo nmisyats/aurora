@@ -49,16 +49,16 @@ def path_validator(base_path: Path | str | None = None):
 class PhysicalModel:
     emis_mat: torch.Tensor
     dens_mat: torch.Tensor
-    altitudes: torch.Tensor
-    energies: torch.Tensor
+    altitude_bins: torch.Tensor
+    energy_bins: torch.Tensor
 
 def physical_model_schema(base_path=None):
     valid_path = path_validator(base_path)
     return Schema({
         "emis_mat": valid_path,
         "dens_mat": valid_path,
-        "altitudes": valid_path,
-        "energies": valid_path,
+        "altitude_bins": valid_path,
+        "energy_bins": valid_path,
     })
 
 def load_physical_model(yaml_path: Path | str, device=torch.device("cpu")):
@@ -71,8 +71,8 @@ def physical_model_from_dict(data: dict, device=torch.device("cpu")):
     return PhysicalModel(
         emis_mat=load_emission_matrix(data["emis_mat"]).to(device),
         dens_mat=load_density_matrix(data["dens_mat"]).to(device),
-        altitudes=load_altitude_bins(data["altitudes"]).to(device),
-        energies=load_energy_bins(data["energies"]).to(device),
+        altitude_bins=load_altitude_bins(data["altitude_bins"]).to(device),
+        energy_bins=load_energy_bins(data["energy_bins"]).to(device),
     )
 
 def frame_schema(base_path=None):
@@ -161,7 +161,7 @@ def bbox_to_dict(bbox: BBox, frame: Frame | Path | str | None = None):
 class Config:
     frame: Frame
     bbox: BBox
-    phys: PhysicalModel
+    physics: PhysicalModel
 
 def config_schema(base_path=None):
     return Schema({

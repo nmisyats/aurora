@@ -35,16 +35,15 @@ class FluxModel(nn.Module, ABC):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
         ):
         super().__init__()
 
         self.register_buffer("xy_min", xy_min)
         self.register_buffer("xy_max", xy_max)
-        self.register_buffer("E_edges", E_edges)
+        self.register_buffer("energy_bins", energy_bins)
 
-        self.input_dim = 2
-        self.output_dim = len(E_edges) - 1
+        self.num_bins = len(energy_bins) - 1
     
     @abstractmethod
     def forward(self, xy: torch.Tensor) -> torch.Tensor:
@@ -52,7 +51,8 @@ class FluxModel(nn.Module, ABC):
         ...
     
     def normalize_energy(self, E: torch.Tensor):
-        E_min, E_max = self.E_edges[0], self.E_edges[-1]
+        E_min = self.energy_bins[0]
+        E_max = self.energy_bins[-1]
         return (E - E_min) / (E_max - E_min)
     
     def normalize_xy(self, xy: torch.Tensor):
@@ -65,10 +65,10 @@ class StaticFlux(FluxModel):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             data: torch.Tensor
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
         
         self.register_buffer("data", data)
     
@@ -123,20 +123,22 @@ class SpectralMLP(FluxModel):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             config: MLPConfig = MLPConfig()
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.max_log_flux = config.max_log_flux
 
+        encode_dim = self.fourier_encoder.output_dim(2)
+
         self.mlp = nn.Sequential(
-            nn.Linear(self.fourier_encoder.output_dim(2), 128), nn.ReLU(),
+            nn.Linear(encode_dim, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, self.output_dim)
+            nn.Linear(128, self.num_bins)
         )
 
         self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
@@ -158,10 +160,10 @@ class SpectralResMLP(FluxModel):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             config: MLPConfig = MLPConfig()
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.max_log_flux = config.max_log_flux
@@ -175,7 +177,7 @@ class SpectralResMLP(FluxModel):
         )
         self.mlp2 = nn.Sequential(
             nn.Linear(128 + encode_dim, 128), nn.ReLU(),
-            nn.Linear(128, self.output_dim), nn.Sigmoid()
+            nn.Linear(128, self.num_bins), nn.Sigmoid()
         )
 
         self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
@@ -200,16 +202,18 @@ class DirectMLP(FluxModel):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             config: MLPConfig = MLPConfig()
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
 
         self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
         self.max_log_flux = config.max_log_flux
 
+        encode_dim = self.fourier_encoder.output_dim(3)
+
         self.mlp = nn.Sequential(
-            nn.Linear(self.fourier_encoder.output_dim(3), 128), nn.ReLU(),
+            nn.Linear(encode_dim, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
@@ -239,20 +243,20 @@ class DirectMLP(FluxModel):
         # Create all (x,y,E) combinations efficiently
         if self.training:
             # Random sampling within each bin during training
-            rand_uniform = torch.rand(self.output_dim, device=xy.device)
+            rand_uniform = torch.rand(self.num_bins, device=xy.device)
             # Linear interpolation in log space
-            log_e_low = torch.log(self.E_edges[:-1])
-            log_e_high = torch.log(self.E_edges[1:])
+            log_e_low = torch.log(self.energy_bins[:-1])
+            log_e_high = torch.log(self.energy_bins[1:])
             log_e = log_e_low + rand_uniform * (log_e_high - log_e_low)
             e = torch.exp(log_e)
         else:
             # Use geometric mean during inference for consistency
-            e = torch.sqrt(self.E_edges[1:] * self.E_edges[:-1])
+            e = torch.sqrt(self.energy_bins[1:] * self.energy_bins[:-1])
         e_norm = self.normalize_energy(e)
         
         # Expand to create all combinations: (B*N, 3)
-        xy_expanded = xy_norm.unsqueeze(1).expand(B, self.output_dim, 2).reshape(B * self.output_dim, 2)
-        e_expanded = e_norm.unsqueeze(0).expand(B, self.output_dim).reshape(B * self.output_dim, 1)
+        xy_expanded = xy_norm.unsqueeze(1).expand(B, self.num_bins, 2).reshape(B * self.num_bins, 2)
+        e_expanded = e_norm.unsqueeze(0).expand(B, self.num_bins).reshape(B * self.num_bins, 1)
         x_input = torch.cat((xy_expanded, e_expanded), dim=1)  # (B*N, 3)
         
         # Single forward pass through the network
@@ -261,7 +265,7 @@ class DirectMLP(FluxModel):
         x = self.exp10(x)
         
         # Reshape back to (B, N)
-        return x.reshape(B, self.output_dim)
+        return x.reshape(B, self.num_bins)
 
 
 @dataclass
@@ -275,13 +279,11 @@ class PolyMLP(FluxModel):
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             config: BasisMLPConfig = BasisMLPConfig()
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
 
-        self.num_bins = len(E_edges) - 1
-        self.num_edges = len(E_edges)
         self.num_basis = config.num_basis
         self.max_log_flux = config.max_log_flux
 
@@ -301,13 +303,13 @@ class PolyMLP(FluxModel):
     
     def _create_basis_functions(self):
         # Work in normalized log-energy space
-        e_norm = self.normalize_energy(self.E_edges) + 1e-8
+        e_norm = self.normalize_energy(self.energy_bins) + 1e-8
         log_energies = torch.log(e_norm)
         log_e_min = log_energies.min()
         log_e_max = log_energies.max()
         log_e_norm = (log_energies - log_e_min) / (log_e_max - log_e_min)
         # Create basis functions
-        basis = torch.zeros(self.num_basis, self.num_edges)
+        basis = torch.zeros(self.num_basis, self.num_bins + 1)
         for i in range(self.num_basis):
             basis[i] = log_e_norm ** i
         return basis # (num_basis, num_edges)

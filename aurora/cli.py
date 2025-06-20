@@ -126,10 +126,10 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         config = data.load_config(config_file, device)
         frame = config.frame
         bbox = config.bbox
-        M_emis = config.phys.emis_mat
-        M_dens = config.phys.dens_mat
-        E_edges = config.phys.energies
-        z_edges = config.phys.altitudes
+        emis_mat = config.physics.emis_mat
+        dens_mat = config.physics.dens_mat
+        energy_bins = config.physics.energy_bins
+        altitude_bins = config.physics.altitude_bins
 
         # Load the datasets
         ray_data, radar_data = None, None
@@ -155,7 +155,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         
         # Instantiate reconstruction model
         config = config_cls(**config_args)
-        f_model = model_cls(bbox.xy_min, bbox.xy_max, E_edges, config)
+        f_model = model_cls(bbox.xy_min, bbox.xy_max, energy_bins, config)
         f_model = f_model.to(device)
         typer.echo(f"Instantiated model:\n{f_model}")
         
@@ -163,9 +163,9 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
             flux_model=f_model,
             frame=frame,
             bbox=bbox,
-            M_emis=M_emis,
-            M_dens=M_dens,
-            z_edges=z_edges,
+            emis_mat=emis_mat,
+            dens_mat=dens_mat,
+            altitude_bins=altitude_bins,
         )
         
         # Train the reconstruction on the provided data
@@ -210,13 +210,13 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                     reference_flux=reference_f,
                     estimated_bounds=(rec_xy_min, rec_xy_max),
                     reference_bounds=(ref_xy_min, ref_xy_max),
-                    energy_edges=E_edges.cpu(),
+                    energy_edges=energy_bins.cpu(),
                 )
             else:
                 aplt.plot_flux_2d(
                     flux_data=estimated_f,
                     xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
-                    energy_edges=E_edges.cpu()
+                    energy_edges=energy_bins.cpu()
                 )
         
         if plot_loss or plot_flux:
@@ -343,7 +343,7 @@ def plot_flux(
     fig, ax = aplt.plot_flux_2d(
         flux_data=f_image,
         xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
-        energy_edges=config.phys.energies,
+        energy_edges=config.physics.energy_bins,
         title=title,
         cmap=cmap,
         figsize=(width, height)
@@ -373,7 +373,7 @@ def plot_flux_at(
     if plot:
         fig, ax = aplt.plot_flux_1d(
             flux_data=f,
-            energy_edges=recon.flux_model.E_edges,
+            energy_edges=recon.flux_model.energy_bins,
             title=f"Flux at (x, y) = ({x}, {y})"
         )
         plt.show()
@@ -462,14 +462,14 @@ def generate_reconstructed_flux(
                 reference_flux=reference_f,
                 estimated_bounds=(rec_xy_min, rec_xy_max),
                 reference_bounds=(ref_xy_min, ref_xy_max),
-                energy_edges=recon.flux_model.E_edges.cpu(),
+                energy_edges=recon.flux_model.energy_bins.cpu(),
                 cmap=cmap
             )
         else:
             aplt.plot_flux_2d(
                 flux_data=estimated_f,
                 xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
-                energy_edges=recon.flux_model.E_edges.cpu(),
+                energy_edges=recon.flux_model.energy_bins.cpu(),
                 cmap=cmap
             )
         plt.show()
@@ -502,14 +502,14 @@ def generate_reconstructed_flux_at(
             reference_f = ref.flux(xy).cpu()
             aplt.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
-                energy_edges=recon.flux_model.E_edges.cpu(),
+                energy_edges=recon.flux_model.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})",
                 labels=("Reference", "Reconstructed")
             )
         else:
             aplt.plot_flux_1d(
                 flux_data=estimated_f,
-                energy_edges=recon.flux_model.E_edges.cpu(),
+                energy_edges=recon.flux_model.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})"
             )
         plt.show()

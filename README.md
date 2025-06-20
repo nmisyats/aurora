@@ -227,16 +227,16 @@ bbox = BBox(
 print(bbox)
 
 # Load physical model data
-z_edges = data.load_altitude_bins("../model/altitude.dat").to(device)
-E_edges = data.load_energy_bins("../model/energy.dat").to(device)
-M_emis = data.load_emission_matrix("../model/M_emis.dat").to(device)
-M_dens = data.load_density_matrix("../model/M_dens.dat").to(device)
+altitude_bins = data.load_altitude_bins("../model/altitude.dat").to(device)
+energy_bins = data.load_energy_bins("../model/energy.dat").to(device)
+emis_mat = data.load_emission_matrix("../model/M_emis.dat").to(device)
+dens_mat = data.load_density_matrix("../model/M_dens.dat").to(device)
 
 # Instantiate the trainable flux model
 flux_model = SpectralMLP(
     xy_min=bbox.xy_min,
     xy_max=bbox.xy_max,
-    E_edges=E_edges
+    energy_bins=energy_bins
 ).to(device)
 print(flux_model)
 
@@ -245,9 +245,9 @@ recon = Reconstruction(
     flux_model=flux_model,
     frame=frame,
     bbox=bbox,
-    M_emis=M_emis,
-    M_dens=M_dens,
-    z_edges=z_edges
+    emis_mat=emis_mat,
+    dens_mat=dens_mat,
+    altitude_bins=altitude_bins
 )
 
 # Load the cameras dataset and preprocess ray data
@@ -275,7 +275,7 @@ xy = xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
 aplt.plot_flux_2d(
     flux_data=recon.flux(xy),
     xy_bounds=(bbox.xy_min, bbox.xy_max),
-    energy_edges=E_edges
+    energy_edges=energy_bins
 )
 plt.show()
 ```
@@ -296,8 +296,8 @@ is shown below.
 from aurora.models import FluxModel
 
 class MyFluxModel(FluxModel):
-    def __init__(self, xy_min, xy_max, E_edges, ...): # Custom construction
-        super().__init__(xy_min, xy_max, E_edges)
+    def __init__(self, xy_min, xy_max, energy_bins, ...): # Custom construction
+        super().__init__(xy_min, xy_max, energy_bins)
         ... # Custom initialization
 
     def forward(self, xy: torch.Tensor):
@@ -312,9 +312,9 @@ recon = Reconstruction(
     flux_model=MyFluxModel(...),
     frame=frame,
     bbox=bbox,
-    M_emis=M_emis,
-    M_dens=M_dens,
-    z_edges=z_edges
+    emis_mat=emis_mat,
+    dens_mat=dens_mat,
+    altitude_bins=altitude_bins
 )
 ```
 
@@ -339,11 +339,11 @@ class MyModel(TrainableFluxModel):
             # Mandatory argument
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
-            E_edges: torch.Tensor,
+            energy_bins: torch.Tensor,
             # Command line arguments with default
             config: MyModelConfig = MyModelConfig()
         ):
-        super().__init__(xy_min, xy_max, E_edges)
+        super().__init__(xy_min, xy_max, energy_bins)
         ...
 
     def forward(self, xy: torch.Tensor):
