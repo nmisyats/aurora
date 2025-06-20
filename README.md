@@ -19,7 +19,7 @@ pip install -e .
 
 You can now use the `aurora` command line tool from the environment.
 It has been dynamically installed, i.e. modifying the source code
-modifies directly the installed `aurroa` tool without need to rebuild
+modifies directly the installed `aurora` tool without need to rebuild
 and reinstall.
 
 To ensure installation is successfull, run the unit tests with:
