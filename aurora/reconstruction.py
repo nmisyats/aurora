@@ -143,7 +143,8 @@ class Reconstruction:
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
         """
-        t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, num_bins)
+        random = self._training
+        t_frame, p_frame = geom.create_ray_points(ro, rd, tn, tf, num_bins, random)
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)

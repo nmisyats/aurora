@@ -1,6 +1,13 @@
 import torch
 
-def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: torch.Tensor, max_t: torch.Tensor, num_bins: int):
+def create_ray_points(
+        ro: torch.Tensor,
+        rd: torch.Tensor,
+        min_t: torch.Tensor,
+        max_t: torch.Tensor,
+        num_bins: int,
+        random: bool
+    ):
     """
     Create points along a ray defined by origin `ro` and direction `rd` within the range [min_t, max_t].
     The points are uniformly distributed in `num_bins` bins.
@@ -10,6 +17,7 @@ def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: torch.Tensor, m
         min_t: (n,) tensor representing distance along the ray.
         max_t: (n,) tensor representing maximum distance along the ray.
         num_bins: Number of bins to divide the range [min_t, max_t].
+        random: Whether to sample points randomly in each bin or in the middle
 
     Returns:
         (t, p): t (n, num_bins) tensor of uniformly distributed distances along the ray
@@ -28,9 +36,13 @@ def create_ray_points(ro: torch.Tensor, rd: torch.Tensor, min_t: torch.Tensor, m
     lower_edges = bin_edges[:, :-1] # (n, num_bins)
     upper_edges = bin_edges[:, 1:] # (n, num_bins)
 
-    # Generate random values in each bin
-    t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
-    t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
+    if random:
+        # Generate random values in each bin
+        t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
+        t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
+    else:
+        # Generate midpoints in each bin
+        t = 0.5 * (lower_edges + upper_edges) # (n, num_bins)
     # Create points
     # (n, 3) -> (n, 1, 3) -> (n, num_bins, 3)
     ro = ro.unsqueeze(1).expand(-1, num_bins, -1)
@@ -52,9 +64,15 @@ def inside_box_mask(p: torch.Tensor, box_min: torch.Tensor, box_max: torch.Tenso
     """
     return ((p >= box_min) & (p <= box_max)).all(dim=-1)
 
-def ray_box_intersection(ro: torch.Tensor, rd: torch.Tensor, box_min: torch.Tensor, box_max: torch.Tensor):
+def ray_box_intersection(
+        ro: torch.Tensor,
+        rd: torch.Tensor,
+        box_min: torch.Tensor,
+        box_max: torch.Tensor
+    ):
     """
-    Compute the intersection distances t_n (near) and t_f (far) of multiple rays with an axis-aligned bounding box.
+    Compute the intersection distances t_n (near) and t_f (far) of multiple rays with an
+    axis-aligned bounding box.
     
     Parameters:
         ro: (n, 3) tensor representing the ray origins.
@@ -63,8 +81,8 @@ def ray_box_intersection(ro: torch.Tensor, rd: torch.Tensor, box_min: torch.Tens
         box_max: 1D tensor [x_max, y_max, z_max] representing the max coordinates of the box.
     
     Returns:
-        tuple: (t_n, t_f) where t_n and t_f are 1D tensors of shape (n,), containing intersection distances 
-               for each ray or (None, None) if no valid intersections.
+        tuple: (t_n, t_f) where t_n and t_f are 1D tensors of shape (n,), containing intersection
+            distances for each ray or (None, None) if no valid intersections.
     """
     inv_dir = 1.0 / rd
     t_min = (box_min - ro) * inv_dir
