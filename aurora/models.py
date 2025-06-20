@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import aurora.dnn as ann
 
 
-ModelEntry = namedtuple("RegisteredModel", ("model_cls", "config_cls"))
+ModelEntry = namedtuple("ModelEntry", ("model_cls", "config_cls"))
 
 
 def config_field(default=None, *, help: str | None = None):
