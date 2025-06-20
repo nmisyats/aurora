@@ -65,8 +65,8 @@ bbox: # Reconstruction bounding box description
 physics: # Physical model data
   emis_mat: ../model/M_emis.dat
   dens_mat: ../model/M_dens.dat
-  altitudes: ../model/altitude.dat
-  energies: ../model/energy.dat
+  altitude_bins: ../model/altitude.dat
+  energy_bins: ../model/energy.dat
 ```
 
 Training a reconstruction requires to first choose one of the
@@ -76,8 +76,12 @@ models can be obtained via `aurora train` command:
 $ aurora train
 
 Available models:
-  log_mlp
-  log_res_mlp
+  spectral_mlp - MLP outputing the energy spectrum from the xy position
+  spectral_res_mlp - Spectral MLP with a residual connection
+  direct_mlp - MLP with position and energy input
+  poly_mlp - MLP learning a polynomial basis of the flux
+
+Use 'aurora train <model_name> --help' for model-specific options.
 ```
 
 Each model share common arguments for training as well as
