@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import torch
+import tqdm
 
 from aurora.camera import Camera
 from aurora.models import FluxModel, GridSampledFlux
@@ -29,6 +30,9 @@ class Reconstruction:
         self.frame = frame
         self.bbox = bbox
         self.device = frame.device
+
+        self.chunk_size = None
+        self.chunk_progress_bar = False
         
         self._training = False
     
@@ -59,9 +63,32 @@ class Reconstruction:
         """
         if not self._training:
             with torch.no_grad():
-                return self.flux_model(xy)
+                return self._eval_flux_on_batch(xy)
         else:
+            return self._eval_flux_on_batch(xy)
+
+    def _eval_flux_on_batch(self, xy: torch.Tensor) -> torch.Tensor:
+        if self.chunk_size is None or self._training:
             return self.flux_model(xy)
+        
+        # Chunked evaluation
+        f_chunks = []
+        num_chunks = -(-len(xy) // self.chunk_size) # Ceiled division
+
+        progress_bar = self.chunk_progress_bar and not self._training
+        iterator = tqdm.trange(num_chunks) if progress_bar else range(num_chunks)
+        
+        for i in iterator:
+            chunk_start = i * self.chunk_size
+            chunk_stop = min((i+1) * self.chunk_size, len(xy))
+            xy_chunk = xy[chunk_start:chunk_stop]
+            f_chunk = self.flux_model(xy_chunk)
+            f_chunks.append(f_chunk)
+            
+            if progress_bar:
+                iterator.set_postfix_str(f"flux_evals:{chunk_stop}/{len(xy)}")
+        
+        return torch.cat(f_chunks, dim=0)
 
     @normalize_batch_dims({"p_frame": 1}, 0)
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:

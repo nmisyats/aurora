@@ -541,6 +541,7 @@ def generate_volume_emission(
     res_y: int = typer.Option(100, help="Y resolution"), 
     res_z: int = typer.Option(50, help="Z resolution"),
     gpu: bool = typer.Option(True, help="Use GPU if available"),
+    chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
     plot: bool = typer.Option(True, help="Plot the volume"),
     save: Path = typer.Option(None, help="Save volume data"),
     cmap: str = typer.Option("coolwarm", help="Volume colormap"),
@@ -552,6 +553,8 @@ def generate_volume_emission(
     if recon_or_ref_path.suffix == ".pth":
         recon = load_reconstruction(recon_or_ref_path, device)
         recon.eval()
+        recon.chunk_size = chunk_size
+        recon.chunk_progress_bar = True
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -596,6 +599,7 @@ def generate_images(
     ray_bins: int = typer.Option(100, help="Number of ray bins"),
     downsample: int = typer.Option(None, help="Downsample factor"),
     gpu: bool = typer.Option(True, help="Use GPU"),
+    chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
     plot: bool = typer.Option(True, help="Plot comparison"),
     cmap: str = typer.Option("viridis", help="Colormap"),
     figsize_per_col: float = typer.Option(2.0, help="Figure size per column")
@@ -605,6 +609,8 @@ def generate_images(
     
     if recon_or_ref_path.suffix == ".pth":
         recon = load_reconstruction(recon_or_ref_path, device)
+        recon.chunk_size = chunk_size
+        recon.chunk_progress_bar = True
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
