@@ -27,7 +27,7 @@ To ensure installation is successfull, run the unit tests with:
 python -m pytest tests
 ```
 
-**Note**: the tool may take a while to start the first time it is run.
+> **Note**: the tool may take a while to start the first time it is run.
 
 ## Command line usage
 
@@ -68,6 +68,8 @@ physics: # Physical model data
   altitude_bins: ../model/altitude.dat
   energy_bins: ../model/energy.dat
 ```
+
+> **Note**: Paths used in YAML configuration files are relative to the *location of the YAML file*.
 
 Training a reconstruction requires to first choose one of the
 available model for the electron flux. The list of available
@@ -179,7 +181,7 @@ To vizualize the generated emission rate later, use:
 aurora plot emis emis_rate.dat config.yaml
 ```
 
-**Note**: it is required to provide the physical configuration to be used for
+> **Note**: it is required to provide the physical configuration to be used for
 vizualizing the generated data. Generated data only saves its raw content,
 unlike reconstruction models which bundles also physical configuration.
 
