@@ -1,5 +1,3 @@
-from collections import namedtuple
-from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 import torch
@@ -7,27 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import aurora.dnn as ann
-
-
-ModelEntry = namedtuple("ModelEntry", ("model_cls", "config_cls"))
-
-
-def config_field(default=None, *, help: str | None = None):
-    kwargs = {}
-    if default is not None:
-        kwargs["default"] = default
-    if help is not None:
-        kwargs["metadata"] = {"help": help}
-    return field(**kwargs)
-
-MODEL_REGISTRY: dict[str, ModelEntry] = {}
-
-def register_model(name, config_cls):
-    def decorator(model_cls):
-        MODEL_REGISTRY[name] = ModelEntry(model_cls, config_cls)
-        return model_cls
-    return decorator
-
 
 
 class FluxModel(nn.Module, ABC):
@@ -111,12 +88,6 @@ class GridSampledFlux(FluxModel):
         return output
 
 
-@dataclass
-class MLPConfig:
-    encoding_exp: int = config_field(4, help="Fourier embedding maximum exponent")
-    max_log_flux: float = config_field(7.0, help="Maximum logarithmic value of the flux")
-
-@register_model("spectral_mlp", MLPConfig)
 class SpectralMLP(FluxModel):
     """MLP outputing the energy spectrum from the xy position"""
     def __init__(
@@ -124,12 +95,13 @@ class SpectralMLP(FluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            config: MLPConfig = MLPConfig()
+            encoding_exp: int = 4,
+            max_log_flux: float = 7.0
         ):
         super().__init__(xy_min, xy_max, energy_bins)
 
-        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.max_log_flux = config.max_log_flux
+        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
+        self.max_log_flux = max_log_flux
 
         encode_dim = self.fourier_encoder.output_dim(2)
 
@@ -153,7 +125,7 @@ class SpectralMLP(FluxModel):
         x = self.exp10(x)
         return x
 
-@register_model("spectral_res_mlp", MLPConfig)
+
 class SpectralResMLP(FluxModel):
     """Spectral MLP with a residual connection"""
     def __init__(
@@ -161,12 +133,13 @@ class SpectralResMLP(FluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            config: MLPConfig = MLPConfig()
+            encoding_exp: int = 4,
+            max_log_flux: float = 7.0
         ):
         super().__init__(xy_min, xy_max, energy_bins)
 
-        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.max_log_flux = config.max_log_flux
+        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
+        self.max_log_flux = max_log_flux
 
         encode_dim = self.fourier_encoder.output_dim(2)
 
@@ -195,7 +168,7 @@ class SpectralResMLP(FluxModel):
         x = self.exp10(x)
         return x
 
-@register_model("direct_mlp", MLPConfig)
+
 class DirectMLP(FluxModel):
     """MLP with position and energy input"""
     def __init__(
@@ -203,12 +176,13 @@ class DirectMLP(FluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            config: MLPConfig = MLPConfig()
+            encoding_exp: int = 4,
+            max_log_flux: float = 7.0
         ):
         super().__init__(xy_min, xy_max, energy_bins)
 
-        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
-        self.max_log_flux = config.max_log_flux
+        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
+        self.max_log_flux = max_log_flux
 
         encode_dim = self.fourier_encoder.output_dim(3)
 
@@ -267,12 +241,6 @@ class DirectMLP(FluxModel):
         # Reshape back to (B, N)
         return x.reshape(B, self.num_bins)
 
-
-@dataclass
-class BasisMLPConfig(MLPConfig):
-    num_basis: int = config_field(8, help="Number of basis parameters")
-
-@register_model("poly_mlp", BasisMLPConfig)
 class PolyMLP(FluxModel):
     """MLP learning a polynomial basis of the flux"""
     def __init__(
@@ -280,14 +248,16 @@ class PolyMLP(FluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            config: BasisMLPConfig = BasisMLPConfig()
+            encoding_exp: int = 4,
+            max_log_flux: float = 7.0,
+            num_basis: int = 8
         ):
         super().__init__(xy_min, xy_max, energy_bins)
 
-        self.num_basis = config.num_basis
-        self.max_log_flux = config.max_log_flux
+        self.num_basis = num_basis
+        self.max_log_flux = max_log_flux
 
-        self.fourier_encoder = ann.FourierEncoder(config.encoding_exp)
+        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
         encoding_size = self.fourier_encoder.output_dim(2)
         
         self.mlp = nn.Sequential(
@@ -325,34 +295,29 @@ class PolyMLP(FluxModel):
         return f
 
 
-@dataclass
-class HybridMLPConfig:
-    position_embed: int = config_field(0, help="Size of the position embedding (use 0 for no embedding)")
-    energy_embed: int = config_field(8, help="Size of the energy embedding (use 0 for no embedding)")
-    position_exp: int = config_field(4, help="Maximum exponent for position fourier encoding")
-    energy_exp: int = config_field(4, help="Maximum exponent for energy fourier encoding")
-    max_log_flux: float = config_field(7.0, help="Maximum logarithmic value of the flux")
-
-@register_model("hybrid_mlp", HybridMLPConfig)
-class HyrbidMLP(FluxModel):
+class HybridMLP(FluxModel):
     """Hybrid model using two MLPs for position and energy embedding"""
     def __init__(
             self,
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            config: HybridMLPConfig = HybridMLPConfig()
+            position_embed: int = 8,
+            energy_embed: int = 8,
+            position_exp: int = 4,
+            energy_exp: int = 4,
+            max_log_flux: float = 7.0
         ):
         super().__init__(xy_min, xy_max, energy_bins)
 
-        self.max_log_flux = config.max_log_flux
+        self.max_log_flux = max_log_flux
 
-        self.position_encoder = ann.FourierEncoder(config.position_exp)
-        self.energy_encoder = ann.FourierEncoder(config.energy_exp)
+        self.position_encoder = ann.FourierEncoder(position_exp)
+        self.energy_encoder = ann.FourierEncoder(energy_exp)
 
         position_encode_dim = self.position_encoder.output_dim(2)
-        if config.position_embed:
-            position_embed_dim = config.position_embed
+        if position_embed:
+            position_embed_dim = position_embed
             self.position_embedder = nn.Sequential(
                 nn.Linear(position_encode_dim, 128), nn.ReLU(),
                 nn.Linear(128, position_embed_dim)
@@ -362,8 +327,8 @@ class HyrbidMLP(FluxModel):
             position_embed_dim = position_encode_dim
 
         energy_encode_dim = self.energy_encoder.output_dim(1)
-        if config.energy_embed:
-            energy_embed_dim = config.energy_embed
+        if energy_embed:
+            energy_embed_dim = energy_embed
             self.energy_embedder = nn.Sequential(
                 nn.Linear(energy_encode_dim, 128), nn.ReLU(),
                 nn.Linear(128, energy_embed_dim)

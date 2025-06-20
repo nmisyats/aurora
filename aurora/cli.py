@@ -1,12 +1,11 @@
-from dataclasses import fields
 from pathlib import Path
+import inspect
 
 import typer
-import inspect
 import torch
 from matplotlib import pyplot as plt
 
-from aurora.models import MODEL_REGISTRY
+import aurora.models as models
 from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction, load_static_reconstruction
 from aurora.optim import train, RadarLoss, RayLoss, SpectralSmoothnessLoss
 from aurora.dataset import CameraRaysDataset, RadarPointsDataset
@@ -19,6 +18,33 @@ import aurora.plot as aplt
 app = typer.Typer()
 
 
+def register_model_commands():
+    create_train_command_for_model("spectral_mlp", models.SpectralMLP,
+        encoding_exp="Fourier encoding maximum exponent",
+        max_log_flux="Maximum logarithmic value of the flux"
+    )
+    create_train_command_for_model("spectral_res_mlp", models.SpectralResMLP,
+        encoding_exp="Fourier encoding maximum exponent",
+        max_log_flux="Maximum logarithmic value of the flux"
+    )
+    create_train_command_for_model("direct_mlp", models.DirectMLP,
+        encoding_exp="Fourier encoding maximum exponent",
+        max_log_flux="Maximum logarithmic value of the flux"
+    )
+    create_train_command_for_model("poly_mlp", models.PolyMLP,
+        encoding_exp="Fourier encoding maximum exponent",
+        max_log_flux="Maximum logarithmic value of the flux",
+        num_basis="Number of mononials to use for the polynomial basis"
+    )
+    create_train_command_for_model("hybrid_mlp", models.HybridMLP,
+        position_embed="Size of the position embedding (use 0 for no embedding)",
+        energy_embed="Size of the energy embedding (use 0 for no embedding)",
+        position_exp="Maximum exponent for position fourier encoding",
+        energy_exp="Maximum exponent for energy fourier encoding",
+        max_log_flux="Maximum logarithmic value of the flux"
+    )
+
+
 def choose_best_device(allow_gpu: bool = True):
     if allow_gpu:
         return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -26,10 +52,10 @@ def choose_best_device(allow_gpu: bool = True):
         return torch.device("cpu")
 
 
-def create_train_command_for_model(model_name: str, model_cls, config_cls):
+def create_train_command_for_model(model_name: str, model_cls: type, **model_args: str):
     """Dynamically create a train command for a specific model"""
     
-    def train_command(
+    def train_func(
         config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
         options: Path = typer.Option(None, help="Path to YAML training configuration file"),
         cam_pos: Path = typer.Option(None, help="Camera positions file"),
@@ -55,12 +81,12 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
         ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
         ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
-        **config_kwargs
+        **model_kwargs
     ):
         typer.echo(f"Training model: {model_name}")
 
         # Get function signature to identify default values
-        sig = inspect.signature(train_command)
+        sig = inspect.signature(train_func)
         
         # Create a mapping of parameter names to their default values
         param_defaults = {}
@@ -117,7 +143,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
 
         # Apply the same logic to config_kwargs (model-specific parameters)
         final_config_kwargs = {}
-        for key, value in config_kwargs.items():
+        for key, value in model_kwargs.items():
             final_config_kwargs[key] = get_param_value(key, value)
 
         # Choose device
@@ -146,16 +172,8 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
                 frame=frame
             )
         
-        # Build config args from final kwargs
-        config_args = {}
-        for field_obj in fields(config_cls):
-            field_name = field_obj.name
-            if field_name in final_config_kwargs:
-                config_args[field_name] = final_config_kwargs[field_name]
-        
         # Instantiate reconstruction model
-        config = config_cls(**config_args)
-        f_model = model_cls(bbox.xy_min, bbox.xy_max, energy_bins, config)
+        f_model = model_cls(bbox.xy_min, bbox.xy_max, energy_bins, **model_kwargs)
         f_model = f_model.to(device)
         typer.echo(f"Instantiated model:\n{f_model}")
         
@@ -226,7 +244,7 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
     params = []
     
     # Add fixed parameters first
-    args_spec = inspect.getfullargspec(train_command)
+    args_spec = inspect.getfullargspec(train_func)
     for arg_name, arg_default in zip(args_spec.args, args_spec.defaults):
         param_kind = inspect.Parameter.KEYWORD_ONLY
         if isinstance(arg_default, typer.models.ArgumentInfo):
@@ -235,65 +253,65 @@ def create_train_command_for_model(model_name: str, model_cls, config_cls):
         params.append(param)
     
     # Add model-specific config parameters
-    for field_obj in fields(config_cls):
-        field_name = field_obj.name
-        field_type = field_obj.type
-        
+    args_spec = inspect.getfullargspec(model_cls.__init__)
+    defaults_start_index = len(args_spec.args) - len(args_spec.defaults)
+    for arg_name, arg_help_text in model_args.items():
+        arg_type = args_spec.annotations[arg_name]
+
+        arg_index = args_spec.args.index(arg_name)
+        arg_default_index = arg_index - defaults_start_index
+        arg_default = args_spec.defaults[arg_default_index]
+
         # Handle typing annotations (e.g., Optional[int], Union types, etc.)
-        origin_type = getattr(field_type, '__origin__', None)
+        origin_type = getattr(arg_type, '__origin__', None)
         if origin_type is not None:
             # For Optional[T], Union[T, None], etc., get the first non-None type
-            args = getattr(field_type, '__args__', ())
-            field_type = next((arg for arg in args if arg is not type(None)), field_type)
-        
+            args = getattr(arg_type, '__args__', ())
+            arg_type = next((arg for arg in args if arg is not type(None)), arg_type)
+
         # Get default value
-        if field_obj.default is not inspect._empty:
-            default_val = field_obj.default
-        elif field_obj.default_factory is not inspect._empty:
-            default_val = field_obj.default_factory()
+        if arg_default is not inspect._empty:
+            default_val = arg_default
         else:
             default_val = ...  # Required parameter
         
-        # Get help text
-        help_text = field_obj.metadata.get("help", f"Config parameter: {field_name}")
-        
         # Create typer option with proper type annotation
-        param_default = typer.Option(default_val, help=help_text)
+        param_default = typer.Option(default_val, help=arg_help_text)
         
         params.append(
             inspect.Parameter(
-                field_name, 
+                arg_name, 
                 inspect.Parameter.KEYWORD_ONLY, 
                 default=param_default,
-                annotation=field_type  # This is crucial for type conversion
+                annotation=arg_type  # This is crucial for type conversion
             )
         )
     
     # Set the new signature
-    train_command.__signature__ = inspect.Signature(params)
-    train_command.__name__ = f"train_{model_name}"
-    
-    return train_command
+    train_func.__signature__ = inspect.Signature(params)
+    train_func.__name__ = f"train_{model_name}"
+
+    command = train_app.command(name=model_name, help=f"Train {model_name} model")
+    train_command = command(train_func)
+
+    MODEL_REGISTRY[model_name] = model_cls
+    MODEL_TRAINING_COMMANDS[model_name] = train_command
 
 # Create subcommand for train
 train_app = typer.Typer(help="Train models")
 app.add_typer(train_app, name="train")
 
 # Dynamically register all models as subcommands
+MODEL_REGISTRY = {}
 MODEL_TRAINING_COMMANDS = {}
-for model_name, model_entry in MODEL_REGISTRY.items():
-    model_cls, config_cls = model_entry
-    train_func = create_train_command_for_model(model_name, model_cls, config_cls)
-    command = train_app.command(name=model_name, help=f"Train {model_name} model")
-    train_command = command(train_func)
-    MODEL_TRAINING_COMMANDS[model_name] = train_command
+register_model_commands()
 
 # Fallback command to list available models
 @train_app.callback(invoke_without_command=True)
 def train_main(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         typer.echo("Available models:")
-        for model_name, (model_cls, _) in MODEL_REGISTRY.items():
+        for model_name, model_cls in MODEL_REGISTRY.items():
             if model_cls.__doc__ is not None:
                 typer.echo(f"  {model_name} - {model_cls.__doc__}")
             else:
@@ -302,7 +320,7 @@ def train_main(ctx: typer.Context):
 
 @train_app.command("prepare")
 def make_options_file_for_model(model_name: str, file_path: Path):
-    if model_name not in MODEL_REGISTRY:
+    if model_name not in MODEL_TRAINING_COMMANDS:
         typer.echo(f"No model named {model_name}")
         raise typer.Exit(1)
     train_command = MODEL_TRAINING_COMMANDS[model_name]
