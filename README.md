@@ -69,7 +69,7 @@ physics: # Physical model data
   energy_bins: ../model/energy.dat
 ```
 
-> **Note**: Paths used in YAML configuration files are relative to the *location of the YAML file*.
+> **Note**: Paths provided in YAML configuration files are relative to the *location of the YAML file*.
 
 Training a reconstruction requires to first choose one of the
 available model for the electron flux. The list of available
@@ -82,6 +82,7 @@ Available models:
   spectral_res_mlp - Spectral MLP with a residual connection
   direct_mlp - MLP with position and energy input
   poly_mlp - MLP learning a polynomial basis of the flux
+  hybrid_mlp - Hybrid model using two MLPs for position and energy embedding
 
 Use 'aurora train <model_name> --help' for model-specific options.
 ```
@@ -301,7 +302,7 @@ is shown below.
 ```python
 from aurora.models import FluxModel
 
-class MyFluxModel(FluxModel):
+class MyModel(FluxModel):
     def __init__(self, xy_min, xy_max, energy_bins, ...): # Custom construction
         super().__init__(xy_min, xy_max, energy_bins)
         ... # Custom initialization
@@ -311,11 +312,10 @@ class MyFluxModel(FluxModel):
         # input: (N, 2) xy tensor
         # output: (N, n_bins) tensor
         return ...
-```
-It can then be used when instantiating a reconstruction as follows:
-```python
+
+# It can then be used when instantiating a reconstruction as follows:
 recon = Reconstruction(
-    flux_model=MyFluxModel(...),
+    flux_model=MyModel(...),
     frame=frame,
     bbox=bbox,
     emis_mat=emis_mat,
@@ -324,21 +324,13 @@ recon = Reconstruction(
 )
 ```
 
-In order to add a custom model to the `aurora train` command,
-the custom model class **must** be defined in the `aurora/models.py`
-file. It must also follow a specific format as described below:
-```python
-# Define extra command line arguments with their default values
-# and help string. Must be defined even if empty
-@dataclass
-class MyModelConfig:
-    param1: int = config_field(42, help="Custom param 1")
-    param2: float = config_field(3.14, help="Custom param 2")
+### Adding a model to the command line
 
-# Define and register model with its name in the CLI
-@register_model("my_model", MyModelConfig)
-class MyModel(TrainableFluxModel):
-    "Short description of model" # Shown in the `aurora train` command
+To add a custom model to the `aurora train` command, you must
+first define your new model:
+```python
+class MyModel(FluxModel):
+    "Short description of my model" # Shown in the `aurora train` command
 
     def __init__(
             self,
@@ -346,14 +338,44 @@ class MyModel(TrainableFluxModel):
             xy_min: torch.Tensor,
             xy_max: torch.Tensor,
             energy_bins: torch.Tensor,
-            # Command line arguments with default
-            config: MyModelConfig = MyModelConfig()
+            # Extra arguments
+            param1: int = 42,
+            param2: float = 3.14
         ):
         super().__init__(xy_min, xy_max, energy_bins)
         ...
 
     def forward(self, xy: torch.Tensor):
         ...
+```
+Then, append its command creation in the `register_model_commands` function at
+the top of the `aurora/cli.py` file:
+```python
+def register_model_commands():
+    ... # Other models
+    create_train_command_for_model("my_model", models.HybridMLP,
+        param1="Custom param 1",
+        param2="Custom param 2"
+    )
+```
+This will add a new subcommand to `aurora train` with the provided extra options:
+```
+$ aurora train
+
+Available models:
+  ...
+  my_model - Short description of my model
+
+$ aurora train my_model --help
+
+Arguments
+    config_file      PATH  Path to YAML configuration file [default: None] [required]
+
+Options
+    ...
+    --param1                                 INTEGER  Custom param1 [default: 42]
+    --param2                                 FLOAT    Custom param2 [default: 3.14]
+    ...
 ```
 It can be then be trained as any other model using its registered name, with
 custom extra arguments:
