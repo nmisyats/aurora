@@ -320,6 +320,7 @@ def train_main(ctx: typer.Context):
 
 @train_app.command("prepare")
 def make_options_file_for_model(model_name: str, file_path: Path):
+    """Generate a template training options YAML for the specified model"""
     if model_name not in MODEL_TRAINING_COMMANDS:
         typer.echo(f"No model named {model_name}")
         raise typer.Exit(1)
