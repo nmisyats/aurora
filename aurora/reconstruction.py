@@ -10,7 +10,7 @@ from aurora.bbox import BBox
 import aurora.geometry as geom
 import aurora.physics as phy
 import aurora.data as data
-from aurora.utils import normalize_batch_dims
+from aurora.utils import normalize_batch_dims, ceiled_div, iter_chunks
 
 class Reconstruction:
     def __init__(
@@ -63,24 +63,23 @@ class Reconstruction:
         """
         if not self._training:
             with torch.no_grad():
-                return self._eval_flux_on_batch(xy)
+                if self.chunk_size is not None:
+                    return self._eval_flux_chunked(xy)
+                else:
+                    return self.flux_model(xy)
         else:
-            return self._eval_flux_on_batch(xy)
-
-    def _eval_flux_on_batch(self, xy: torch.Tensor) -> torch.Tensor:
-        if self.chunk_size is None or self._training:
             return self.flux_model(xy)
-        
-        # Chunked evaluation
-        f_chunks = []
-        num_chunks = -(-len(xy) // self.chunk_size) # Ceiled division
 
-        progress_bar = self.chunk_progress_bar and not self._training
+    def _eval_flux_chunked(self, xy: torch.Tensor) -> torch.Tensor:
+        f_chunks = []
+        num_chunks = ceiled_div(len(xy), self.chunk_size)
+
+        progress_bar = self.chunk_progress_bar
         iterator = tqdm.trange(num_chunks) if progress_bar else range(num_chunks)
+
+        chunks = iter_chunks(len(xy), self.chunk_size)
         
-        for i in iterator:
-            chunk_start = i * self.chunk_size
-            chunk_stop = min((i+1) * self.chunk_size, len(xy))
+        for _, (chunk_start, chunk_stop) in zip(iterator, chunks):
             xy_chunk = xy[chunk_start:chunk_stop]
             f_chunk = self.flux_model(xy_chunk)
             f_chunks.append(f_chunk)

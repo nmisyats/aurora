@@ -104,6 +104,16 @@ def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
     else:
         return image[::factor, ::factor, :]
 
+def ceiled_div(a: int, b: int):
+    return -(-a // b) # ceil(numel/chunk_size)
+
+def iter_chunks(numel: int, chunk_size: int):
+    num_chunks = ceiled_div(numel, chunk_size)
+    for i in range(num_chunks):
+        chunk_start = i * chunk_size
+        chunk_stop = min((i+1) * chunk_size, numel)
+        yield chunk_start, chunk_stop
+
 def normalize_batch_dims(
     ndim_in: dict[str, int],
     ndim_out: int | dict[int, int]
@@ -172,10 +182,3 @@ def normalize_batch_dims(
 
         return wrapper
     return decorator
-
-def iter_chunks(numel: int, chunk_size: int):
-    num_chunks = -(-numel // chunk_size) # ceil(numel/chunk_size)
-    for i in range(num_chunks):
-        chunk_start = i * chunk_size
-        chunk_stop = min((i+1) * chunk_size, numel)
-        yield chunk_start, chunk_stop
