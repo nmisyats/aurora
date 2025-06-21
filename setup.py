@@ -11,7 +11,7 @@ setup(
     packages=['aurora'],
     entry_points={
         'console_scripts': [
-            'aurora = aurora.main:main',
+            'aurora = aurora.cli.app:main',
         ]
     }
 )
