@@ -7,11 +7,11 @@ def sample_equal(
         num_samples: int
     ):
     """
-    Samples equidistant `num_samples` samples between [min_t, max_t], edges included.
+    Samples equidistant `num_samples` samples between [t_min, t_max], edges included.
     
     Args:
-        min_t: (n,) tensor representing starting points.
-        max_t: (n,) tensor representing end points.
+        t_min: (n,) tensor representing starting points.
+        t_max: (n,) tensor representing end points.
         num_samples: Number of samples of [min_t, max_t].
 
     Returns:
@@ -34,13 +34,13 @@ def sample_random_in_bins(
         num_bins: int
     ):
     """
-    Splits [min_t, max_t] into `num_bins` uniform bins and samples randomly in
+    Splits [t_min, t_max] into `num_bins` uniform bins and samples randomly in
     each bin.
     
     Args:
-        min_t: (n,) tensor representing starting points.
-        max_t: (n,) tensor representing end points.
-        num_bins: Number of samples of [min_t, max_t].
+        t_min: (n,) tensor representing starting points.
+        t_max: (n,) tensor representing end points.
+        num_bins: Number of samples of [t_min, t_max].
 
     Returns:
         (n, num_samples) tensor.
