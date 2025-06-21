@@ -48,9 +48,17 @@ def sample_random_in_bins(
     device = t_min.device
     n = t_min.shape[0]
     
-    t01 = torch.rand(n, num_bins, device=device) # (n, num_samples)
-    
+    bin_edges = torch.linspace(0.0, 1.0, num_bins + 1, device=device) # num_bins + 1 edges (num_bins + 1,)
+    bin_edges = bin_edges.expand(n, -1) # (n, num_bins + 1)
     t_min = t_min.unsqueeze(-1) # (n, 1)
     t_max = t_max.unsqueeze(-1) # (n, 1)
-    t = t_min + t01 * (t_max - t_min) # (n, num_samples)
+    bin_edges = bin_edges * (t_max - t_min) + t_min
+    
+    # Lower and upper edges of each bin
+    lower_edges = bin_edges[:, :-1] # (n, num_bins)
+    upper_edges = bin_edges[:, 1:] # (n, num_bins)
+
+    # Generate random values in each bin
+    t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
+    t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
     return t

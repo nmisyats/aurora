@@ -201,14 +201,10 @@ advanced custom experiments.
 import torch
 from matplotlib import pyplot as plt
 
-from aurora import Reconstruction, save_reconstruction
+import aurora as au
 from aurora import Frame, BBox
-from aurora import train, RayLoss, SpectralSmoothnessLoss
-from aurora.dataset import CameraRaysDataset
-from aurora.models import SpectralMLP
-import aurora.data as data
-import aurora.plot as aplt
-from aurora.utils import xy_grid
+from aurora.losses import RayLoss, SpectralSmoothnessLoss
+from aurora.models import SpectralMLP, save_model
 
 # Choose a device to run the reconstruction on
 device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -219,8 +215,7 @@ frame = Frame(
     origin_longitude=20.365000000000,
     origin_altitude=90.0,
     field_inclination=77.9,
-    field_declination=6.0,
-    device=device
+    field_declination=6.0
 )
 print(frame)
 
@@ -234,53 +229,45 @@ bbox = BBox(
 print(bbox)
 
 # Load physical model data
-altitude_bins = data.load_altitude_bins("../model/altitude.dat").to(device)
-energy_bins = data.load_energy_bins("../model/energy.dat").to(device)
-emis_mat = data.load_emission_matrix("../model/M_emis.dat").to(device)
-dens_mat = data.load_density_matrix("../model/M_dens.dat").to(device)
+altitude_bins = au.data.load_altitude_bins("../model/altitude.dat")
+energy_bins = au.data.load_energy_bins("../model/energy.dat")
+emis_mat = au.data.load_emission_matrix("../model/M_emis.dat")
+dens_mat = au.data.load_density_matrix("../model/M_dens.dat")
 
-# Instantiate the trainable flux model
-flux_model = SpectralMLP(
-    xy_min=bbox.xy_min,
-    xy_max=bbox.xy_max,
-    energy_bins=energy_bins
-).to(device)
-print(flux_model)
-
-# Create te reconstruction using the flux model
-recon = Reconstruction(
-    flux_model=flux_model,
+# Instantiate the trainable flux model in the chosen device
+model = SpectralMLP(
     frame=frame,
     bbox=bbox,
     emis_mat=emis_mat,
     dens_mat=dens_mat,
-    altitude_bins=altitude_bins
+    altitude_bins=altitude_bins,
+    energy_bins=energy_bins
+).to(device)
+print(model)
+
+# Load the cameras images and preprocess ray data
+cameras = au.data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
+ray_data = au.datasets.RayDataset(cameras, frame, bbox).to(device)
+
+# Train the model with the given loss terms
+au.minimize(
+    Ray(model, ray_data),
+    SpectralSmoothnessLoss(model),
+    iters=2000
 )
-
-# Load the cameras dataset and preprocess ray data
-cameras = data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
-ray_data = CameraRaysDataset(cameras, frame, bbox)
-
-# Define loss terms for training
-loss_terms = [
-    RayLoss(ray_data, batch_size=4096),
-    SpectralSmoothnessLoss(batch_size=1024, weight=0.001),
-]
-# Train the reconstruction
-train(recon, loss_terms, iters=2000)
 # Save the reconstruction after training
-save_reconstruction(recon, "./example.pth")
+save_model(model, "./example.pth")
 
 # Plot the reconstructed total energy flux
 
 # Set the reconstruction in evaluation mode
 # (this disables gradient computation for more efficiency)
-recon.eval()
+model.eval()
 # Create a uniform grid spanning the xy bounding box
-xy = xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
+xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128).to(device)
 # Plot the flux
-aplt.plot_flux_2d(
-    flux_data=recon.flux(xy),
+au.plot.plot_flux_2d(
+    flux_data=model.flux(xy).cpu(),
     xy_bounds=(bbox.xy_min, bbox.xy_max),
     energy_edges=energy_bins
 )
