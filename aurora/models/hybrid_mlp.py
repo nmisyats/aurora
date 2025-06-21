@@ -84,7 +84,7 @@ class HybridMLP(FluxModel):
     def _forward_batch(self, xy: torch.Tensor):
         # xy: (B, 2)
         B = xy.shape[0]
-        num_bins = len(self.energy_bins)
+        num_bins = len(self.energy_bins) - 1
         
         xy_norm = self._normalize_xy(xy)
         
