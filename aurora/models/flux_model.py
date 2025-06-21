@@ -62,7 +62,7 @@ class FluxModel(nn.Module, ABC):
         """
         ...
 
-    @normalize_batch_dims({"xy": 1}, 0)
+    @normalize_batch_dims(xy=1)
     def flux(self, xy: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron flux distribution at points xy. See `forward`.
@@ -101,7 +101,7 @@ class FluxModel(nn.Module, ABC):
         
         return torch.cat(f_chunks, dim=0)
 
-    @normalize_batch_dims({"p_frame": 1}, 0)
+    @normalize_batch_dims(p_frame=1)
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the emission rate at points p.
@@ -117,7 +117,7 @@ class FluxModel(nn.Module, ABC):
         f = self.flux(xy)
         return phy.emis_rate(z, f, self.emis_mat, self.altitude_bins)
     
-    @normalize_batch_dims({"p_frame": 1}, 0)
+    @normalize_batch_dims(p_frame=1)
     def elec_dens(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron density at points p.
@@ -133,7 +133,7 @@ class FluxModel(nn.Module, ABC):
         f = self.flux(xy)
         return phy.elec_dens(z, f, self.dens_mat, self.altitude_bins)
 
-    @normalize_batch_dims({"ro": 1, "rd": 1, "tn": 0, "tf": 0}, 0)
+    @normalize_batch_dims(ro=1, rd=1, t=1)
     def int_emis_ray(
             self, 
             ro: torch.Tensor, 
@@ -146,7 +146,7 @@ class FluxModel(nn.Module, ABC):
         Args:
             ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
             rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
-            t (torch.Tensor): (n, n_sample) or (n_samples,) distances to sample points along the rays.
+            t (torch.Tensor): (n, n_sample) distances to sample points along the rays.
         
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).

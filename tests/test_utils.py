@@ -4,14 +4,14 @@ from aurora.utils import normalize_batch_dims
 
 @pytest.fixture(scope="module")
 def foo_1d():
-    @normalize_batch_dims({"x": 1}, {0: 1})
+    @normalize_batch_dims(x=1)
     def func(x: torch.Tensor, param: torch.Tensor, label: str):
         return x + param, label
     return func
 
 @pytest.fixture(scope="module")
 def foo_2d():
-    @normalize_batch_dims({"x": 1}, {0: 1})
+    @normalize_batch_dims(x=1)
     def func(x: torch.Tensor, param: torch.Tensor, label: str):
         return x + param.unsqueeze(0), label
     return func

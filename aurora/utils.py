@@ -120,18 +120,9 @@ def iter_chunks(numel: int, chunk_size: int):
         chunk_stop = min((i+1) * chunk_size, numel)
         yield chunk_start, chunk_stop
 
-def normalize_batch_dims(
-    ndim_in: dict[str, int],
-    ndim_out: int | dict[int, int]
-):
+def normalize_batch_dims(**ndim_in: int):
     def decorator(func):
         sig = inspect.signature(func)
-
-        # Normalize ndim_out into a dict
-        if isinstance(ndim_out, int):
-            ndim_out_map: dict[int, int] = {0: ndim_out}
-        else:
-            ndim_out_map = ndim_out
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -172,17 +163,14 @@ def normalize_batch_dims(
                 outputs = (outputs,)
 
             outputs = list(outputs)
-            for i, inner_ndim in ndim_out_map.items():
+            for i in range(len(outputs)):
                 out = outputs[i]
                 if not isinstance(out, torch.Tensor):
-                    raise ValueError(f"Output {i} expected to be a tensor")
-                if out.ndim < inner_ndim + 1:
-                    raise ValueError(f"Output {i} has too few dimensions")
-                outputs[i] = out.unflatten(0, outer_shape)
-
-            if unbatched_inputs:
-                for i in ndim_out_map:
-                    outputs[i] = outputs[i].squeeze(0)
+                    continue
+                out = out.unflatten(0, outer_shape)
+                if unbatched_inputs:
+                    out = out.squeeze(0)
+                outputs[i] = out
 
             return outputs[0] if len(outputs) == 1 else tuple(outputs)
 
