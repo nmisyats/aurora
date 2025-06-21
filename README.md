@@ -216,7 +216,7 @@ frame = Frame(
     origin_altitude=90.0,
     field_inclination=77.9,
     field_declination=6.0
-)
+).to(device)
 print(frame)
 
 # Define the reconstruction bounding box
@@ -225,7 +225,7 @@ bbox = BBox(
     south_range=(-40.0, 100.0),
     east_range=(-70.0, 70.0),
     altitude_range=(90.0, 190.0)
-)
+).to(device)
 print(bbox)
 
 # Load physical model data
@@ -251,7 +251,7 @@ ray_data = au.datasets.RayDataset(cameras, frame, bbox).to(device)
 
 # Train the model with the given loss terms
 au.minimize(
-    Ray(model, ray_data),
+    RayLoss(model, ray_data),
     SpectralSmoothnessLoss(model),
     iters=2000
 )
@@ -283,32 +283,32 @@ python example.py
 To create a custom flux model to use for training a reconstruction,
 it is simply a matter of defining a new class that inherits from
 the `FluxModel` base class in `aurora.models`, and fill
-the required abstract properties and methods. A rough template
+the required abstract forward method. A rough template
 is shown below.
 
 ```python
 from aurora.models import FluxModel
+from aurora import Frame, BBox
 
 class MyModel(FluxModel):
-    def __init__(self, xy_min, xy_max, energy_bins, ...): # Custom construction
-        super().__init__(xy_min, xy_max, energy_bins)
+    def __init__(
+            self,
+            frame: Frame,
+            bbox: BBox,
+            emis_mat: torch.Tensor,
+            dens_mat: torch.Tensor,
+            altitude_bins: torch.Tensor,
+            energy_bins: torch.Tensor,
+            ... # Custom arguments
+        ):
+        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
         ... # Custom initialization
 
     def forward(self, xy: torch.Tensor):
         # Pytorch's nn.Module forward method outputing the flux estimate
         # input: (N, 2) xy tensor
-        # output: (N, n_bins) tensor
+        # output: (N, n_energy_bins) tensor
         return ...
-
-# It can then be used when instantiating a reconstruction as follows:
-recon = Reconstruction(
-    flux_model=MyModel(...),
-    frame=frame,
-    bbox=bbox,
-    emis_mat=emis_mat,
-    dens_mat=dens_mat,
-    altitude_bins=altitude_bins
-)
 ```
 
 ### Adding a model to the command line
@@ -318,32 +318,32 @@ first define your new model:
 ```python
 class MyModel(FluxModel):
     "Short description of my model" # Shown in the `aurora train` command
-
     def __init__(
             self,
-            # Mandatory argument
-            xy_min: torch.Tensor,
-            xy_max: torch.Tensor,
+            frame: Frame,
+            bbox: BBox,
+            emis_mat: torch.Tensor,
+            dens_mat: torch.Tensor,
+            altitude_bins: torch.Tensor,
             energy_bins: torch.Tensor,
             # Extra arguments
             param1: int = 42,
             param2: float = 3.14
         ):
-        super().__init__(xy_min, xy_max, energy_bins)
+        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
         ...
 
     def forward(self, xy: torch.Tensor):
         ...
 ```
-Then, append its command creation in the `register_model_commands` function at
-the top of the `aurora/cli.py` file:
+Then, append its command creation at the bottom of the`aurora/train_app.py` file:
 ```python
-def register_model_commands():
-    ... # Other models
-    create_train_command_for_model("my_model", models.HybridMLP,
-        param1="Custom param 1",
-        param2="Custom param 2"
-    )
+... # Other models
+
+create_train_command_for_model("my_model", MyModel,
+    param1="Custom param 1",
+    param2="Custom param 2"
+)
 ```
 This will add a new subcommand to `aurora train` with the provided extra options:
 ```
