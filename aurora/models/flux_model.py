@@ -53,6 +53,7 @@ class FluxModel(nn.Module, ABC):
     def forward(self, xy: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron flux distribution at points xy.
+        
         Args:
             xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
         
@@ -100,6 +101,21 @@ class FluxModel(nn.Module, ABC):
                 iterator.set_postfix_str(f"flux_evals:{chunk_stop}/{len(xy)}")
         
         return torch.cat(f_chunks, dim=0)
+    
+    @normalize_batch_dims(xy=1)
+    def total_energy_flux(self, xy: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the total energy flux at xy.
+        
+        Args:
+            xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
+        
+        Returns:
+            torch.Tensor: Total energy flux tensor of shape (n,).
+        """
+        f = self.flux(xy)
+        q0 = phy.total_energy_flux(f, self.energy_bins)
+        return q0
 
     @normalize_batch_dims(p_frame=1)
     def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
