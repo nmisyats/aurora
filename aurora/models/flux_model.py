@@ -166,7 +166,7 @@ class FluxModel(nn.Module, ABC):
         
         Args:
             cam (Camera): Camera object to generate the image from.
-            num_bins (int): Number of bins to use for ray integration.
+            num_samples (int): Number of samples to use for ray integration.
             nan (float): Value to replace NaN values in the image.
         
         Returns:
