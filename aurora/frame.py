@@ -8,15 +8,11 @@ class Frame:
         origin_longitude: float,
         origin_altitude: float,
         field_inclination: float,
-        field_declination: float,
-        device=torch.device("cpu")
+        field_declination: float
     ):
-        self.device = device
-        
         # Get the frame transforms
         o_lat, o_lon, o_alt = origin_latitude, origin_longitude, origin_altitude
         o_ecef = geo.geodetic_to_ecef(o_lat, o_lon, o_alt)
-        o_ecef = o_ecef.to(device)
 
         enu_to_ecef = torch.stack(geo.enu_basis_vectors_ecef(o_lat, o_lon)).T
         ecef_to_enu = torch.linalg.inv(enu_to_ecef)
@@ -37,14 +33,8 @@ class Frame:
         enu_to_field = torch.linalg.inv(field_to_enu)
         ecef_to_field = torch.matmul(enu_to_field, ecef_to_enu)
         field_to_ecef = torch.matmul(enu_to_ecef, field_to_enu)
-        
-        field_to_enu = field_to_enu.to(device)
-        enu_to_field = enu_to_field.to(device)
-        ecef_to_field = ecef_to_field.to(device)
-        field_to_ecef = field_to_ecef.to(device)
 
         metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
-        metric_tensor = metric_tensor.to(device)
 
         # Store the reference frame parameters
         self.origin_ecef = o_ecef
@@ -60,6 +50,10 @@ class Frame:
 
         self.field_inclination = field_inclination
         self.field_declination = field_declination
+    
+    @property
+    def device(self):
+        return self.origin_ecef.device
 
     def metric_scale(self, d_frame: torch.Tensor) -> torch.Tensor:
         if d_frame.ndim != 1:
@@ -101,3 +95,25 @@ class Frame:
             f"device={self.device}"
             f")"
         )
+    
+    def to(self, device):
+        """Move all tensors to the specified device and return a new Frame instance."""
+        # Create a shallow copy of the current instance
+        new_frame = object.__new__(Frame)
+        
+        # Copy scalar attributes (no computation needed)
+        new_frame.origin_latitude = self.origin_latitude
+        new_frame.origin_longitude = self.origin_longitude
+        new_frame.origin_altitude = self.origin_altitude
+        new_frame.field_inclination = self.field_inclination
+        new_frame.field_declination = self.field_declination
+        
+        # Move tensor attributes to the new device (no recomputation)
+        new_frame.origin_ecef = self.origin_ecef.to(device)
+        new_frame.enu_to_field_mat = self.enu_to_field_mat.to(device)
+        new_frame.field_to_enu_mat = self.field_to_enu_mat.to(device)
+        new_frame.ecef_to_field_mat = self.ecef_to_field_mat.to(device)
+        new_frame.field_to_ecef_mat = self.field_to_ecef_mat.to(device)
+        new_frame.metric_tensor = self.metric_tensor.to(device)
+        
+        return new_frame

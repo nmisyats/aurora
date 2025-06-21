@@ -39,6 +39,10 @@ class BBox:
         self.altitude_range = altitude_range
     
     @property
+    def device(self):
+        return self.xyz_min.device
+    
+    @property
     def xy_min(self):
         return self.xyz_min[:2]
     
@@ -59,4 +63,17 @@ class BBox:
             f"xyz_max={self.xyz_max.tolist()}"
             f")"
         )
+    
+    def to(self, device):
+        """Move all tensors to the specified device and return a new BBox instance."""
+        new_bbox = object.__new__(BBox)
+
+        new_bbox.xyz_min = self.xyz_min.to(device)
+        new_bbox.xyz_max = self.xyz_max.to(device)
+
+        new_bbox.south_range = self.south_range
+        new_bbox.east_range = self.east_range
+        new_bbox.altitude_range = self.altitude_range
+        
+        return new_bbox
 

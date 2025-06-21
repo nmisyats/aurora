@@ -5,12 +5,8 @@ import typer
 import torch
 from matplotlib import pyplot as plt
 
-import aurora.models as models
-from aurora.reconstruction import Reconstruction, save_reconstruction, load_reconstruction, load_static_reconstruction
-from aurora.optim import train, RadarLoss, RayLoss, SpectralSmoothnessLoss
-from aurora.dataset import CameraRaysDataset, RadarPointsDataset
-import aurora.data as data
-
+import aurora as au
+from aurora import losses, models, data, optim
 from aurora.utils import xy_grid, xyz_grid
 import aurora.plot as aplt
 
@@ -27,10 +23,6 @@ def register_model_commands():
         encoding_exp="Fourier encoding maximum exponent",
         max_log_flux="Maximum logarithmic value of the flux"
     )
-    create_train_command_for_model("direct_mlp", models.DirectMLP,
-        encoding_exp="Fourier encoding maximum exponent",
-        max_log_flux="Maximum logarithmic value of the flux"
-    )
     create_train_command_for_model("poly_mlp", models.PolyMLP,
         encoding_exp="Fourier encoding maximum exponent",
         max_log_flux="Maximum logarithmic value of the flux",
@@ -39,8 +31,8 @@ def register_model_commands():
     create_train_command_for_model("hybrid_mlp", models.HybridMLP,
         position_embed="Size of the position embedding (use 0 for no embedding)",
         energy_embed="Size of the energy embedding (use 0 for no embedding)",
-        position_exp="Maximum exponent for position fourier encoding",
-        energy_exp="Maximum exponent for energy fourier encoding",
+        position_enc="Maximum exponent for position fourier encoding",
+        energy_enc="Maximum exponent for energy fourier encoding",
         max_log_flux="Maximum logarithmic value of the flux"
     )
 
@@ -52,7 +44,7 @@ def choose_best_device(allow_gpu: bool = True):
         return torch.device("cpu")
 
 
-def create_train_command_for_model(model_name: str, model_cls: type, **model_args: str):
+def create_train_command_for_model(model_name: str, model_cls: type[models.FluxModel], **model_args: str):
     """Dynamically create a train command for a specific model"""
     
     def train_func(
@@ -161,10 +153,10 @@ def create_train_command_for_model(model_name: str, model_cls: type, **model_arg
         ray_data, radar_data = None, None
         if cam_pos is not None and cam_dir is not None:
             cams = data.load_cameras(cam_pos, cam_dir)
-            ray_data = CameraRaysDataset(cams, frame, bbox)
+            ray_data = au.datasets.RayDataset(cams, frame, bbox)
         if radar is not None:
             points = data.load_radar_point_cloud(radar)
-            radar_data = RadarPointsDataset(
+            radar_data = au.datasets.RadarDataset(
                 altitudes=points.altitudes,
                 latitudes=points.latitudes,
                 longitudes=points.longitudes,
@@ -173,31 +165,28 @@ def create_train_command_for_model(model_name: str, model_cls: type, **model_arg
             )
         
         # Instantiate reconstruction model
-        f_model = model_cls(bbox.xy_min, bbox.xy_max, energy_bins, **model_kwargs)
-        f_model = f_model.to(device)
-        typer.echo(f"Instantiated model:\n{f_model}")
-        
-        recon = Reconstruction(
-            flux_model=f_model,
+        model = model_cls(
             frame=frame,
             bbox=bbox,
             emis_mat=emis_mat,
             dens_mat=dens_mat,
             altitude_bins=altitude_bins,
-        )
+            energy_bins=energy_bins,
+            **model_kwargs
+        ).to(device)
+        typer.echo(f"Instantiated model:\n{model}")
         
         # Train the reconstruction on the provided data
         loss_terms = []
         if ray_data is not None:
-            loss_terms.append(RayLoss(ray_data, ray_batch, ray_weight, ray_bins))
+            loss_terms.append(losses.RayLoss(model, ray_data, ray_batch, ray_weight, ray_bins))
         if radar_data is not None:
-            loss_terms.append(RadarLoss(radar_data, radar_batch, radar_weight))
+            loss_terms.append(losses.RadarLoss(model, radar_data, radar_batch, radar_weight))
         if smooth_weight > 0.0:
-            loss_terms.append(SpectralSmoothnessLoss(smooth_batch, smooth_weight))
+            loss_terms.append(losses.SpectralSmoothnessLoss(model, smooth_batch, smooth_weight))
         
-        history = train(
-            recon=recon,
-            loss_terms=loss_terms,
+        history = optim.minimize(
+            *loss_terms,
             iters=iters,
             lr=lr,
             weight_decay=reg_strength,
@@ -206,21 +195,21 @@ def create_train_command_for_model(model_name: str, model_cls: type, **model_arg
         )
 
         if save is not None:
-            save_reconstruction(recon, save)
+            models.save_model(model, save)
             print(f"Saved model in {save}")
         
         if plot_loss:
             aplt.plot_training_losses(history)
 
         if plot_flux:
-            recon.eval()
+            model.eval()
             recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
-            estimated_f = recon.flux(recon_xy).cpu()
+            estimated_f = model.flux(recon_xy).cpu()
             rec_xy_min = bbox.xy_min.cpu()
             rec_xy_max = bbox.xy_max.cpu()
             if ref_flux is not None and ref_config is not None:
-                ref = load_static_reconstruction(ref_flux, ref_config, device)
-                reference_f = ref.flux_model.data.cpu()
+                ref = models.load_grid_model(ref_flux, ref_config, device)
+                reference_f = ref.data.cpu()
                 ref_xy_min = ref.bbox.xy_min.cpu()
                 ref_xy_max = ref.bbox.xy_max.cpu()
                 aplt.plot_flux_2d_comparison(
@@ -233,7 +222,7 @@ def create_train_command_for_model(model_name: str, model_cls: type, **model_arg
             else:
                 aplt.plot_flux_2d(
                     flux_data=estimated_f,
-                    xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
+                    xy_bounds=(model.bbox.xy_min, model.bbox.xy_max),
                     energy_edges=energy_bins.cpu()
                 )
         
@@ -381,7 +370,7 @@ def plot_flux_at(
 ):
     """Plots the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
-    recon = load_static_reconstruction(flux_data, config_path, device)
+    recon = models.load_grid_model(flux_data, config_path, device)
     
     xy = torch.tensor([x, y], device=device)
     f = recon.flux(xy)
@@ -392,7 +381,7 @@ def plot_flux_at(
     if plot:
         fig, ax = aplt.plot_flux_1d(
             flux_data=f,
-            energy_edges=recon.flux_model.energy_bins,
+            energy_edges=recon.energy_bins,
             title=f"Flux at (x, y) = ({x}, {y})"
         )
         plt.show()
@@ -457,7 +446,7 @@ def generate_reconstructed_flux(
 ):
     """Generate flux from reconstruction using generic plotting."""
     device = choose_best_device(gpu)
-    recon = load_reconstruction(recon_path, device)
+    recon = models.load_model(recon_path, device)
     recon.eval()
     
     xy_min = recon.bbox.xy_min
@@ -472,8 +461,8 @@ def generate_reconstructed_flux(
         rec_xy_min = xy_min.cpu()
         rec_xy_max = xy_max.cpu()
         if ref_flux is not None and ref_config is not None:
-            ref = load_static_reconstruction(ref_flux, ref_config, device)
-            reference_f = ref.flux_model.data.cpu()
+            ref = models.load_grid_model(ref_flux, ref_config, device)
+            reference_f = ref.data.cpu()
             ref_xy_min = ref.bbox.xy_min.cpu()
             ref_xy_max = ref.bbox.xy_max.cpu()
             aplt.plot_flux_2d_comparison(
@@ -481,14 +470,14 @@ def generate_reconstructed_flux(
                 reference_flux=reference_f,
                 estimated_bounds=(rec_xy_min, rec_xy_max),
                 reference_bounds=(ref_xy_min, ref_xy_max),
-                energy_edges=recon.flux_model.energy_bins.cpu(),
+                energy_edges=recon.energy_bins.cpu(),
                 cmap=cmap
             )
         else:
             aplt.plot_flux_2d(
                 flux_data=estimated_f,
                 xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
-                energy_edges=recon.flux_model.energy_bins.cpu(),
+                energy_edges=recon.energy_bins.cpu(),
                 cmap=cmap
             )
         plt.show()
@@ -506,7 +495,7 @@ def generate_reconstructed_flux_at(
 ):
     """Generate the flux curve accross energy levels at a given xy location."""
     device = choose_best_device(gpu)
-    recon = load_reconstruction(recon_path, device)
+    recon = models.load_model(recon_path, device)
     recon.eval()
     
     xy = torch.tensor([x, y], device=device)
@@ -517,18 +506,18 @@ def generate_reconstructed_flux_at(
     
     if plot:
         if ref_flux is not None and ref_config is not None:
-            ref = load_static_reconstruction(ref_flux, ref_config, device)
+            ref = models.load_grid_model(ref_flux, ref_config, device)
             reference_f = ref.flux(xy).cpu()
             aplt.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
-                energy_edges=recon.flux_model.energy_bins.cpu(),
+                energy_edges=recon.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})",
                 labels=("Reference", "Reconstructed")
             )
         else:
             aplt.plot_flux_1d(
                 flux_data=estimated_f,
-                energy_edges=recon.flux_model.energy_bins.cpu(),
+                energy_edges=recon.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})"
             )
         plt.show()
@@ -551,7 +540,7 @@ def generate_volume_emission(
     device = choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = load_reconstruction(recon_or_ref_path, device)
+        recon = models.load_model(recon_or_ref_path, device)
         recon.eval()
         recon.chunk_size = chunk_size
         recon.chunk_progress_bar = True
@@ -563,7 +552,7 @@ def generate_volume_emission(
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        ref_recon = load_static_reconstruction(recon_or_ref_path, config, device)
+        ref_recon = models.load_grid_model(recon_or_ref_path, config, device)
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -608,14 +597,14 @@ def generate_images(
     device = choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = load_reconstruction(recon_or_ref_path, device)
+        recon = models.load_model(recon_or_ref_path, device)
         recon.chunk_size = chunk_size
         recon.chunk_progress_bar = True
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        recon = load_static_reconstruction(recon_or_ref_path, config, device)
+        recon = models.load_grid_model(recon_or_ref_path, config, device)
     recon.eval()
 
     cams = data.load_cameras(cam_pos, cam_dir)

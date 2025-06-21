@@ -96,8 +96,7 @@ def frame_from_dict(data: dict, device=torch.device("cpu")):
         origin_altitude=data["origin_alt"],
         field_inclination=data["field_inc"],
         field_declination=data["field_dec"],
-        device=device
-    )
+    ).to(device)
 
 def frame_to_dict(frame: Frame):
     return {
