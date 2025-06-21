@@ -10,7 +10,7 @@ from aurora.bbox import BBox
 import aurora.geometry as geom
 import aurora.physics as phy
 from aurora.utils import normalize_batch_dims, ceiled_div, iter_chunks
-from aurora.sampling import sample_uniform
+from aurora.sampling import sample_equal
 
 class FluxModel(nn.Module, ABC):
     def __init__(
@@ -177,7 +177,7 @@ class FluxModel(nn.Module, ABC):
         rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
         
         tn, tf = geom.ray_box_intersection(ro, rd, self.bbox.xyz_min, self.bbox.xyz_max)
-        t = sample_uniform(tn, tf, num_samples)
+        t = sample_equal(tn, tf, num_samples)
         
         g = self.int_emis_ray(ro, rd, t)
         h, w = cam.image.shape

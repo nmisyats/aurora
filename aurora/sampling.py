@@ -1,7 +1,7 @@
 import torch
 
 
-def sample_uniform(
+def sample_equal(
         t_min: torch.Tensor,
         t_max: torch.Tensor,
         num_samples: int
