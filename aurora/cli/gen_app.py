@@ -5,9 +5,8 @@ from matplotlib import pyplot as plt
 import torch
 
 from aurora import models, data
-from aurora.utils import xy_grid, xyz_grid
+from aurora.utils import choose_best_device, xy_grid, xyz_grid
 import aurora.plot as aplt
-from aurora.cli.utils import choose_best_device
 
 # Create subcommand for generating
 gen_app = typer.Typer(help="Generation utilities")

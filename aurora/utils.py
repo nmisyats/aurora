@@ -23,6 +23,12 @@ def as_tensor(data: TensorLike) -> torch.Tensor:
     else:
         raise TypeError(f"Unsupported type for conversion to tensor: {type(data)}")
 
+def choose_best_device(allow_gpu: bool = True):
+    if allow_gpu:
+        return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    else:
+        return torch.device("cpu")
+
 Coord2DLike = Union[Tuple[float, float], List[float], torch.Tensor]
 Coord3DLike = Union[Tuple[float, float, float], List[float], torch.Tensor]
 

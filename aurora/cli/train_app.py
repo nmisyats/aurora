@@ -6,9 +6,8 @@ from matplotlib import pyplot as plt
 
 import aurora as au
 from aurora import losses, models, data, optim
-from aurora.utils import xy_grid
+from aurora.utils import choose_best_device, xy_grid
 import aurora.plot as aplt
-from aurora.cli.utils import choose_best_device
 
 
 # Create subcommand for train

@@ -6,7 +6,7 @@ import torch
 
 from aurora import models, data
 import aurora.plot as aplt
-from aurora.cli.utils import choose_best_device
+from aurora.utils import choose_best_device
 
 
 # Create subcommand for plotting
