@@ -1,6 +1,6 @@
 from aurora.models.flux_model import FluxModel
 from aurora.models.grid_flux import GridSampledFlux
-from aurora.models.spectral_mlp import SpectralMLP, SpectralResMLP
+from aurora.models.spectral_mlp import SpectralMLP
 from aurora.models.basis_mlp import PolyMLP
 from aurora.models.hybrid_mlp import HybridMLP
 
@@ -11,7 +11,6 @@ __all__ = [
     "FluxModel",
     "GridSampledFlux",
     "SpectralMLP",
-    "SpectralResMLP",
     "PolyMLP",
     "HybridMLP",
     "save_model",

@@ -296,11 +296,6 @@ create_train_command_for_model("spectral_mlp", models.SpectralMLP,
     max_log_flux="Maximum logarithmic value of the flux"
 )
 
-create_train_command_for_model("spectral_res_mlp", models.SpectralResMLP,
-    encoding_exp="Fourier encoding maximum exponent",
-    max_log_flux="Maximum logarithmic value of the flux"
-)
-
 create_train_command_for_model("poly_mlp", models.PolyMLP,
     encoding_exp="Fourier encoding maximum exponent",
     max_log_flux="Maximum logarithmic value of the flux",
