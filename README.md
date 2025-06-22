@@ -79,8 +79,6 @@ $ aurora train
 
 Available models:
   spectral_mlp - MLP outputing the energy spectrum from the xy position
-  spectral_res_mlp - Spectral MLP with a residual connection
-  direct_mlp - MLP with position and energy input
   poly_mlp - MLP learning a polynomial basis of the flux
   hybrid_mlp - Hybrid model using two MLPs for position and energy embedding
 
