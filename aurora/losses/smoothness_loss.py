@@ -7,24 +7,27 @@ from aurora.models.flux_model import FluxModel
 class SpectralSmoothnessLoss(LossTerm):
     def __init__(
             self,
-            model: FluxModel,
+            flux_model: FluxModel,
             weight: float = 0.01,
             batch_size: int = 1024,
             name: str = "flux_smooth"
         ):
-        super().__init__(model, weight, batch_size, name)
+        super().__init__(weight, batch_size, name)
+        
+        self.flux_model = flux_model
     
     def sample_batch(self) -> torch.Tensor:
-        xy_min, xy_max = self.model.bbox.xy_min, self.model.bbox.xy_max
-        device = self.model.device
+        bbox = self.flux_model.bbox
+        xy_min, xy_max = bbox.xy_min, bbox.xy_max
+        device = self.flux_model.device
         rand = torch.rand(self.batch_size, 2, device=device)
         xy_samples = xy_min + rand * (xy_max - xy_min)
         return xy_samples
     
     def eval_raw_loss(self, xy_samples: torch.Tensor) -> torch.Tensor:
-        f_pred = self.model.flux(xy_samples)
+        f_pred = self.flux_model.flux(xy_samples)
         # Calculate bin centers and widths
-        energy_bins = self.model.energy_bins
+        energy_bins = self.flux_model.energy_bins
         bin_centers = 0.5 * (energy_bins[:-1] + energy_bins[1:])  # (num_bins,)
         # bin_widths = energy_bins[1:] - energy_bins[:-1]  # (num_bins,)
         # Log-scale bin centers for proper weighting

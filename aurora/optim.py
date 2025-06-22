@@ -29,8 +29,7 @@ def minimize(
     
     params = set()
     for term in loss_terms:
-        term_params = set(term.parameters())
-        params = params.union(term_params)
+        params = params.union(term.parameters())
     
     optimizer = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_decay)
@@ -41,14 +40,13 @@ def minimize(
     for iter in iterator:
         optimizer.zero_grad()
         
-        total_loss = torch.tensor(0.0, device=loss_terms[0].device)
-        
         # Compute all loss terms
-        for term in loss_terms:
+        term0 = loss_terms[0]
+        total_loss = term0(term0.sample_batch())
+        for term in loss_terms[1:]:
             if term.weight == 0.0:
                 continue
-            batch = term.sample_batch()
-            term_loss = term(batch)
+            term_loss = term(term.sample_batch())
             total_loss = total_loss + term_loss
         
         total_loss.backward()
