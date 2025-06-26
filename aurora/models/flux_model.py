@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import overload, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -10,7 +11,7 @@ from aurora.bbox import BBox
 import aurora.geometry as geom
 import aurora.physics as phy
 from aurora.utils import normalize_batch_dims, ceiled_div, iter_chunks
-from aurora.sampling import sample_equal
+from aurora.sampling import RaySampler, EqualSampler
 
 class FluxModel(nn.Module, ABC):
     def __init__(
@@ -149,7 +150,7 @@ class FluxModel(nn.Module, ABC):
         f = self.flux(xy)
         return phy.elec_dens(z, f, self.dens_mat, self.altitude_bins)
 
-    @normalize_batch_dims(ro=1, rd=1, t=1)
+    @overload
     def int_emis_ray(
             self, 
             ro: torch.Tensor, 
@@ -157,7 +158,7 @@ class FluxModel(nn.Module, ABC):
             t: torch.Tensor
         ) -> torch.Tensor:
         """
-        Integrate the emission along rays along a ray.
+        Integrate the emission along rays.
         
         Args:
             ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
@@ -167,7 +168,44 @@ class FluxModel(nn.Module, ABC):
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
         """
-        p_frame = geom.sample_ray_points(ro, rd, t)
+    @overload
+    def int_emis_ray(
+            self, 
+            ro: torch.Tensor, 
+            rd: torch.Tensor, 
+            tn: torch.Tensor,
+            tf: torch.Tensor,
+            sampler: RaySampler
+        ) -> torch.Tensor:
+        """
+        Integrate the emission along rays.
+        
+        Args:
+            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            tn (torch.Tensor): (n,) near distances of the rays.
+            tf (torch.Tensor): (n,) far distances of the rays.
+            sampler (RaySampler): sampler to use for ray integration.
+        
+        Returns:
+            torch.Tensor: Integrated emission tensor of shape (n,).
+        """
+    @normalize_batch_dims(ro=1, rd=1, t_or_tn=1)
+    def int_emis_ray(
+            self, 
+            ro: torch.Tensor, 
+            rd: torch.Tensor, 
+            t_or_tn: torch.Tensor,
+            tf: Optional[torch.Tensor] = None,
+            sampler: Optional[RaySampler] = None,
+        ) -> torch.Tensor:
+        if tf is not None and sampler is not None:
+            tn = t_or_tn
+            p_frame, _ = sampler(tn, tf)
+        else:
+            t = t_or_tn
+            p_frame = geom.sample_ray_points(ro, rd, t)
+        
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
@@ -175,7 +213,7 @@ class FluxModel(nn.Module, ABC):
         g = phy.int_emis_rayleigh(t, l)
         return g
     
-    @torch.no_grad()
+    @overload
     def image(self, cam: Camera, num_samples: int, nan=0.0):
         """
         Generate an image from the camera using the integrated emission along rays.
@@ -188,14 +226,34 @@ class FluxModel(nn.Module, ABC):
         Returns:
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
+    @overload
+    def image(self, cam: Camera, sampler: RaySampler, nan=0.0):
+        """
+        Generate an image from the camera using the integrated emission along rays.
+        
+        Args:
+            cam (Camera): Camera object to generate the image from.
+            sampler (RaySampler): Sampler to use for ray integration.
+            nan (float): Value to replace NaN values in the image.
+        
+        Returns:
+            torch.Tensor: Image tensor of shape (cam.height, cam.width).
+        """
+    @torch.no_grad()
+    def image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0):
         ro, rd = cam.create_rays_ecef(self.device)
         ro = self.frame.from_ecef(ro, is_point=True) # (n, 3)
         rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
         
         tn, tf = geom.ray_box_intersection(ro, rd, self.bbox.xyz_min, self.bbox.xyz_max)
-        t = sample_equal(tn, tf, num_samples)
         
-        g = self.int_emis_ray(ro, rd, t)
+        if isinstance(n_or_sampler, RaySampler):
+            sampler = n_or_sampler
+        else:
+            num_samples = n_or_sampler
+            sampler = EqualSampler(num_samples)
+        
+        g = self.int_emis_ray(ro, rd, tn, tf, sampler)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)

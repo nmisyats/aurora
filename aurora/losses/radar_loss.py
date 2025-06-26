@@ -22,7 +22,7 @@ class RadarLoss(LossTerm):
         self.loss_fn = nn.MSELoss()
     
     def sample_batch(self):
-        return self.radar_data.random_sample(self.batch_size)
+        return self.radar_data.sample_batch(self.batch_size)
     
     def eval_raw_loss(self, batch_in: RadarDataset.SampleType):
         p, d_target = batch_in

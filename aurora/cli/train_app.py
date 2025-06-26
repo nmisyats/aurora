@@ -5,7 +5,7 @@ import typer
 from matplotlib import pyplot as plt
 
 import aurora as au
-from aurora import losses, models, data, optim
+from aurora import losses, models, data, trainer
 from aurora.utils import choose_best_device, xy_grid
 import aurora.plot as aplt
 
@@ -158,7 +158,7 @@ def create_train_command_for_model(model_name: str, model_cls: type[models.FluxM
         if smooth_weight > 0.0:
             loss_terms.append(losses.SpectralSmoothnessLoss(model, smooth_batch, smooth_weight))
         
-        history = optim.minimize(
+        history = trainer.train(
             *loss_terms,
             iters=iters,
             lr=lr,

@@ -24,7 +24,7 @@ class Dataset(ABC):
         """
         ...
     
-    def random_sample(self, num_samples: int):
+    def sample_batch(self, num_samples: int):
         """
         Sample a number of random samples from the dataset.
         

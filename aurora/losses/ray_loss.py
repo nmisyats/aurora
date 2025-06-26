@@ -4,7 +4,7 @@ import torch.nn as nn
 from aurora.losses.loss_term import LossTerm
 from aurora.datasets.ray_data import RayDataset
 from aurora.models.flux_model import FluxModel
-from aurora.sampling import sample_random_in_bins
+from aurora.sampling import sample_stratified
 
 
 class RayLoss(LossTerm):
@@ -25,10 +25,10 @@ class RayLoss(LossTerm):
         self.loss_fn = nn.MSELoss()
     
     def sample_batch(self):
-        return self.ray_data.random_sample(self.batch_size)
+        return self.ray_data.sample_batch(self.batch_size)
     
     def eval_raw_loss(self, batch_in: RayDataset.SampleType):
         ro, rd, tn, tf, g_target = batch_in
-        t = sample_random_in_bins(tn, tf, self.num_ray_bins)
+        t = sample_stratified(tn, tf, self.num_ray_bins)
         g_pred = self.flux_model.int_emis_ray(ro, rd, t)
         return self.loss_fn(g_pred, g_target)

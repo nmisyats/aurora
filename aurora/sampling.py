@@ -1,4 +1,8 @@
+from abc import ABC, abstractmethod
+
 import torch
+
+from aurora.geometry import sample_ray_points
 
 
 def sample_equal(
@@ -28,7 +32,7 @@ def sample_equal(
     t = t_min + t01 * (t_max - t_min) # (n, num_samples)
     return t
 
-def sample_random_in_bins(
+def sample_stratified(
         t_min: torch.Tensor,
         t_max: torch.Tensor,
         num_bins: int
@@ -62,3 +66,40 @@ def sample_random_in_bins(
     t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
     t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
     return t
+
+
+class RaySampler(ABC):
+    @abstractmethod
+    def sample_distances(
+            self,
+            tn: torch.Tensor,
+            tf: torch.Tensor
+        ):
+        ...
+    
+    def __call__(
+            self,
+            ro: torch.Tensor,
+            rd: torch.Tensor,
+            tn: torch.Tensor,
+            tf: torch.Tensor
+        ):
+        t = self.sample_distances(tn, tf)
+        p = sample_ray_points(ro, rd, t)
+        return p, t
+
+class EqualSampler(RaySampler):
+    def __init__(self, num_samples: int):
+        super().__init__()
+        self.num_samples = num_samples
+    
+    def sample_distances(self, tn, tf):
+        return sample_equal(tn, tf, self.num_samples)
+
+class StratifiedSampler(RaySampler):
+    def __init__(self, num_bins: int):
+        super().__init__()
+        self.num_bins = num_bins
+    
+    def sample_distances(self, tn, tf):
+        return sample_stratified(tn, tf, self.num_bins)

@@ -62,7 +62,7 @@ def int_emis_rayleigh(
         l: torch.Tensor,
     ) -> torch.Tensor:
     """
-    Integrate the emission rate over a sample points to compute the gray level in units
+    Integrate the emission rate over sample points to compute the gray level in units
     of Rayleigh.
     
     Args:

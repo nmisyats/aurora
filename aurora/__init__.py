@@ -1,7 +1,7 @@
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
-from aurora.optim import minimize
+from aurora.trainer import train
 
 import aurora.data as data
 import aurora.geodesy as geodesy
@@ -17,7 +17,7 @@ __all__ = [
     "Camera",
     "Frame",
     "BBox",
-    "minimize",
+    "train",
     "data",
     "geodesy",
     "geometry",
