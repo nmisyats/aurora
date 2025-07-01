@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 
 import aurora as au
 from aurora import Frame, BBox, StratifiedSampler
-from aurora.models import SpectralMLP, save_model
+from aurora.models import SpectralMLP
 
 # Choose a device to run the reconstruction on
 device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -62,7 +62,7 @@ def train_step():
 # Train the model with the given training step for 2000 iterations
 au.train(modules=model, step=train_step, num_iters=2000)
 # Save the reconstruction after training
-save_model(model, "./example.pth")
+au.save_model(model, "./example.pth")
 
 ## Plot the reconstructed total energy flux
 

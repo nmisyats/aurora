@@ -4,6 +4,7 @@ from aurora.bbox import BBox
 from aurora.trainer import train
 from aurora.samplers import EqualSampler, StratifiedSampler
 from aurora.losses import ray_loss, radar_loss, spectral_smoothness_loss
+from aurora.models import save_model, load_model, load_grid_model
 
 import aurora.data as data
 import aurora.geodesy as geodesy
@@ -24,6 +25,9 @@ __all__ = [
     "ray_loss",
     "radar_loss",
     "spectral_smoothness_loss",
+    "save_model",
+    "load_model",
+    "load_grid_model",
     "data",
     "geodesy",
     "geometry",
