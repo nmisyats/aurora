@@ -123,7 +123,7 @@ def iter_chunks(numel: int, chunk_size: int):
 def flatten_batch_dims(x: torch.Tensor, ndim_single: int):
     if x.ndim == ndim_single:
         flat_x = x.unsqueeze(0)
-        return flat_x, ()
+        return flat_x, torch.Size()
     elif x.ndim < ndim_single + 1:
         raise ValueError(f"Tensor has too few dimensions. Expected {ndim_single}, got {x.ndim}")
     else:
@@ -131,6 +131,13 @@ def flatten_batch_dims(x: torch.Tensor, ndim_single: int):
         flat_x = x.flatten(0, -ndim_single - 1)
         return flat_x, outer_shape
 
+def unflatten_batch_dims(x: torch.Tensor, batch_shape: torch.Size):
+    if len(batch_shape) == 0:
+        return x
+    elif x.ndim == 1:
+        return x.view(batch_shape)
+    else:
+        return x.unflatten(0, batch_shape)
 
 def normalize_batch_dims(**ndim_in: int):
     def decorator(func):

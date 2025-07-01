@@ -1,12 +1,10 @@
 # example.py
 
 import torch
-import torch.nn as nn
 from matplotlib import pyplot as plt
 
 import aurora as au
-from aurora import Frame, BBox
-from aurora.sampling import sample_stratified
+from aurora import Frame, BBox, StratifiedSampler
 from aurora.models import SpectralMLP, save_model
 
 # Choose a device to run the reconstruction on
@@ -52,23 +50,21 @@ print(model)
 cameras = au.data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
 ray_data = au.datasets.RayDataset(cameras, frame, bbox).to(device)
 
-# Choose a loss function
-mse = nn.MSELoss()
+# Choose a ray sampler for training
+ray_sampler = StratifiedSampler(num_bins=64)
 # Implement training iteration step
 def train_step():
-    ro, rd, tn, tf, g_ref = ray_data.sample_batch(4096) # 4096 batch size
-    t = sample_stratified(tn, tf, 64) # 64 position samples per ray
-    g = model.int_emis_ray(ro, rd, t)
-    loss = mse(g, g_ref)
-    loss.backward()
+    batch = ray_data.sample_batch(4096) # random batch of 4096 rays
+    loss = au.ray_loss(model, batch, ray_sampler) # evaluate the loss
+    loss.backward() # optimize
     return {"ray_loss": loss.item()}
 
-# Train the model with the given loss terms
-au.train(train_step, 2000)
+# Train the model with the given training step for 2000 iterations
+au.train(modules=model, step=train_step, num_iters=2000)
 # Save the reconstruction after training
 save_model(model, "./example.pth")
 
-# Plot the reconstructed total energy flux
+## Plot the reconstructed total energy flux
 
 # Set the reconstruction in evaluation mode
 # (this disables gradient computation for more efficiency)

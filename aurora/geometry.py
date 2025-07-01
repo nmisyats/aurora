@@ -1,6 +1,6 @@
 import torch
 
-def sample_ray_points(ro: torch.Tensor, rd: torch.Tensor, t: torch.Tensor):
+def get_ray_points(ro: torch.Tensor, rd: torch.Tensor, t: torch.Tensor):
     """
     Samples points along the rays for each given distance.
     

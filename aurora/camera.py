@@ -34,9 +34,6 @@ class Camera:
             f"azimuth={type(self.azimuth)} {self.azimuth.shape}",
             f"zenith={type(self.zenith)} {self.zenith.shape}",
         ")"])
-    
-    def __str__(self):
-        return self.__repr__(self)
 
     def downsample(self, factor: int) -> 'Camera':
         return Camera(

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from aurora.geometry import sample_ray_points
+import aurora.geometry as gmt
 
 
 def sample_equal(
@@ -24,12 +24,12 @@ def sample_equal(
     device = t_min.device
     n = t_min.shape[0]
     
-    t01 = torch.linspace(0.0, 1.0, num_samples, device=device) # (num_samples,)
-    t01 = t01.expand(n, -1) # (n, num_samples)
+    t_norm = torch.linspace(0.0, 1.0, num_samples, device=device) # (num_samples,)
+    t_norm = t_norm.expand(n, -1) # (n, num_samples)
     
     t_min = t_min.unsqueeze(-1) # (n, 1)
     t_max = t_max.unsqueeze(-1) # (n, 1)
-    t = t_min + t01 * (t_max - t_min) # (n, num_samples)
+    t = t_min + t_norm * (t_max - t_min) # (n, num_samples)
     return t
 
 def sample_stratified(
@@ -63,10 +63,9 @@ def sample_stratified(
     upper_edges = bin_edges[:, 1:] # (n, num_bins)
 
     # Generate random values in each bin
-    t01 = torch.rand(n, num_bins, device=device) # (n, num_bins)
-    t = lower_edges + t01 * (upper_edges - lower_edges) # (n, num_bins)
+    t_norm = torch.rand(n, num_bins, device=device) # (n, num_bins)
+    t = lower_edges + t_norm * (upper_edges - lower_edges) # (n, num_bins)
     return t
-
 
 class RaySampler(ABC):
     @abstractmethod
@@ -74,7 +73,7 @@ class RaySampler(ABC):
             self,
             tn: torch.Tensor,
             tf: torch.Tensor
-        ):
+        ) -> torch.Tensor:
         ...
     
     def __call__(
@@ -85,7 +84,7 @@ class RaySampler(ABC):
             tf: torch.Tensor
         ):
         t = self.sample_distances(tn, tf)
-        p = sample_ray_points(ro, rd, t)
+        p = gmt.get_ray_points(ro, rd, t)
         return p, t
 
 class EqualSampler(RaySampler):

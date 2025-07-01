@@ -1,10 +1,7 @@
 import torch
 
-from aurora.utils import normalize_batch_dims
 
-
-@normalize_batch_dims(z=0, f=1)
-def emis_rate(
+def compute_emission_rate(
         z: torch.Tensor,
         f: torch.Tensor,
         emis_mat: torch.Tensor,
@@ -29,8 +26,7 @@ def emis_rate(
     l = torch.sum(m_z * f, dim=-1)
     return l
 
-@normalize_batch_dims(z=0, f=1)
-def elec_dens(
+def compute_electron_density(
         z: torch.Tensor,
         f: torch.Tensor,
         dens_mat: torch.Tensor,
@@ -56,8 +52,7 @@ def elec_dens(
     d = torch.sqrt(d2)
     return d
 
-@normalize_batch_dims(t=1, l=1)
-def int_emis_rayleigh(
+def integrate_emis_to_rayleigh(
         t: torch.Tensor,
         l: torch.Tensor,
     ) -> torch.Tensor:
@@ -76,8 +71,7 @@ def int_emis_rayleigh(
     g /= 10.0 # scale to Rayleigh units
     return g
 
-@normalize_batch_dims(f=1)
-def total_energy_flux(
+def compute_total_energy_flux(
         f: torch.Tensor,
         energy_bins: torch.Tensor
     ) -> torch.Tensor:

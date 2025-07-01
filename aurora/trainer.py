@@ -7,9 +7,9 @@ import tqdm
 
 
 def train(
-        train_step: Callable[[], Dict[str, float]],
-        num_iters: int,
         *,
+        step: Callable[[], Dict[str, float]],
+        num_iters: int,
         start_iter: int = 0,
         optimizer: Optional[torch.optim.Optimizer] = None,
         modules: Optional[Union[nn.Module, Iterable[nn.Module]]] = None,
@@ -52,13 +52,13 @@ def train(
     for iter in iterator:
         optimizer.zero_grad()
         
-        loss_dict = train_step()
+        loss_dict = step()
         
         optimizer.step()
         if scheduler is not None:
             scheduler.step()
         
-        for name, val in loss_dict.keys():
+        for name, val in loss_dict.items():
             loss_hist = history.setdefault(name, [])
             loss_hist.append(val)
         

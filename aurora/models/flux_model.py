@@ -8,10 +8,17 @@ import tqdm
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
-import aurora.geometry as geom
+import aurora.geometry as gmt
 import aurora.physics as phy
-from aurora.utils import normalize_batch_dims, ceiled_div, iter_chunks
-from aurora.sampling import RaySampler, EqualSampler
+from aurora.utils import (
+    normalize_batch_dims,
+    ceiled_div,
+    iter_chunks,
+    flatten_batch_dims,
+    unflatten_batch_dims
+)
+from aurora.samplers import RaySampler, EqualSampler
+
 
 class FluxModel(nn.Module, ABC):
     def __init__(
@@ -85,6 +92,10 @@ class FluxModel(nn.Module, ABC):
             return self.forward(xy)
 
     def _eval_flux_chunked(self, xy: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluate the flux on a batch of positions by splitting the batch into
+        smaller chunks.
+        """
         f_chunks = []
         num_chunks = ceiled_div(len(xy), self.chunk_size)
 
@@ -99,7 +110,7 @@ class FluxModel(nn.Module, ABC):
             f_chunks.append(f_chunk)
             
             if progress_bar:
-                iterator.set_postfix_str(f"flux_evals:{chunk_stop}/{len(xy)}")
+                iterator.set_postfix_str(f"flux_evals: {chunk_stop}/{len(xy)}")
         
         return torch.cat(f_chunks, dim=0)
     
@@ -115,11 +126,11 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Total energy flux tensor of shape (n,).
         """
         f = self.flux(xy)
-        q0 = phy.total_energy_flux(f, self.energy_bins)
+        q0 = phy.compute_total_energy_flux(f, self.energy_bins)
         return q0
 
     @normalize_batch_dims(p_frame=1)
-    def emis_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
+    def get_emission_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the emission rate at points p.
         
@@ -132,10 +143,10 @@ class FluxModel(nn.Module, ABC):
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
-        return phy.emis_rate(z, f, self.emis_mat, self.altitude_bins)
+        return phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
     
     @normalize_batch_dims(p_frame=1)
-    def elec_dens(self, p_frame: torch.Tensor) -> torch.Tensor:
+    def get_electron_density(self, p_frame: torch.Tensor) -> torch.Tensor:
         """
         Calculate the electron density at points p.
         
@@ -148,10 +159,29 @@ class FluxModel(nn.Module, ABC):
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
-        return phy.elec_dens(z, f, self.dens_mat, self.altitude_bins)
+        return phy.compute_electron_density(z, f, self.dens_mat, self.altitude_bins)
 
     @overload
-    def int_emis_ray(
+    def integrate_emis_along_ray(
+            self, 
+            ro: torch.Tensor, 
+            rd: torch.Tensor,
+            sampler: RaySampler
+        ) -> torch.Tensor:
+        """
+        Integrate the emission along rays. Computes the intersection distances
+        with the model's bounding box.
+        
+        Args:
+            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            sampler (RaySampler): sampler to use for ray integration.
+        
+        Returns:
+            torch.Tensor: Integrated emission tensor of shape (n,).
+        """
+    @overload
+    def integrate_emis_along_ray(
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
@@ -169,7 +199,7 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Integrated emission tensor of shape (n,).
         """
     @overload
-    def int_emis_ray(
+    def integrate_emis_along_ray(
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
@@ -190,31 +220,45 @@ class FluxModel(nn.Module, ABC):
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
         """
-    @normalize_batch_dims(ro=1, rd=1, t_or_tn=1)
-    def int_emis_ray(
+    def integrate_emis_along_ray(
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
-            t_or_tn: torch.Tensor,
+            t_tn_sampler: Union[torch.Tensor, RaySampler],
             tf: Optional[torch.Tensor] = None,
             sampler: Optional[RaySampler] = None,
         ) -> torch.Tensor:
-        if tf is not None and sampler is not None:
-            tn = t_or_tn
-            p_frame, _ = sampler(tn, tf)
+        
+        ro, outer_shape = flatten_batch_dims(ro, 1)
+        rd, _ = flatten_batch_dims(rd, 1)
+        
+        if isinstance(t_tn_sampler, RaySampler):
+            # ro, rd, sampler
+            tn, tf = self.bbox.intersection(ro, rd)
+            sampler = t_tn_sampler
+            p_frame, t = sampler(ro, rd, tn, tf)
+        elif tf is None or sampler is None:
+            # ro, rd, t
+            t = t_tn_sampler
+            t, _ = flatten_batch_dims(t, 1)
+            p_frame = gmt.get_ray_points(ro, rd, t)
         else:
-            t = t_or_tn
-            p_frame = geom.sample_ray_points(ro, rd, t)
+            # ro, rd, tn, tf, sampler
+            tn = t_tn_sampler
+            tn, _ = flatten_batch_dims(tn, 0)
+            tf, _ = flatten_batch_dims(tf, 0)
+            p_frame, t = sampler(ro, rd, tn, tf)
         
         p_enu = self.frame.to_local_enu(p_frame, is_point=True)
         xy, z = p_frame[...,:2], p_enu[...,2]
         f = self.flux(xy)
-        l = phy.emis_rate(z, f, self.emis_mat, self.altitude_bins)
-        g = phy.int_emis_rayleigh(t, l)
-        return g
+        l = phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
+        g = phy.integrate_emis_to_rayleigh(t, l)
+
+        return unflatten_batch_dims(g, outer_shape)
     
     @overload
-    def image(self, cam: Camera, num_samples: int, nan=0.0):
+    def generate_image(self, cam: Camera, num_samples: int, nan=0.0):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -227,7 +271,7 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @overload
-    def image(self, cam: Camera, sampler: RaySampler, nan=0.0):
+    def generate_image(self, cam: Camera, sampler: RaySampler, nan=0.0):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -240,12 +284,12 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @torch.no_grad()
-    def image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0):
+    def generate_image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0):
         ro, rd = cam.create_rays_ecef(self.device)
         ro = self.frame.from_ecef(ro, is_point=True) # (n, 3)
         rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
         
-        tn, tf = geom.ray_box_intersection(ro, rd, self.bbox.xyz_min, self.bbox.xyz_max)
+        tn, tf = self.bbox.intersection(ro, rd)
         
         if isinstance(n_or_sampler, RaySampler):
             sampler = n_or_sampler
@@ -253,7 +297,7 @@ class FluxModel(nn.Module, ABC):
             num_samples = n_or_sampler
             sampler = EqualSampler(num_samples)
         
-        g = self.int_emis_ray(ro, rd, tn, tf, sampler)
+        g = self.integrate_emis_along_ray(ro, rd, tn, tf, sampler)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)

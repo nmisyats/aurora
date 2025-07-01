@@ -1,7 +1,8 @@
 import torch
 
 from aurora.frame import Frame
-import aurora.geometry as geom
+import aurora.geometry as gmt
+from aurora.utils import xy_grid, xyz_grid
 
 
 class BBox:
@@ -50,11 +51,37 @@ class BBox:
     def xy_max(self):
         return self.xyz_max[:2]
     
+    def norm_xyz(self, xyz: torch.Tensor):
+        return (xyz - self.xyz_min) / (self.xy_max - self.xyz_min)
+    
+    def real_xyz(self, xyz_norm: torch.Tensor):
+        return self.xyz_min + xyz_norm * (self.xyz_max - self.xyz_min)
+    
+    def norm_xy(self, xy: torch.Tensor):
+        return (xy - self.xy_min) / (self.xy_max - self.xy_min)
+    
+    def real_xy(self, xy_norm: torch.Tensor):
+        return self.xy_min + xy_norm * (self.xy_max - self.xy_min)
+    
     def contains(self, p: torch.Tensor):
-        return geom.inside_box_mask(p, self.xyz_min, self.xyz_max)
+        return gmt.inside_box_mask(p, self.xyz_min, self.xyz_max)
     
     def intersection(self, ro: torch.Tensor, rd: torch.Tensor):
-        return geom.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
+        return gmt.ray_box_intersection(ro, rd, self.xyz_min, self.xyz_max)
+    
+    def xy_grid(self, res_x: int, res_y: int):
+        return xy_grid(self.xy_min, self.xy_max, res_x, res_y)
+
+    def xyz_grid(self, res_x: int, res_y: int, res_z: int):
+        return xyz_grid(self.xyz_min, self.xyz_max, res_x, res_y, res_z)
+    
+    @property
+    def xy_bounds(self):
+        return (self.xy_min, self.xy_max)
+    
+    @property
+    def xyz_bounds(self):
+        return (self.xyz_min, self.xyz_max)
 
     def __repr__(self):
         return (

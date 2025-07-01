@@ -78,7 +78,7 @@ def plot_flux_2d(
     if flux_data.dim() == 3:
         if energy_edges is None:
             raise ValueError("energy_edges required for 3D flux data")
-        plot_data = phy.total_energy_flux(flux_data, energy_edges).cpu()
+        plot_data = phy.compute_total_energy_flux(flux_data, energy_edges).cpu()
     else:
         plot_data = flux_data.cpu()
     
@@ -201,8 +201,8 @@ def plot_flux_2d_comparison(
     if estimated_flux.dim() == 3:
         if energy_edges is None:
             raise ValueError("energy_edges required for 3D flux data")
-        est_q0 = phy.total_energy_flux(estimated_flux, energy_edges).cpu()
-        ref_q0 = phy.total_energy_flux(reference_flux, energy_edges).cpu()
+        est_q0 = phy.compute_total_energy_flux(estimated_flux, energy_edges).cpu()
+        ref_q0 = phy.compute_total_energy_flux(reference_flux, energy_edges).cpu()
     else:
         est_q0 = estimated_flux.cpu()
         ref_q0 = reference_flux.cpu()
