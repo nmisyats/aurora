@@ -10,6 +10,7 @@ import aurora.data as data
 import aurora.geodesy as geodesy
 import aurora.geometry as geometry
 import aurora.utils as utils
+import aurora.samplers as samplers
 import aurora.datasets as datasets
 import aurora.losses as losses
 import aurora.models as models
