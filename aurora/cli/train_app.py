@@ -3,9 +3,12 @@ import inspect
 
 import typer
 from matplotlib import pyplot as plt
+import torch
+import torch.nn as nn
 
 import aurora as au
 from aurora import losses, models, data, trainer
+from aurora.samplers import StratifiedSampler
 from aurora.utils import choose_best_device, xy_grid
 import aurora.plot as aplt
 
@@ -309,3 +312,199 @@ create_train_command_for_model("hybrid_mlp", models.HybridMLP,
     energy_enc="Maximum exponent for energy fourier encoding",
     max_log_flux="Maximum logarithmic value of the flux"
 )
+
+
+@train_app.command("spectral_mlp")
+def train_spectral_mlp(
+    # General parameters common to all models
+    config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
+    options: Path = typer.Option(None, help="Path to YAML training configuration file"),
+    cam_pos: Path = typer.Option(None, help="Camera positions file"),
+    cam_dir: Path = typer.Option(None, help="Cameras directory"),
+    radar: Path = typer.Option(None, help="Radar point cloud file"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    iters: int = typer.Option(2000, help="Number of training iterations"),
+    ray_batch: int = typer.Option(4096, help="Batch size for ray loss"),
+    ray_bins: int = typer.Option(100, help="Number of bins for ray integration"),
+    radar_batch: int = typer.Option(1024, help="Batch size for radar loss"),
+    smooth_batch: int = typer.Option(1024, help="Batch size for spectral smoothness loss"),
+    ray_weight: float = typer.Option(1.0, help="Weight for ray loss"),
+    radar_weight: float = typer.Option(1.0, help="Weight for radar loss"),
+    smooth_weight: float = typer.Option(0.0, help="Weight for spectral smoothness loss"),
+    lr: float = typer.Option(5e-5, help="Initial learning rate"),
+    reg_strength: float = typer.Option(1.0, help="Parameter L2 regularization strength"),
+    save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
+    plot_loss: bool = typer.Option(False, help="Plot the training losses"),
+    plot_flux: bool = typer.Option(True, help="Plot the reconstructed flux after training complete"),
+    plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
+    plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
+    ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
+    ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+    # Model specific
+    enc_exp: int = typer.Option(4, help="Maximum exponent for positional fourier encoding"),
+    max_log_f: float = typer.Option(7.0, help="Maximum log flux")
+):
+    typer.echo(f"Training model: spectral_mlp")
+
+    # Get function signature to identify default values
+    sig = inspect.signature(train_spectral_mlp)
+    
+    # Create a mapping of parameter names to their default values
+    param_defaults = {}
+    for param_name, param in sig.parameters.items():
+        if hasattr(param.default, 'default'): # typer.Option/Argument
+            param_defaults[param_name] = param.default.default
+        else:
+            param_defaults[param_name] = param.default
+
+    # Load training options from YAML if provided
+    train_options = {}
+    if options is not None:
+        train_options = data.load_yaml(options)
+        typer.echo(f"Loaded training options from {options}")
+
+    # Helper function to get final parameter value
+    def get_param_value(param_name, current_value):
+        """Get parameter value with priority: CLI args > YAML file > defaults"""
+        default_value = param_defaults.get(param_name)
+        yaml_value = train_options.get(param_name)
+        
+        # If current value differs from default, it was explicitly set via CLI
+        if current_value != default_value:
+            return current_value
+        # Otherwise, use YAML value if available, else use current (default) value
+        elif yaml_value is not None:
+            return yaml_value
+        else:
+            return current_value
+
+    # Apply the priority logic to all parameters
+    cam_pos = get_param_value('cam_pos', cam_pos)
+    cam_dir = get_param_value('cam_dir', cam_dir)
+    radar = get_param_value('radar', radar)
+    gpu = get_param_value('gpu', gpu)
+    iters = get_param_value('iters', iters)
+    ray_batch = get_param_value('ray_batch', ray_batch)
+    ray_bins = get_param_value('ray_bins', ray_bins)
+    radar_batch = get_param_value('radar_batch', radar_batch)
+    smooth_batch = get_param_value('smooth_batch', smooth_batch)
+    ray_weight = get_param_value('ray_weight', ray_weight)
+    radar_weight = get_param_value('radar_weight', radar_weight)
+    smooth_weight = get_param_value('smooth_weight', smooth_weight)
+    lr = get_param_value('lr', lr)
+    reg_strength = get_param_value('reg_strength', reg_strength)
+    save = get_param_value('save', save)
+    plot_flux = get_param_value('plot', plot_flux)
+    plot_res_x = get_param_value('plot_res_x', plot_res_x)
+    plot_res_y = get_param_value('plot_res_y', plot_res_y)
+    ref_flux = get_param_value('ref_flux', ref_flux)
+    ref_config = get_param_value('ref_config', ref_config)
+    enc_exp = get_param_value('enc_exp', enc_exp)
+    max_log_f = get_param_value('max_log_f', max_log_f)
+
+    # Choose device
+    device = choose_best_device(gpu)
+
+    config = data.load_config(config_file, device)
+    frame = config.frame
+    bbox = config.bbox
+    emis_mat = config.physics.emis_mat
+    dens_mat = config.physics.dens_mat
+    energy_bins = config.physics.energy_bins
+    altitude_bins = config.physics.altitude_bins
+
+    # Load the datasets
+    ray_data, radar_data = None, None
+    if cam_pos is not None and cam_dir is not None:
+        cams = data.load_cameras(cam_pos, cam_dir)
+        ray_data = au.datasets.RayDataset(cams, frame, bbox)
+        ray_sampler = au.StratifiedSampler(ray_bins)
+    if radar is not None:
+        points = data.load_radar_point_cloud(radar)
+        radar_data = au.datasets.RadarDataset(
+            altitudes=points.altitudes,
+            latitudes=points.latitudes,
+            longitudes=points.longitudes,
+            densities=points.densities,
+            frame=frame
+        )
+    
+    # Instantiate reconstruction model
+    model = models.SpectralMLP(
+        frame=frame,
+        bbox=bbox,
+        emis_mat=emis_mat,
+        dens_mat=dens_mat,
+        altitude_bins=altitude_bins,
+        energy_bins=energy_bins,
+        encoding_exp=enc_exp,
+        max_log_flux=max_log_f
+    ).to(device)
+    typer.echo(f"Instantiated model:\n{model}")
+    
+    # Train the reconstruction on the provided data
+    def train_step():
+        loss_dict = {}
+        total_loss = torch.scalar_tensor(0.0, device=device)
+        if ray_data is not None:
+            ray_batch = ray_data.sample_batch(ray_batch)
+            ray_loss = ray_weight * au.ray_loss(model, ray_batch, ray_sampler)
+            total_loss = total_loss + ray_loss
+            loss_dict["ray_loss"] = ray_loss.item()
+        if radar_data is not None:
+            radar_batch = radar_data.sample_batch(radar_batch)
+            radar_loss = radar_weight * au.radar_loss(model, radar_batch)
+            total_loss = total_loss + radar_loss
+            loss_dict["radar_loss"] = radar_loss.item()
+        if smooth_weight > 0.0:
+            xy_norm = torch.rand(smooth_batch, 2, device=device)
+            xy = model.bbox.real_xy(xy_norm)
+            smooth_loss = smooth_weight * au.spectral_smoothness_loss(model, xy)
+            loss_dict["smooth_loss"] = smooth_loss.item()
+        
+        total_loss.backward()
+        
+        loss_dict["total_loss"] = total_loss.item()
+        return loss_dict
+    
+    history = trainer.train(
+        train_step=train_step,
+        num_iters=iters,
+        lr=lr,
+        weight_decay=reg_strength,
+    )
+
+    if save is not None:
+        models.save_model(model, save)
+        print(f"Saved model in {save}")
+    
+    if plot_loss:
+        aplt.plot_training_losses(history)
+
+    if plot_flux:
+        model.eval()
+        recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
+        estimated_f = model.flux(recon_xy).cpu()
+        rec_xy_min = bbox.xy_min.cpu()
+        rec_xy_max = bbox.xy_max.cpu()
+        if ref_flux is not None and ref_config is not None:
+            ref = models.load_grid_model(ref_flux, ref_config, device)
+            reference_f = ref.data.cpu()
+            ref_xy_min = ref.bbox.xy_min.cpu()
+            ref_xy_max = ref.bbox.xy_max.cpu()
+            aplt.plot_flux_2d_comparison(
+                estimated_flux=estimated_f,
+                reference_flux=reference_f,
+                estimated_bounds=(rec_xy_min, rec_xy_max),
+                reference_bounds=(ref_xy_min, ref_xy_max),
+                energy_edges=energy_bins.cpu(),
+            )
+        else:
+            aplt.plot_flux_2d(
+                flux_data=estimated_f,
+                xy_bounds=(model.bbox.xy_min, model.bbox.xy_max),
+                energy_edges=energy_bins.cpu()
+            )
+    
+    if plot_loss or plot_flux:
+        plt.show()

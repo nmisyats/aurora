@@ -126,7 +126,7 @@ def generate_volume_emission(
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = recon.emis_rate(xyz).cpu()
+        l = recon.get_emission_rate(xyz).cpu()
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
@@ -135,7 +135,7 @@ def generate_volume_emission(
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
         xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = ref_recon.emis_rate(xyz).cpu()
+        l = ref_recon.get_emission_rate(xyz).cpu()
     
     if save is not None:
         data.save_3d_grid_data(l, save)
@@ -201,7 +201,7 @@ def generate_images(
     
     for i, cam in enumerate(cams):
         print(f"Generating image {i+1}/{len(cams)} ({cam.name})")
-        img = recon.image(cam, ray_bins)
+        img = recon.generate_image(cam, ray_bins)
         generated_imgs.append(img)
         reference_imgs.append(cam.image)
         camera_names.append(cam.name)
