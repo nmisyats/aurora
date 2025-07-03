@@ -20,7 +20,7 @@ class PolyMLP(FluxModel):
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
             num_basis: int = 8,
-            num_hidden: int = 5,
+            num_hidden: int = 4,
             hidden_size: int =  128
         ):
         super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
