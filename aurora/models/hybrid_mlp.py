@@ -60,7 +60,7 @@ class HybridMLP(FluxModel):
             nn.Linear(128, 1)
         )
 
-        self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+        self.log_to_real = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
 
         self._initialize_weights()
     
@@ -79,7 +79,8 @@ class HybridMLP(FluxModel):
     
     def _forward_single(self, xy: torch.Tensor):
         # xy: (2,) -> output: (N,)
-        return self._forward_batch(xy.unsqueeze(0)).squeeze(0)
+        out = self._forward_batch(xy.unsqueeze(0))
+        return {k: t.squeeze(0) for k, t in out.items()}
 
     def _forward_batch(self, xy: torch.Tensor):
         # xy: (B, 2)
@@ -112,15 +113,14 @@ class HybridMLP(FluxModel):
         xy_embed = self.position_embedder(xy_encoded)
         e_embed = self.energy_embedder(e_encoded)
         combined_input = torch.cat((xy_embed, e_embed), dim=1)
-        log_flux = self.combined_mlp(combined_input)
-        flux = self.exp10(log_flux)
-        
-        # Reshape back to (B, N)
-        flux = flux.reshape(B, num_bins)
+        log_f = self.combined_mlp(combined_input)
+        f = self.log_to_real(log_f)
+        f = f.reshape(B, num_bins) # Reshape back to (B, N)
+
         return {
             "xy_embed": xy_embed,
             "e_embed": e_embed,
-            "comb_embed": combined_input,
-            "log_f": log_flux,
-            "f": flux
+            "xye_embed": combined_input,
+            "log_f": log_f,
+            "f": f
         }

@@ -43,6 +43,8 @@ class PolyMLP(FluxModel):
                 self.mlp.append(nn.ReLU())
             self.mlp.append(nn.Linear(hidden_size, num_basis))
         
+        self.log_to_real = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+        
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions())
     
@@ -65,6 +67,5 @@ class PolyMLP(FluxModel):
         coeffs = self.mlp(x) # (batch_size, num_basis + 1)
         log_f_edges = torch.matmul(coeffs, self.basis_functions) # (batch_size, num_edges)
         log_f = 0.5 * (log_f_edges[:, :-1] + log_f_edges[:, 1:]) # (batch_size, num_bins)
-        f = torch.exp(log_f)
-        f = torch.clamp(f, min=1.0, max=10.0**self.max_log_flux)
+        f = self.log_to_real(log_f)
         return {"f": f, "log_f": log_f, "coeffs": coeffs}

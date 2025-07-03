@@ -46,7 +46,7 @@ class SpectralMLP(FluxModel):
                 self.mlp.append(nn.ReLU())
             self.mlp.append(nn.Linear(hidden_size, self.num_bins))
 
-        self.exp10 = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
+        self.log_to_real = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
 
         nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
         nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)
@@ -55,5 +55,5 @@ class SpectralMLP(FluxModel):
         xy_norm = self._normalize_xy(xy)
         xy_enc = self.fourier_encoder(xy_norm)
         log_f = self.mlp(xy_enc)
-        f = self.exp10(log_f)
+        f = self.log_to_real(log_f)
         return {"log_f": log_f, "f": f}

@@ -1,3 +1,5 @@
+from typing import Union, Optional
+
 import torch
 import torch.nn as nn
 
@@ -57,12 +59,19 @@ class FourierEncoder(nn.Module):
         return f"FourierEncoder(encoding_exp={self.encoding_exp})"
 
 class Exponentiate(nn.Module):
+    """Applies exponential transformation with input clamping"""
     def __init__(
             self,
-            base: float = None,
-            log_min: float | None = None,
-            log_max: float | None = None
+            base: Optional[float] = None,
+            log_min: Optional[float] = None,
+            log_max: Optional[float] = None
         ):
+        """
+        Args:
+            base: Base for exponentiation. If None, uses natural exponential (e^x).
+            log_min: Minimum value to clamp input before exponentiation.
+            log_max: Maximum value to clamp input before exponentiation.
+        """
         super().__init__()
 
         self.base = base
@@ -70,6 +79,15 @@ class Exponentiate(nn.Module):
         self.log_max = log_max
 
     def forward(self, x: torch.Tensor):
+        """
+        Apply exponential transformation to input tensor
+        
+        Args:
+            x: Input tensor
+            
+        Returns:
+            Exponential of input: base^x if base is specified, else e^x
+        """
         x = torch.clamp(x, min=self.log_min, max=self.log_max)
         if self.base is None:
             exp_x = torch.exp(x)
@@ -78,10 +96,8 @@ class Exponentiate(nn.Module):
         return exp_x
     
     def __repr__(self):
-        return (
-            f"Exponentiate("
+        return ("Exponentiate("
             f"base={self.base if self.base else 'e'}, "
             f"log_min={self.log_min}, "
             f"log_max={self.log_max}"
-            f")"
-        )
+        ")")
