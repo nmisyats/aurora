@@ -19,7 +19,9 @@ class PolyMLP(FluxModel):
             energy_bins: torch.Tensor,
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
-            num_basis: int = 8
+            num_basis: int = 8,
+            num_hidden: int = 5,
+            hidden_size: int =  128
         ):
         super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
 
@@ -27,15 +29,19 @@ class PolyMLP(FluxModel):
         self.max_log_flux = max_log_flux
 
         self.fourier_encoder = ann.FourierEncoder(encoding_exp)
-        encoding_size = self.fourier_encoder.output_dim(2)
-        
-        self.mlp = nn.Sequential(
-            nn.Linear(encoding_size, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, self.num_basis)
-        )
+
+        encode_dim = self.fourier_encoder.output_dim(2)
+        if num_hidden == 0:
+            self.mlp = nn.Sequential(nn.Linear(encode_dim, num_basis))
+        else:
+            self.mlp = nn.Sequential(
+                nn.Linear(encode_dim, hidden_size),
+                nn.ReLU()
+            )
+            for _ in range(num_hidden-1):
+                self.mlp.append(nn.Linear(hidden_size, hidden_size))
+                self.mlp.append(nn.ReLU())
+            self.mlp.append(nn.Linear(hidden_size, num_basis))
         
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions())
@@ -61,4 +67,4 @@ class PolyMLP(FluxModel):
         log_f = 0.5 * (log_f_edges[:, :-1] + log_f_edges[:, 1:]) # (batch_size, num_bins)
         f = torch.exp(log_f)
         f = torch.clamp(f, min=1.0, max=10.0**self.max_log_flux)
-        return f
+        return {"f": f, "log_f": log_f, "coeffs": coeffs}

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import overload, Optional, Union
+from typing import overload, Optional, Union, Dict
 
 import torch
 import torch.nn as nn
@@ -40,6 +40,8 @@ class FluxModel(nn.Module, ABC):
         self.register_buffer("altitude_bins", altitude_bins)
         self.register_buffer("energy_bins", energy_bins)
 
+        self.num_bins = len(energy_bins) - 1
+
         self.chunk_size = None
         self.chunk_progress_bar = False
     
@@ -58,16 +60,18 @@ class FluxModel(nn.Module, ABC):
         return (E - E_min) / (E_max - E_min)
     
     @abstractmethod
-    def forward(self, xy: torch.Tensor) -> torch.Tensor:
+    def forward(self, xy: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Calculate the electron flux distribution at points xy.
+        Calculate the electron flux distribution at points xy at return
+        relevant output.
         
         Args:
             xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
         
         Returns:
-            torch.Tensor: Flux tensor at the points xy of shape (n, n_E)
-                where n_E is the number of energy bins.
+            out: Dictionary of tensors. out["f"] is the flux tensor at the
+            points xy of shape (n, n_E) where n_E is the number of
+            energy bins.
         """
         ...
 
@@ -82,14 +86,16 @@ class FluxModel(nn.Module, ABC):
             return self._forward_flux_eval(xy)
     
     def _forward_flux_train(self, xy: torch.Tensor) -> torch.Tensor:
-        return self.forward(xy)
+        out = self.forward(xy)
+        return out["f"]
     
     @torch.no_grad()
     def _forward_flux_eval(self, xy: torch.Tensor) -> torch.Tensor:
         if self.chunk_size is not None:
             return self._eval_flux_chunked(xy)
         else:
-            return self.forward(xy)
+            out = self.forward(xy)
+            return out["f"]
 
     def _eval_flux_chunked(self, xy: torch.Tensor) -> torch.Tensor:
         """
@@ -106,11 +112,11 @@ class FluxModel(nn.Module, ABC):
         
         for _, (chunk_start, chunk_stop) in zip(iterator, chunks):
             xy_chunk = xy[chunk_start:chunk_stop]
-            f_chunk = self.forward(xy_chunk)
-            f_chunks.append(f_chunk)
+            out_chunk = self.forward(xy_chunk)
+            f_chunks.append(out_chunk["f"])
             
             if progress_bar:
-                iterator.set_postfix_str(f"flux_evals: {chunk_stop}/{len(xy)}")
+                iterator.set_postfix_str(f"flux_evals:{chunk_stop}/{len(xy)}")
         
         return torch.cat(f_chunks, dim=0)
     
@@ -264,7 +270,7 @@ class FluxModel(nn.Module, ABC):
         
         Args:
             cam (Camera): Camera object to generate the image from.
-            num_samples (int): Number of samples to use for ray integration.
+            num_samples (int): Number of samples to use for uniform ray integration.
             nan (float): Value to replace NaN values in the image.
         
         Returns:

@@ -56,4 +56,4 @@ class GridSampledFlux(FluxModel):
 
         # Reshape result to (N, B)
         output = sampled.squeeze(3).squeeze(1).T  # (N, B)
-        return output
+        return {"f": output}

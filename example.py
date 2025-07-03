@@ -48,19 +48,20 @@ print(model)
 
 # Load the cameras images and preprocess ray data
 cameras = au.data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
-ray_data = au.datasets.RayDataset(cameras, frame, bbox).to(device)
+ray_data = au.datasets.RayDataset(cameras, frame, bbox)
+ray_data = ray_data.to(device)
 
-# Choose a ray sampler for training
-ray_sampler = StratifiedSampler(num_bins=64)
+## Define the loss function that evaluates a model's loss during one
+# training iteration
+ray_sampler = StratifiedSampler(num_bins=64) # Ray sampler for training
 # Implement training iteration step
-def train_step():
+def iter_loss(model):
     batch = ray_data.sample_batch(4096) # random batch of 4096 rays
     loss = au.ray_loss(model, batch, ray_sampler) # evaluate the loss
-    loss.backward() # optimize
-    return {"ray_loss": loss.item()}
+    return loss
 
-# Train the model with the given training step for 2000 iterations
-au.train(modules=model, step=train_step, num_iters=2000)
+# Train the model with the given loss for 2000 iterations
+au.train(model, iter_loss, 2000)
 # Save the reconstruction after training
 au.save_model(model, "./example.pth")
 
@@ -70,10 +71,10 @@ au.save_model(model, "./example.pth")
 # (this disables gradient computation for more efficiency)
 model.eval()
 # Create a uniform grid spanning the xy bounding box
-xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128).to(device)
+xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
 # Plot the flux
 au.plot.plot_flux_2d(
-    flux_data=model.flux(xy).cpu(),
+    flux_data=model.flux(xy),
     xy_bounds=(bbox.xy_min, bbox.xy_max),
     energy_edges=energy_bins
 )

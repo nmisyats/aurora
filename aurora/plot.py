@@ -6,7 +6,7 @@ by the CLI and by users for custom visualization needs.
 """
 
 import math
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Dict, Union, Iterable
 
 import torch
 import torch.nn.functional as F
@@ -23,7 +23,7 @@ from aurora.camera import Camera
 import aurora.physics as phy
 
 
-def plot_training_losses(losses: list[float] | dict[str, list[float]]):
+def plot_training_losses(losses: Union[List[float], Dict[str, List[float]]]):
     fig, ax = plt.subplots()
     if isinstance(losses, dict):
         for name, loss in losses.items():
@@ -40,7 +40,7 @@ def plot_training_losses(losses: list[float] | dict[str, list[float]]):
 def plot_flux_2d(
     flux_data: torch.Tensor,
     xy_bounds: Tuple[torch.Tensor, torch.Tensor],
-    energy_edges: Optional[torch.Tensor] = None,
+    energy_edges: torch.Tensor,
     title: str = "$Q_0$",
     xlabel: str = "y (km)",
     ylabel: str = "x (km)",
@@ -75,12 +75,9 @@ def plot_flux_2d(
         Tuple of (figure, axes)
     """
     # Process flux data
-    if flux_data.dim() == 3:
-        if energy_edges is None:
-            raise ValueError("energy_edges required for 3D flux data")
-        plot_data = phy.compute_total_energy_flux(flux_data, energy_edges).cpu()
-    else:
-        plot_data = flux_data.cpu()
+    flux_data = flux_data.cpu()
+    energy_edges = energy_edges.cpu()
+    plot_data = phy.compute_total_energy_flux(flux_data, energy_edges)
     
     # Create figure/axes if not provided
     if ax is None:
@@ -90,6 +87,8 @@ def plot_flux_2d(
     
     # Get spatial bounds
     xy_min, xy_max = xy_bounds
+    xy_min = xy_min.cpu()
+    xy_max = xy_max.cpu()
     x_min, x_max, y_min, y_max = bounds2d_to_tuple(xy_min, xy_max)
     
     # Plot image
@@ -119,7 +118,7 @@ def plot_flux_2d(
 
 
 def plot_flux_1d(
-    flux_data: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...],
+    flux_data: Union[torch.Tensor, Iterable[torch.Tensor]],
     energy_edges: torch.Tensor,
     title: str = "Electron flux",
     labels: tuple[str, ...] | None = None,
@@ -143,8 +142,11 @@ def plot_flux_1d(
     else:
         fig = ax.figure
     
-    if not isinstance(flux_data, (list, tuple)):
-        flux_data = (flux_data,)
+    if isinstance(flux_data, torch.Tensor):
+        flux_data = (flux_data.cpu(),)
+    else:
+        flux_data = tuple(f.cpu() for f in flux_data)
+    energy_edges = energy_edges.cpu()
     energies = (energy_edges[1:] + energy_edges[:-1]) / 2.0
     
     if labels is not None:
@@ -198,14 +200,8 @@ def plot_flux_2d_comparison(
         Tuple of (figure, list of axes)
     """
     # Process flux data
-    if estimated_flux.dim() == 3:
-        if energy_edges is None:
-            raise ValueError("energy_edges required for 3D flux data")
-        est_q0 = phy.compute_total_energy_flux(estimated_flux, energy_edges).cpu()
-        ref_q0 = phy.compute_total_energy_flux(reference_flux, energy_edges).cpu()
-    else:
-        est_q0 = estimated_flux.cpu()
-        ref_q0 = reference_flux.cpu()
+    est_q0 = phy.compute_total_energy_flux(estimated_flux, energy_edges).cpu()
+    ref_q0 = phy.compute_total_energy_flux(reference_flux, energy_edges).cpu()
     
     # Setup figure with shared colorbar
     fig = plt.figure(figsize=figsize)
@@ -222,6 +218,10 @@ def plot_flux_2d_comparison(
     # Get bounds
     est_xy_min, est_xy_max = estimated_bounds
     ref_xy_min, ref_xy_max = reference_bounds
+    est_xy_min = est_xy_min.cpu()
+    est_xy_max = est_xy_max.cpu()
+    ref_xy_min = ref_xy_min.cpu()
+    ref_xy_max = ref_xy_max.cpu()
     
     x_est_min, x_est_max, y_est_min, y_est_max = bounds2d_to_tuple(est_xy_min, est_xy_max)
     x_ref_min, x_ref_max, y_ref_min, y_ref_max = bounds2d_to_tuple(ref_xy_min, ref_xy_max)
@@ -345,12 +345,12 @@ def plot_cameras_grid(
         cbar.set_label(colorbar_label)
         
         # Format title with camera attributes
-        title = title_format.format(**{
-            'name': cam.name,
-            'latitude': getattr(cam, 'latitude', 0),
-            'longitude': getattr(cam, 'longitude', 0),
-            'altitude': getattr(cam, 'altitude', 0)
-        })
+        title = title_format.format(
+            name=cam.name,
+            latitude=cam.latitude,
+            longitude=cam.longitude,
+            altitude=cam.altitude
+        )
         ax.set_title(title)
         
         return fig, ax
@@ -395,12 +395,12 @@ def plot_cameras_grid(
             ax.axis('off')
             
             # Format title
-            title = title_format.format(**{
-                'name': cam.name,
-                'latitude': getattr(cam, 'latitude', 0),
-                'longitude': getattr(cam, 'longitude', 0),
-                'altitude': getattr(cam, 'altitude', 0)
-            })
+            title = title_format.format(
+                name=cam.name,
+                latitude=cam.latitude,
+                longitude=cam.longitude,
+                altitude=cam.altitude
+            )
             ax.set_title(title)
         
         # Turn off unused axes
@@ -456,6 +456,8 @@ def plot_volume_3d(
     
     # Set spacing and origin
     xyz_min, xyz_max = xyz_bounds
+    xyz_min = xyz_min.cpu()
+    xyz_max = xyz_max.cpu()
     x_min, x_max, y_min, y_max, z_min, z_max = bounds3d_to_tuple(xyz_min, xyz_max)
     
     # Scale to make visualization more reasonable

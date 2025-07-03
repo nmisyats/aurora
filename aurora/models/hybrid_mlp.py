@@ -116,4 +116,11 @@ class HybridMLP(FluxModel):
         flux = self.exp10(log_flux)
         
         # Reshape back to (B, N)
-        return flux.reshape(B, num_bins)
+        flux = flux.reshape(B, num_bins)
+        return {
+            "xy_embed": xy_embed,
+            "e_embed": e_embed,
+            "comb_embed": combined_input,
+            "log_f": log_flux,
+            "f": flux
+        }

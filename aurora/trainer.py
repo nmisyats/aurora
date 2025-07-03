@@ -1,60 +1,46 @@
-from typing import Optional, Iterable, Callable, Dict, List, Union
+from typing import Optional, Iterable, Callable, Dict, List, Tuple, Union
 
 import torch
 import torch.nn as nn
-import torch.optim.lr_scheduler as lr_scheduler
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 import tqdm
 
 
-def train(
-        *,
-        step: Callable[[], Dict[str, float]],
-        num_iters: int,
-        start_iter: int = 0,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-        modules: Optional[Union[nn.Module, Iterable[nn.Module]]] = None,
-        lr: float = 5e-5,
-        weight_decay: float = 1.0,
-        scheduler: Optional[lr_scheduler.LRScheduler] = None,
-        progress_bar: bool = True
-    ) -> Dict[str, List[float]]:
-    """
-    Train reconstruction with flexible loss terms.
-    
-    Args:
-        [TODO]
-    
-    Returns:
-        Dictionary mapping loss term names to their training history
-    """
-    if optimizer is None:
-        if modules is None:
-            raise ValueError("Trained modules must be provided for default optimizer")
-        if isinstance(modules, nn.Module):
-            params = modules.parameters()
-        else:
-            params = set()
-            for module in modules:
-                params = params.union(module.parameters())
-        optimizer = torch.optim.Adam(
-            params=params,
-            lr=lr,
-            weight_decay=weight_decay
-        )
-    
+LossEvalOutput = Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, float]]]
+LossEvalFn = Callable[[nn.Module], LossEvalOutput]
+
+def train_loop(
+    model: nn.Module,
+    iter_loss: LossEvalFn,
+    optimizer: Optimizer,
+    num_iters: int,
+    start_iter: int = 0,
+    scheduler: Optional[LRScheduler] = None,
+    progress_bar: bool = True
+):
+    stop_iter = start_iter + num_iters
     if progress_bar:
-        iterator = tqdm.trange(start_iter, start_iter + num_iters)
+        iterator = tqdm.trange(start_iter, stop_iter)
     else:
-        iterator = range(start_iter, start_iter + num_iters)
+        iterator = range(start_iter, stop_iter)
     
     history = {}
-    
+
     for iter in iterator:
         optimizer.zero_grad()
         
-        loss_dict = step()
+        step_result = iter_loss(model)
+        if isinstance(step_result, tuple):
+            loss, loss_dict = step_result
+        else:
+            loss = step_result
+            loss_dict = {"loss": loss.item()}
+        
+        loss.backward()
         
         optimizer.step()
+
         if scheduler is not None:
             scheduler.step()
         
@@ -72,3 +58,27 @@ def train(
     
     return history
 
+def train(
+    model: nn.Module,
+    iter_loss: LossEvalFn,
+    num_iters: int,
+    start_iter: int = 0,
+    lr: float = 5e-5,
+    weight_decay: float = 1.0,
+    scheduler: Optional[LRScheduler] = None,
+    progress_bar: bool = True
+):
+    optimizer = torch.optim.Adam(
+        params=model.parameters(),
+        lr=lr,
+        weight_decay=weight_decay
+    )
+    return train_loop(
+        model=model,
+        iter_loss=iter_loss,
+        optimizer=optimizer,
+        num_iters=num_iters,
+        start_iter=start_iter,
+        scheduler=scheduler,
+        progress_bar=progress_bar
+    )

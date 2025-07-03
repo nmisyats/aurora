@@ -25,15 +25,15 @@ class Camera:
         return self.azimuth.size(0)
 
     def __repr__(self):
-        return ", ".join(["Camera=(",
-            f"name={self.name}",
-            f"latitude={self.latitude}",
-            f"longitude={self.longitude}",
-            f"altitude={self.altitude}",
-            f"image={type(self.image)} {self.image.shape}",
-            f"azimuth={type(self.azimuth)} {self.azimuth.shape}",
-            f"zenith={type(self.zenith)} {self.zenith.shape}",
-        ")"])
+        return ("Camera=("
+            f"name={self.name}, "
+            f"latitude={self.latitude}, "
+            f"longitude={self.longitude}, "
+            f"altitude={self.altitude}, "
+            f"image={type(self.image)} {self.image.shape}, "
+            f"azimuth={type(self.azimuth)} {self.azimuth.shape}, "
+            f"zenith={type(self.zenith)} {self.zenith.shape}"
+        ")")
 
     def downsample(self, factor: int) -> 'Camera':
         return Camera(
