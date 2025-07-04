@@ -46,8 +46,6 @@ class UpscalerMLP(FluxModel):
             nn.ReLU(),
             nn.Linear(128, self.num_bins)
         )
-
-        self.log_to_real = ann.Exponentiate(10.0, 0.0, max_log_flux)
     
     def forward(self, xy: torch.Tensor):
         xy_norm = self._normalize_xy(xy)
@@ -60,11 +58,11 @@ class UpscalerMLP(FluxModel):
             mode='linear', 
             align_corners=True
         ).squeeze(1) # (n, num_bins)
-        f_coarse = self.log_to_real(log_f_coarse)
+        f_coarse = ann.clamped_exp10(log_f_fine, 0.0, self.max_log_flux)
 
         fine_input = torch.cat([log_f_low, xy_enc], dim=-1)
         log_f_fine = self.fine_mlp(fine_input)
-        f_fine = self.log_to_real(log_f_fine)
+        f_fine = ann.clamped_exp10(log_f_fine, 0.0, self.max_log_flux)
 
         return {
             "f": f_fine,

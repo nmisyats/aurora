@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -58,46 +58,51 @@ class FourierEncoder(nn.Module):
     def __repr__(self):
         return f"FourierEncoder(encoding_exp={self.encoding_exp})"
 
-class Exponentiate(nn.Module):
-    """Applies exponential transformation with input clamping"""
-    def __init__(
-            self,
-            base: Optional[float] = None,
-            log_min: Optional[float] = None,
-            log_max: Optional[float] = None
-        ):
-        """
-        Args:
-            base: Base for exponentiation. If None, uses natural exponential (e^x).
-            log_min: Minimum value to clamp input before exponentiation.
-            log_max: Maximum value to clamp input before exponentiation.
-        """
-        super().__init__()
-
-        self.base = base
-        self.log_min = log_min
-        self.log_max = log_max
-
-    def forward(self, x: torch.Tensor):
-        """
-        Apply exponential transformation to input tensor
-        
-        Args:
-            x: Input tensor
-            
-        Returns:
-            Exponential of input: base^x if base is specified, else e^x
-        """
-        x = torch.clamp(x, min=self.log_min, max=self.log_max)
-        if self.base is None:
-            exp_x = torch.exp(x)
-        else:
-            exp_x = torch.pow(self.base, x)
-        return exp_x
+def clamped_exp10(
+        x: torch.Tensor,
+        log_min: Optional[float] = None,
+        log_max: Optional[float] = None
+    ):
+    """Computes 10^x with optional clamping of the input values.
     
-    def __repr__(self):
-        return ("Exponentiate("
-            f"base={self.base if self.base else 'e'}, "
-            f"log_min={self.log_min}, "
-            f"log_max={self.log_max}"
-        ")")
+    Args:
+        x: Input tensor containing the exponent values.
+        log_min: Optional minimum value to clamp x to. If None, no lower bound.
+        log_max: Optional maximum value to clamp x to. If None, no upper bound.
+        
+    Returns:
+        torch.Tensor: 10^x where x has been clamped to the specified range
+            [log_min, log_max].
+    """
+    x = torch.clamp(x, log_min, log_max)
+    return torch.pow(10.0, x)
+
+def make_mlp(*sizes: int):
+    """Creates a multi-layer perceptron (MLP) neural network with inner ReLU activations.
+    
+    Args:
+        *sizes: Variable number of integers specifying the layer sizes.
+               Must provide at least 2 sizes (input and output dimensions).
+               
+    Returns:
+        nn.Module: A PyTorch Sequential module containing the MLP layers.
+                  For 2 sizes, returns a single Linear layer.
+                  For 3+ sizes, returns a Sequential with Linear layers and ReLU 
+                  activations between hidden layers (no activation after final layer).
+                  
+    Raises:
+        AssertionError: If fewer than 2 sizes are provided.
+    """
+    assert len(sizes) >= 2
+
+    if len(sizes) == 2:
+        return nn.Linear(sizes[0], sizes[1])
+    
+    mlp = nn.Sequential()
+    num_hidden = len(sizes) - 2
+    for i in range(num_hidden):
+        mlp.append(nn.Linear(sizes[i], sizes[i+1]))
+        mlp.append(nn.ReLU())
+    mlp.append(nn.Linear(sizes[-2], sizes[-1]))
+    
+    return mlp

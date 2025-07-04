@@ -60,8 +60,6 @@ class HybridMLP(FluxModel):
             nn.Linear(128, 1)
         )
 
-        self.log_to_real = ann.Exponentiate(10.0, 0.0, self.max_log_flux)
-
         self._initialize_weights()
     
     def _initialize_weights(self):
@@ -114,7 +112,7 @@ class HybridMLP(FluxModel):
         e_embed = self.energy_embedder(e_encoded)
         combined_input = torch.cat((xy_embed, e_embed), dim=1)
         log_f = self.combined_mlp(combined_input)
-        f = self.log_to_real(log_f)
+        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
         f = f.reshape(B, num_bins) # Reshape back to (B, N)
 
         return {
