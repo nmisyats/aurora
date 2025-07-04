@@ -77,7 +77,7 @@ def clamped_exp10(
     x = torch.clamp(x, log_min, log_max)
     return torch.pow(10.0, x)
 
-def make_mlp(*sizes: int):
+def create_mlp(*sizes: int):
     """Creates a multi-layer perceptron (MLP) neural network with inner ReLU activations.
     
     Args:

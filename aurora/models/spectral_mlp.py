@@ -34,17 +34,8 @@ class SpectralMLP(FluxModel):
         self.max_log_flux = max_log_flux
 
         encode_dim = self.fourier_encoder.output_dim(2)
-        if num_hidden == 0:
-            self.mlp = nn.Sequential(nn.Linear(encode_dim, self.num_bins))
-        else:
-            self.mlp = nn.Sequential(
-                nn.Linear(encode_dim, hidden_size),
-                nn.ReLU()
-            )
-            for _ in range(num_hidden-1):
-                self.mlp.append(nn.Linear(hidden_size, hidden_size))
-                self.mlp.append(nn.ReLU())
-            self.mlp.append(nn.Linear(hidden_size, self.num_bins))
+        hidden_sizes = [hidden_size] * num_hidden
+        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_bins)
 
         nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
         nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)

@@ -31,17 +31,8 @@ class PolyMLP(FluxModel):
         self.fourier_encoder = ann.FourierEncoder(encoding_exp)
 
         encode_dim = self.fourier_encoder.output_dim(2)
-        if num_hidden == 0:
-            self.mlp = nn.Sequential(nn.Linear(encode_dim, num_basis))
-        else:
-            self.mlp = nn.Sequential(
-                nn.Linear(encode_dim, hidden_size),
-                nn.ReLU()
-            )
-            for _ in range(num_hidden-1):
-                self.mlp.append(nn.Linear(hidden_size, hidden_size))
-                self.mlp.append(nn.ReLU())
-            self.mlp.append(nn.Linear(hidden_size, num_basis))
+        hidden_sizes = [hidden_size] * num_hidden
+        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_bins)
         
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions())
