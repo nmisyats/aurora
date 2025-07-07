@@ -137,13 +137,8 @@ def plot_flux_1d(
         labels: Label for each plot
         xlabel: X-axis label
         ylabel: Y-axis label  
-        colorbar_label: Colorbar label
-        cmap: Colormap name
         figsize: Figure size (width, height)
         ax: Existing axes to plot on (optional)
-        vmin, vmax: Color scale limits
-        show_colorbar: Whether to show colorbar
-        aspect: Aspect ratio setting
         
     Returns:
         Tuple of (figure, axes)
