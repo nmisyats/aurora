@@ -32,7 +32,7 @@ class UpscalerMLP(FluxModel):
         encode_dim = self.fourier_encoder.output_dim(2)
 
         self.coarse_mlp = ann.create_mlp(encode_dim, 64, 64, low_flux_res)
-        self.fine_mlp = ann.create_mlp(encode_dim + low_flux_res, 128, 128, low_flux_res)
+        self.fine_mlp = ann.create_mlp(encode_dim + low_flux_res, 128, 128, self.num_bins)
     
     def forward(self, xy: torch.Tensor):
         xy_norm = self._normalize_xy(xy)
@@ -45,7 +45,7 @@ class UpscalerMLP(FluxModel):
             mode='linear', 
             align_corners=True
         ).squeeze(1) # (n, num_bins)
-        f_coarse = ann.clamped_exp10(log_f_fine, 0.0, self.max_log_flux)
+        f_coarse = ann.clamped_exp10(log_f_coarse, 0.0, self.max_log_flux)
 
         fine_input = torch.cat([log_f_low, xy_enc], dim=-1)
         log_f_fine = self.fine_mlp(fine_input)

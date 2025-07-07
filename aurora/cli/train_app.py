@@ -1,11 +1,11 @@
 from pathlib import Path
 import inspect
-from typing import Callable, Tuple, Dict, List
+from typing import Callable, Tuple, Dict, List, Optional
+from dataclasses import dataclass
 
 import typer
 from matplotlib import pyplot as plt
 import torch
-import torch.nn as nn
 
 import aurora as au
 from aurora import models, data
@@ -19,11 +19,26 @@ import aurora.plot as aplt
 train_app = typer.Typer(help="Train models")
 
 # Dynamically register all models as subcommands
-MODEL_REGISTRY = {}
+MODEL_DESCRIPTIONS = {}
 MODEL_TRAINING_COMMANDS = {}
-    
 
-def model_train_command(model_name: str):
+@dataclass
+class TrainingConfig:
+    iters: int
+    ray_data: Optional[au.RayDataset]
+    ray_batch: int
+    ray_bins: int
+    ray_weight: float
+    radar_data: Optional[au.RadarDataset]
+    radar_batch: int
+    radar_weight: float
+    smooth_batch: int
+    smooth_weight: float
+    lr: float
+    reg_strength: float
+    device: torch.device
+
+def model_train_command(model_name: str, model_decsription: Optional[str] = None):
     """Dynamically create a train command for a specific model"""
     
     def make_train_func(train_model: Callable[..., Tuple[FluxModel, Dict[str, List[float]]]]):
@@ -44,8 +59,6 @@ def model_train_command(model_name: str):
             smooth_weight: float = typer.Option(0.0, help="Weight for spectral smoothness loss"),
             lr: float = typer.Option(5e-5, help="Initial learning rate"),
             reg_strength: float = typer.Option(1.0, help="Parameter L2 regularization strength"),
-            lr_step: int = typer.Option(1000, help="Learning rate scheduler step"),
-            lr_decay: float = typer.Option(0.5, help="Learning rate step decay"),
             save: Path = typer.Option(None, help="Path to file where to save the reconstruction"),
             plot_loss: bool = typer.Option(False, help="Plot the training losses"),
             plot_flux: bool = typer.Option(True, help="Plot the reconstructed flux after training complete"),
@@ -104,8 +117,6 @@ def model_train_command(model_name: str):
             smooth_weight = get_param_value('smooth_weight', smooth_weight)
             lr = get_param_value('lr', lr)
             reg_strength = get_param_value('reg_strength', reg_strength)
-            lr_step = get_param_value('lr_step', lr_step)
-            lr_decay = get_param_value('lr_decay', lr_decay)
             save = get_param_value('save', save)
             plot_flux = get_param_value('plot', plot_flux)
             plot_res_x = get_param_value('plot_res_x', plot_res_x)
@@ -122,18 +133,12 @@ def model_train_command(model_name: str):
             device = choose_best_device(gpu)
 
             config = data.load_config(config_file, device)
-            frame = config.frame
-            bbox = config.bbox
-            emis_mat = config.physics.emis_mat
-            dens_mat = config.physics.dens_mat
-            energy_bins = config.physics.energy_bins
-            altitude_bins = config.physics.altitude_bins
 
             # Load the datasets
             ray_data, radar_data = None, None
             if cam_pos is not None and cam_dir is not None:
                 cams = data.load_cameras(cam_pos, cam_dir)
-                ray_data = au.datasets.RayDataset(cams, frame, bbox)
+                ray_data = au.datasets.RayDataset(cams, config.frame, config.bbox)
             if radar is not None:
                 points = data.load_radar_point_cloud(radar)
                 radar_data = au.datasets.RadarDataset(
@@ -141,11 +146,27 @@ def model_train_command(model_name: str):
                     latitudes=points.latitudes,
                     longitudes=points.longitudes,
                     densities=points.densities,
-                    frame=frame
+                    frame=config.frame
                 )
             
+            training_config = TrainingConfig(
+                iters=iters,
+                ray_data=ray_data,
+                ray_batch=ray_batch,
+                ray_bins=ray_bins,
+                ray_weight=ray_weight,
+                radar_data=radar_data,
+                radar_batch=radar_batch,
+                radar_weight=radar_weight,
+                smooth_batch=smooth_batch,
+                smooth_weight=smooth_weight,
+                lr=lr,
+                reg_strength=reg_strength,
+                device=device
+            )
+            
             # Run model specific training
-            model, history = train_model(**locals(), **final_config_kwargs)
+            model, history = train_model(config, training_config, **final_config_kwargs)
 
             if save is not None:
                 models.save_model(model, save)
@@ -156,10 +177,10 @@ def model_train_command(model_name: str):
 
             if plot_flux:
                 model.eval()
-                recon_xy = xy_grid(bbox.xy_min, bbox.xy_max, plot_res_x, plot_res_y)
+                rec_xy_min = model.bbox.xy_min
+                rec_xy_max = model.bbox.xy_max
+                recon_xy = xy_grid(rec_xy_min, rec_xy_max, plot_res_x, plot_res_y)
                 estimated_f = model.flux(recon_xy)
-                rec_xy_min = bbox.xy_min
-                rec_xy_max = bbox.xy_max
                 if ref_flux is not None and ref_config is not None:
                     ref = models.load_grid_model(ref_flux, ref_config, device)
                     reference_f = ref.data
@@ -170,13 +191,13 @@ def model_train_command(model_name: str):
                         reference_flux=reference_f,
                         estimated_bounds=(rec_xy_min, rec_xy_max),
                         reference_bounds=(ref_xy_min, ref_xy_max),
-                        energy_edges=energy_bins,
+                        energy_edges=model.energy_bins,
                     )
                 else:
                     aplt.plot_flux_2d(
                         flux_data=estimated_f,
                         xy_bounds=(model.bbox.xy_min, model.bbox.xy_max),
-                        energy_edges=energy_bins
+                        energy_edges=model.energy_bins
                     )
             
             if plot_loss or plot_flux:
@@ -198,6 +219,9 @@ def model_train_command(model_name: str):
         args_spec = inspect.getfullargspec(train_model)
         defaults_start_index = len(args_spec.args) - len(args_spec.defaults)
         for arg_name in args_spec.args:
+            if arg_name in ("config", "training_config"):
+                continue
+            
             arg_type = args_spec.annotations[arg_name]
 
             arg_index = args_spec.args.index(arg_name)
@@ -228,99 +252,215 @@ def model_train_command(model_name: str):
         train_func.__name__ = f"train_{model_name}"
 
         command = train_app.command(name=model_name, help=f"Train {model_name} model")
-        command(train_func)
+        MODEL_TRAINING_COMMANDS[model_name] = command(train_func)
+        MODEL_DESCRIPTIONS[model_name] = model_decsription
     
     return make_train_func
 
-    # MODEL_REGISTRY[model_name] = model_cls
-    # MODEL_TRAINING_COMMANDS[model_name] = train_command
+# Fallback command to list available models
+@train_app.callback(invoke_without_command=True)
+def train_main(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        typer.echo("Available models:")
+        for model_name, model_desc in MODEL_DESCRIPTIONS.items():
+            if model_desc is not None:
+                typer.echo(f"  {model_name} - {model_desc}")
+            else:
+                typer.echo(f"  {model_name}")
+        typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
 
-def default_iter_loss(**kw):
+@train_app.command("prepare")
+def make_options_file_for_model(model_name: str, file_path: Path):
+    """Generate a template training options YAML for the specified model"""
+    if model_name not in MODEL_TRAINING_COMMANDS:
+        typer.echo(f"No model named {model_name}")
+        raise typer.Exit(1)
+    train_command = MODEL_TRAINING_COMMANDS[model_name]
+    args_spec = inspect.getfullargspec(train_command)
+    yaml_dict = {}
+    for arg_name, arg_default in args_spec.kwonlydefaults.items():
+        if arg_name == "options":
+            continue
+        annotation = args_spec.annotations[arg_name]
+        if isinstance(arg_default, typer.models.OptionInfo):
+            if annotation is Path:
+                yaml_dict[arg_name] = ("...", arg_default.help)
+            else:
+                yaml_dict[arg_name] = (arg_default.default, arg_default.help)
+    
+    lines = [f"{name}: {default_val}" for name, (default_val, _) in yaml_dict.items()]
+    max_len = max(len(line) for line in lines)
+    with open(file_path, "w") as f:
+        for (name, (_, help_text)), line in zip(yaml_dict.items(), lines):
+            padding = " " * (max_len - len(line) + 2)  # +2 for space before comment
+            f.write(f"{line}{padding}# {help_text}\n")
+
+
+def default_iter_loss(tc: TrainingConfig):
+    """Generic iteration loss, should be suitable for most models out of the box."""
+    
     def iter_loss(model: FluxModel):
         # Train the reconstruction on the provided data
         loss_dict = {}
-        total_loss = torch.scalar_tensor(0.0, device=kw["device"])
-        if kw["ray_data"] is not None:
-            ray_batch = kw["ray_data"].sample_batch(kw["ray_batch"])
-            ray_sampler = StratifiedSampler(kw["ray_bins"])
-            ray_loss = kw["ray_weight"] * au.ray_loss(model, ray_batch, ray_sampler)
+        total_loss = torch.scalar_tensor(0.0, device=tc.device)
+        
+        if tc.ray_data is not None:
+            # Train on ray data
+            ray_batch = tc.ray_data.sample_batch(tc.ray_batch)
+            ray_sampler = StratifiedSampler(tc.ray_bins)
+            ray_loss = tc.ray_weight * au.ray_loss(model, ray_batch, ray_sampler)
             total_loss = total_loss + ray_loss
             loss_dict["ray_loss"] = ray_loss.item()
-        if kw["radar_data"] is not None:
-            radar_batch = kw["radar_data"].sample_batch(kw["radar_batch"])
-            radar_loss = kw["radar_weight"] * au.radar_loss(model, radar_batch)
+        
+        if tc.radar_data is not None:
+            # Train on radar data
+            radar_batch = tc.radar_data.sample_batch(tc.radar_batch)
+            radar_loss = tc.radar_weight * au.radar_loss(model, radar_batch)
             total_loss = total_loss + radar_loss
             loss_dict["radar_loss"] = radar_loss.item()
-        if kw["smooth_weight"] > 0.0:
-            xy_norm = torch.rand(kw["smooth_batch"], 2, device=kw["device"])
+        
+        if tc.smooth_weight > 0.0:
+            # Add smoothness constraint
+            xy_norm = torch.rand(tc.smooth_batch, 2, device=tc.device)
             xy = model.bbox.real_xy(xy_norm)
-            smooth_loss = kw["smooth_weight"] * au.spectral_smoothness_loss(model, xy)
+            smooth_loss = tc.smooth_weight * au.spectral_smoothness_loss(model, xy)
             loss_dict["smooth_loss"] = smooth_loss.item()
+        
         loss_dict["total_loss"] = total_loss.item()
         return total_loss, loss_dict
+    
     return iter_loss
 
-@model_train_command("spectral_mlp")
+@model_train_command("spectral_mlp", models.SpectralMLP.__doc__)
 def train_spectral_mlp(
+    config: data.Config,
+    training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
     num_hidden: int = typer.Option(4, help="Number of hidden layers"),
-    hidden_size: int = typer.Option(128, help="Size of each hidden layer"),
-    **kw
+    hidden_size: int = typer.Option(128, help="Size of each hidden layer")
 ):
     # Instantiate reconstruction model
     model = models.SpectralMLP(
-        frame=kw["frame"],
-        bbox=kw["bbox"],
-        emis_mat=kw["emis_mat"],
-        dens_mat=kw["dens_mat"],
-        altitude_bins=kw["altitude_bins"],
-        energy_bins=kw["energy_bins"],
+        frame=config.frame,
+        bbox=config.bbox,
+        emis_mat=config.physics.emis_mat,
+        dens_mat=config.physics.dens_mat,
+        altitude_bins=config.physics.altitude_bins,
+        energy_bins=config.physics.energy_bins,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
         num_hidden=num_hidden,
         hidden_size=hidden_size
-    ).to(kw["device"])
+    ).to(training_config.device)
     typer.echo(f"Instantiated model:\n{model}")
     # Train the reconstruction on the provided data
     history = au.train(
         model=model,
-        iter_loss=default_iter_loss(**kw),
-        num_iters=kw["iters"],
-        lr=kw["lr"],
-        weight_decay=kw["reg_strength"],
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
     )
     return model, history
 
+@model_train_command("poly_mlp", models.PolyMLP.__doc__)
+def train_poly_mlp(
+    config: data.Config,
+    training_config: TrainingConfig,
+    enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
+    max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
+    num_basis: int = typer.Option(8, help="Number of basis function for polynomial representation"),
+    num_hidden: int = typer.Option(4, help="Number of hidden layers"),
+    hidden_size: int = typer.Option(128, help="Size of each hidden layer")
+):
+    # Instantiate reconstruction model
+    model = models.PolyMLP(
+        frame=config.frame,
+        bbox=config.bbox,
+        emis_mat=config.physics.emis_mat,
+        dens_mat=config.physics.dens_mat,
+        altitude_bins=config.physics.altitude_bins,
+        energy_bins=config.physics.energy_bins,
+        encoding_exp=enc_exp,
+        max_log_flux=max_log_f,
+        num_basis=num_basis,
+        num_hidden=num_hidden,
+        hidden_size=hidden_size
+    ).to(training_config.device)
+    typer.echo(f"Instantiated model:\n{model}")
+    # Train the reconstruction on the provided data
+    history = au.train(
+        model=model,
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
+    )
+    return model, history
 
-# Fallback command to list available models
-# @train_app.callback(invoke_without_command=True)
-# def train_main(ctx: typer.Context):
-#     if ctx.invoked_subcommand is None:
-#         typer.echo("Available models:")
-#         for model_name, model_cls in MODEL_REGISTRY.items():
-#             if model_cls.__doc__ is not None:
-#                 typer.echo(f"  {model_name} - {model_cls.__doc__}")
-#             else:
-#                 typer.echo(f"  {model_name}")
-#         typer.echo("\nUse 'aurora train <model_name> --help' for model-specific options.")
+@model_train_command("hybrid_mlp", models.HybridMLP.__doc__)
+def train_hybrid_mlp(
+    config: data.Config,
+    training_config: TrainingConfig,
+    position_embed: int = typer.Option(8, help="Position embedding size"),
+    energy_embed: int = typer.Option(8, help="Energy embedding size"),
+    pos_enc: int = typer.Option(4, help="Maximum exponent for positional encoding"),
+    energy_enc: int = typer.Option(4, help="Maximum exponent for energy encoding"),
+    max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
+):
+    # Instantiate reconstruction model
+    model = models.HybridMLP(
+        frame=config.frame,
+        bbox=config.bbox,
+        emis_mat=config.physics.emis_mat,
+        dens_mat=config.physics.dens_mat,
+        altitude_bins=config.physics.altitude_bins,
+        energy_bins=config.physics.energy_bins,
+        position_embed=position_embed,
+        energy_embed=energy_embed,
+        position_enc=pos_enc,
+        energy_enc=energy_enc,
+        max_log_flux=max_log_f
+    ).to(training_config.device)
+    typer.echo(f"Instantiated model:\n{model}")
+    # Train the reconstruction on the provided data
+    history = au.train(
+        model=model,
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
+    )
+    return model, history
 
-# @train_app.command("prepare")
-# def make_options_file_for_model(model_name: str, file_path: Path):
-#     """Generate a template training options YAML for the specified model"""
-#     if model_name not in MODEL_TRAINING_COMMANDS:
-#         typer.echo(f"No model named {model_name}")
-#         raise typer.Exit(1)
-#     train_command = MODEL_TRAINING_COMMANDS[model_name]
-#     args_spec = inspect.getfullargspec(train_command)
-#     yaml_dict = {}
-#     for arg_name, arg_default in args_spec.kwonlydefaults.items():
-#         if arg_name == "options":
-#             continue
-#         annotation = args_spec.annotations[arg_name]
-#         if isinstance(arg_default, typer.models.OptionInfo):
-#             if annotation is Path:
-#                 yaml_dict[arg_name] = "..."
-#             else:
-#                 yaml_dict[arg_name] = arg_default.default
-#     data.save_yaml(file_path, yaml_dict)
+@model_train_command("upscaler_mlp", models.UpscalerMLP.__doc__)
+def train_upscaler_mlp(
+    config: data.Config,
+    training_config: TrainingConfig,
+    enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
+    max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
+    low_f_res: int = typer.Option(8, help="Number of bins in the low resolution flux reconstruction")
+):
+    # Instantiate reconstruction model
+    model = models.UpscalerMLP(
+        frame=config.frame,
+        bbox=config.bbox,
+        emis_mat=config.physics.emis_mat,
+        dens_mat=config.physics.dens_mat,
+        altitude_bins=config.physics.altitude_bins,
+        energy_bins=config.physics.energy_bins,
+        encoding_exp=enc_exp,
+        max_log_flux=max_log_f,
+        low_flux_res=low_f_res
+    ).to(training_config.device)
+    typer.echo(f"Instantiated model:\n{model}")
+    # Train the reconstruction on the provided data
+    history = au.train(
+        model=model,
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
+    )
+    return model, history

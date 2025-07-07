@@ -6,6 +6,7 @@ from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.dnn as ann
 
+# TODO: FIX
 
 class PolyMLP(FluxModel):
     """MLP learning a polynomial basis of the flux"""
@@ -32,7 +33,7 @@ class PolyMLP(FluxModel):
 
         encode_dim = self.fourier_encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
-        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_bins)
+        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_basis)
         
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions())
@@ -53,7 +54,7 @@ class PolyMLP(FluxModel):
     def forward(self, xy: torch.Tensor):
         xy = self._normalize_xy(xy)
         x = self.fourier_encoder(xy)
-        coeffs = self.mlp(x) # (batch_size, num_basis + 1)
+        coeffs = self.mlp(x) # (batch_size, num_basis)
         log_f_edges = torch.matmul(coeffs, self.basis_functions) # (batch_size, num_edges)
         log_f = 0.5 * (log_f_edges[:, :-1] + log_f_edges[:, 1:]) # (batch_size, num_bins)
         f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)

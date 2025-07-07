@@ -207,7 +207,7 @@ def generate_images(
         camera_names.append(cam.name)
 
     if plot:
-        fig, axes_rows = aplt.plot_image_comparison(
+        aplt.plot_image_comparison(
             generated_images=generated_imgs,
             reference_images=reference_imgs,
             camera_names=camera_names,
