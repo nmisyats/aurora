@@ -11,7 +11,7 @@ import aurora.dnn as ann
 
 
 class ResidualMLP(FluxModel):
-    """MLP outputing the energy spectrum from the xy position"""
+    """Double MLP learning coarse and detailed flux in parallel"""
     def __init__(
             self,
             frame: Frame,
