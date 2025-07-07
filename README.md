@@ -112,8 +112,6 @@ Options
     --smooth-weight                          FLOAT    Weight for spectral smoothness loss [default: 0.0]
     --lr                                     FLOAT    Initial learning rate [default: 5e-05]
     --reg-strength                           FLOAT    Regularization strength [default: 1.0]
-    --lr-step                                INTEGER  Learning rate scheduler step [default: 1000]
-    --lr-decay                               FLOAT    Learning rate step decay [default: 0.5]
     --save                                   PATH     Path to file where to save the reconstruction [default: None]
     --plot-loss            --no-plot-loss             Plot the training losses [default: no-plot-loss]
     --plot-flux            --no-plot-flux             Plot the reconstructed flux after training complete [default: plot-flux]
