@@ -21,7 +21,10 @@ class HybridMLP(FluxModel):
             energy_embed: int = 8,
             position_enc: int = 4,
             energy_enc: int = 4,
-            max_log_flux: float = 7.0
+            max_log_flux: float = 7.0,
+            embed_hidden_size: int = 64,
+            num_hidden: int = 3,
+            hidden_size: int = 128
         ):
         super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
 
@@ -35,8 +38,9 @@ class HybridMLP(FluxModel):
             position_embed_dim = position_embed
             self.position_embedder = ann.create_mlp(
                 position_encode_dim,
-                128,
-                position_embed_dim)
+                embed_hidden_size,
+                position_embed_dim
+            )
         else:
             self.position_embedder = nn.Identity()
             position_embed_dim = position_encode_dim
@@ -46,14 +50,16 @@ class HybridMLP(FluxModel):
             energy_embed_dim = energy_embed
             self.energy_embedder = ann.create_mlp(
                 energy_encode_dim,
-                128,
-                energy_embed_dim)
+                embed_hidden_size,
+                energy_embed_dim
+            )
         else:
             self.energy_embedder = nn.Identity()
             energy_embed_dim = energy_encode_dim
 
         combined_dim = position_embed_dim + energy_embed_dim
-        self.combined_mlp = ann.create_mlp(combined_dim, 128, 128, 128, 1)
+        hidden_sizes = [hidden_size] * num_hidden
+        self.combined_mlp = ann.create_mlp(combined_dim, *hidden_sizes, 1)
 
         self._initialize_weights()
     
