@@ -200,9 +200,8 @@ import torch
 from matplotlib import pyplot as plt
 
 import aurora as au
-from aurora import Frame, BBox
-from aurora.losses import RayLoss, SpectralSmoothnessLoss
-from aurora.models import SpectralMLP, save_model
+from aurora import Frame, BBox, StratifiedSampler
+from aurora.models import SpectralMLP
 
 # Choose a device to run the reconstruction on
 device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -245,27 +244,33 @@ print(model)
 
 # Load the cameras images and preprocess ray data
 cameras = au.data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
-ray_data = au.datasets.RayDataset(cameras, frame, bbox).to(device)
+ray_data = au.datasets.RayDataset(cameras, frame, bbox)
+ray_data = ray_data.to(device)
 
-# Train the model with the given loss terms
-au.minimize(
-    RayLoss(model, ray_data),
-    SpectralSmoothnessLoss(model),
-    iters=2000
-)
+## Define the loss function that evaluates a model's loss during one
+# training iteration
+ray_sampler = StratifiedSampler(num_bins=64) # Ray sampler for training
+# Implement training iteration step
+def iter_loss(model):
+    batch = ray_data.sample_batch(4096) # random batch of 4096 rays
+    loss = au.ray_loss(model, batch, ray_sampler) # evaluate the loss
+    return loss
+
+# Train the model with the given loss for 2000 iterations
+au.train(model, iter_loss, 2000)
 # Save the reconstruction after training
-save_model(model, "./example.pth")
+au.save_model(model, "./example.pth")
 
-# Plot the reconstructed total energy flux
+## Plot the reconstructed total energy flux
 
 # Set the reconstruction in evaluation mode
 # (this disables gradient computation for more efficiency)
 model.eval()
 # Create a uniform grid spanning the xy bounding box
-xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128).to(device)
+xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128)
 # Plot the flux
 au.plot.plot_flux_2d(
-    flux_data=model.flux(xy).cpu(),
+    flux_data=model.flux(xy),
     xy_bounds=(bbox.xy_min, bbox.xy_max),
     energy_edges=energy_bins
 )
