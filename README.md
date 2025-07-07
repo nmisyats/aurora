@@ -87,10 +87,7 @@ Use 'aurora train <model_name> --help' for model-specific options.
 
 Each model share common arguments for training as well as
 model-specific arguments. The command to train a model
-`<model_name>` is:
-```
-$ aurora train <model_name>
-```
+`<model_name>` is `aurora train <model_name>`.
 For example, running `aurora train spectral_mlp --help` outputs:
 ```
 Arguments
