@@ -320,7 +320,6 @@ To add a custom model to the `aurora train` command, you must
 first define your new model:
 ```python
 class MyModel(FluxModel):
-    "Short description of my model" # Shown in the `aurora train` command
     def __init__(
             self,
             frame: Frame,
@@ -339,14 +338,41 @@ class MyModel(FluxModel):
     def forward(self, xy: torch.Tensor):
         ...
 ```
-Then, append its command creation at the bottom of the`aurora/train_app.py` file:
+Then, define its training command at the bottom of the`aurora/train_app.py` using the following template:
 ```python
 ... # Other models
 
-create_train_command_for_model("my_model", MyModel,
-    param1="Custom param 1",
-    param2="Custom param 2"
-)
+@model_train_command("my_model", "My model description")
+def train_hybrid_mlp(
+    config: data.Config,
+    training_config: TrainingConfig,
+    param1: int = typer.Option(42, help="Help for param1"),
+    param2: float = typer.Option(3.14, help="Help for param2"),
+):
+    # Instantiate reconstruction model
+    model = models.HybridMLP(
+        frame=config.frame,
+        bbox=config.bbox,
+        emis_mat=config.physics.emis_mat,
+        dens_mat=config.physics.dens_mat,
+        altitude_bins=config.physics.altitude_bins,
+        energy_bins=config.physics.energy_bins,
+        # Model-specific
+        param1=param1,
+        param2=param2
+    ).to(training_config.device)
+    # Print model details (optional)
+    typer.echo(f"Instantiated model:\n{model}") 
+    # Train the reconstruction on the provided data using
+    # the default predefined loss
+    history = au.train(
+        model=model,
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
+    )
+    return model, history
 ```
 This will add a new subcommand to `aurora train` with the provided extra options:
 ```
@@ -354,7 +380,7 @@ $ aurora train
 
 Available models:
   ...
-  my_model - Short description of my model
+  my_model - My model description
 
 $ aurora train my_model --help
 
