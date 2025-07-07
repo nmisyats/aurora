@@ -121,7 +121,7 @@ def plot_flux_1d(
     flux_data: Union[torch.Tensor, Iterable[torch.Tensor]],
     energy_edges: torch.Tensor,
     title: str = "Electron flux",
-    labels: tuple[str, ...] | None = None,
+    labels: Optional[Tuple[str, ...]] = None,
     xlabel: str = "E [eV]",
     ylabel: str = "f [cm$^{-2}$s$^{-1}$eV$^{-1}$]",
     figsize: Tuple[float, float] = (8, 6),
@@ -131,7 +131,19 @@ def plot_flux_1d(
     Plot 1D flux data.
     
     Args:
-        TODO
+        flux_data: 1D tensor or list of 1D tensor, each corresponding to a flux spectrum to plot
+        energy_edges: 1D tensor defining the energy bins of the flux
+        title: Plot title
+        labels: Label for each plot
+        xlabel: X-axis label
+        ylabel: Y-axis label  
+        colorbar_label: Colorbar label
+        cmap: Colormap name
+        figsize: Figure size (width, height)
+        ax: Existing axes to plot on (optional)
+        vmin, vmax: Color scale limits
+        show_colorbar: Whether to show colorbar
+        aspect: Aspect ratio setting
         
     Returns:
         Tuple of (figure, axes)
