@@ -22,7 +22,10 @@ class ResidualMLP(FluxModel):
             energy_bins: torch.Tensor,
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
-            low_flux_res: int = 8
+            low_flux_res: int = 8,
+            num_hidden_coarse: int = 2,
+            hidden_size_coarse: int = 128,
+            hidden_size_details: int = 32
         ):
         super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
 
@@ -31,8 +34,10 @@ class ResidualMLP(FluxModel):
 
         encode_dim = self.fourier_encoder.output_dim(2)
 
-        self.coarse_mlp = ann.create_mlp(encode_dim, 128, 64, low_flux_res)
-        self.details_mlp = ann.create_mlp(encode_dim + low_flux_res, 32, self.num_bins)
+        hidden_sizes_coarse = [hidden_size_coarse] * num_hidden_coarse
+        self.coarse_mlp = ann.create_mlp(encode_dim, *hidden_sizes_coarse, low_flux_res)
+        details_in_dim = encode_dim + low_flux_res
+        self.details_mlp = ann.create_mlp(details_in_dim, hidden_size_details, self.num_bins)
     
     def forward(self, xy: torch.Tensor):
         xy_norm = self._normalize_xy(xy)

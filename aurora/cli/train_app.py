@@ -450,7 +450,10 @@ def train_residual_mlp(
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
-    low_f_res: int = typer.Option(8, help="Number of bins in the low resolution flux reconstruction")
+    low_f_res: int = typer.Option(8, help="Number of bins in the low resolution flux reconstruction"),
+    num_hidden_coarse: int = typer.Option(2, help="Number of hidden layers in coarse network"),
+    hidden_size_coarse: int = typer.Option(64, help="Size of hidden layers in coarse network"),
+    hidden_size_details: int = typer.Option(32, help="Size of the hidden layers in details network")
 ):
     # Instantiate reconstruction model
     model = models.ResidualMLP(
@@ -462,7 +465,10 @@ def train_residual_mlp(
         energy_bins=config.physics.energy_bins,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
-        low_flux_res=low_f_res
+        low_flux_res=low_f_res,
+        num_hidden_coarse=num_hidden_coarse,
+        hidden_size_coarse=hidden_size_coarse,
+        hidden_size_details=hidden_size_details
     ).to(training_config.device)
     typer.echo(f"Instantiated model:\n{model}")
 
