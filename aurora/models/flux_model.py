@@ -263,6 +263,65 @@ class FluxModel(nn.Module, ABC):
 
         return unflatten_batch_dims(g, outer_shape)
     
+    @normalize_batch_dims(p_frame=1)
+    def get_xy_z(self, p_frame: torch.Tensor) -> torch.Tensor:
+        """
+        Extract (xy, z) of xy horizontal positions in the oblique frame,
+        and z the altitude in the ENU frame from full oblique coordinates.
+        """
+        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
+        xy, z = p_frame[...,:2], p_enu[...,2]
+        return xy, z
+    
+    def compute_electron_density(
+            self,
+            z: torch.Tensor,
+            f: torch.Tensor,
+        ) -> torch.Tensor:
+        """
+        Calculate the electron density based on altitude and flux.
+        
+        Args:
+            z (torch.Tensor): Altitude tensor of shape (n,) [km].
+            f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+            
+        Returns:
+            torch.Tensor: Electron density tensor of shape (n,) [cm-3].
+        """
+        return phy.compute_electron_density(z, f, self.dens_mat, self.altitude_bins)
+    
+    def compute_emission_rate(
+            self,
+            z: torch.Tensor,
+            f: torch.Tensor,
+        ) -> torch.Tensor:
+        """
+        Calculate the emission rate based on altitude and flux.
+        
+        Args:
+            z (torch.Tensor): Altitude tensor of shape (n,) [km].
+            f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+        
+        Returns:
+            torch.Tensor: Volume emission rate tensor of shape (n,) [cm-3 s-1].
+        """
+        return phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
+    
+    def compute_total_energy_flux(
+            self,
+            f: torch.Tensor
+        ) -> torch.Tensor:
+        """
+        Calculate the total energy flux from the flux tensor.
+        
+        Args:
+            f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+        
+        Returns:
+            torch.Tensor: Total energy flux tensor of shape (n) [W m-2].
+        """
+        return phy.compute_total_energy_flux(f, self.energy_bins)
+    
     @overload
     def generate_image(self, cam: Camera, num_samples: int, nan=0.0):
         """

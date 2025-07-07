@@ -6,12 +6,14 @@ from dataclasses import dataclass
 import typer
 from matplotlib import pyplot as plt
 import torch
+import torch.nn.functional as F
 
 import aurora as au
 from aurora import models, data
 from aurora.samplers import StratifiedSampler
 from aurora.utils import choose_best_device, xy_grid
 from aurora.models import FluxModel
+import aurora.physics as phy
 import aurora.plot as aplt
 
 
@@ -434,8 +436,8 @@ def train_hybrid_mlp(
     )
     return model, history
 
-@model_train_command("upscaler_mlp", models.UpscalerMLP.__doc__)
-def train_upscaler_mlp(
+@model_train_command("residual_mlp", models.ResidualMLP.__doc__)
+def train_residual_mlp(
     config: data.Config,
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
@@ -443,7 +445,7 @@ def train_upscaler_mlp(
     low_f_res: int = typer.Option(8, help="Number of bins in the low resolution flux reconstruction")
 ):
     # Instantiate reconstruction model
-    model = models.UpscalerMLP(
+    model = models.ResidualMLP(
         frame=config.frame,
         bbox=config.bbox,
         emis_mat=config.physics.emis_mat,
@@ -455,10 +457,61 @@ def train_upscaler_mlp(
         low_flux_res=low_f_res
     ).to(training_config.device)
     typer.echo(f"Instantiated model:\n{model}")
+
+    def iter_loss(model: FluxModel):
+        # Train the reconstruction on the provided data
+        tc = training_config
+        loss_dict = {}
+        total_loss = torch.scalar_tensor(0.0, device=tc.device)
+        
+        if tc.ray_data is not None:
+            # Train on ray data
+            ro, rd, tn, tf, g_ref = tc.ray_data.sample_batch(tc.ray_batch)
+            ray_sampler = StratifiedSampler(tc.ray_bins)
+            p_frame, t = ray_sampler(ro, rd, tn, tf)
+            xy, z = model.get_xy_z(p_frame)
+            f_out = model.forward(xy)
+            l_coarse = model.compute_emission_rate(z, f_out["f_coarse"])
+            l_fine = model.compute_emission_rate(z, f_out["f_fine"])
+            g_coarse = phy.integrate_emis_to_rayleigh(t, l_coarse)
+            g_fine = phy.integrate_emis_to_rayleigh(t, l_fine)
+
+            coarse_ray_loss = F.mse_loss(g_coarse, g_ref)
+            fine_ray_loss = F.mse_loss(g_fine, g_ref)
+            ray_loss = tc.ray_weight * 0.5 * (coarse_ray_loss + fine_ray_loss)
+            
+            total_loss = total_loss + ray_loss
+            loss_dict["ray_loss"] = ray_loss.item()
+        
+        if tc.radar_data is not None:
+            # Train on radar data
+            p_frame, d_ref = tc.radar_data.sample_batch(tc.radar_batch)
+            xy, z = model.get_xy_z(p_frame)
+            f_out = model.forward(xy)
+            d_coarse = model.compute_electron_density(z, f_out["f_coarse"])
+            d_fine = model.compute_electron_density(z, f_out["f_fine"])
+
+            coarse_radar_loss = F.mse_loss(d_coarse, d_ref)
+            fine_radar_loss = F.mse_loss(d_fine, d_ref)
+            radar_loss = tc.radar_weight * 0.5 * (coarse_radar_loss + fine_radar_loss)
+            
+            total_loss = total_loss + radar_loss
+            loss_dict["radar_loss"] = radar_loss.item()
+        
+        if tc.smooth_weight > 0.0:
+            # Add smoothness constraint
+            xy_norm = torch.rand(tc.smooth_batch, 2, device=tc.device)
+            xy = model.bbox.real_xy(xy_norm)
+            smooth_loss = tc.smooth_weight * au.spectral_smoothness_loss(model, xy)
+            loss_dict["smooth_loss"] = smooth_loss.item()
+        
+        loss_dict["total_loss"] = total_loss.item()
+        return total_loss, loss_dict
+
     # Train the reconstruction on the provided data
     history = au.train(
         model=model,
-        iter_loss=default_iter_loss(training_config),
+        iter_loss=iter_loss,
         num_iters=training_config.iters,
         lr=training_config.lr,
         weight_decay=training_config.reg_strength,

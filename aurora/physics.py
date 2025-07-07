@@ -17,7 +17,7 @@ def compute_emission_rate(
         altitude_bins (torch.Tensor): Edges of altitude bins of shape (n_z+1,) [km].
     
     Returns:
-        torch.Tensor: Voume emission rate tensor of shape (n,) [cm-3 s-1].
+        torch.Tensor: Volume emission rate tensor of shape (n,) [cm-3 s-1].
     """
     z_idx = torch.bucketize(z.contiguous(), altitude_bins) - 1
     z_idx = torch.clamp(z_idx, 0, emis_mat.shape[1]-1)
