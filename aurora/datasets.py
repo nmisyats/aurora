@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import NamedTuple
+from typing import NamedTuple, List
 
 import torch
 
@@ -68,7 +68,7 @@ class RayBatch(NamedTuple):
     g_ref: torch.Tensor
 
 class RayDataset(Dataset):
-    def __init__(self, cams: list[Camera], frame: Frame, bbox: BBox):
+    def __init__(self, cams: List[Camera], frame: Frame, bbox: BBox):
         device = frame.device
 
         ro_list, rd_list, g_ref_list = [], [], []

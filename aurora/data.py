@@ -1,7 +1,8 @@
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Union, Optional, List, Dict, Tuple
 
-from schema import Schema, Optional, And, Or, Use
+from schema import Schema, Optional as Option, And, Or, Use
 import yaml
 try:
     from yaml import CLoader as Loader
@@ -18,7 +19,11 @@ from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
 
-def load_yaml(file_path: Path | str, schema: Schema | None = None) -> dict:
+
+PathLike = Union[Path, str]
+
+
+def load_yaml(file_path: PathLike, schema: Optional[Schema] = None) -> Dict:
     with open(file_path, "r") as f:
         data = yaml.load(f, Loader=Loader)
     if schema is not None:
@@ -26,11 +31,11 @@ def load_yaml(file_path: Path | str, schema: Schema | None = None) -> dict:
     else:
         return data
 
-def save_yaml(file_path: Path | str, data) -> dict:
+def save_yaml(file_path: PathLike, data):
     with open(file_path, "w") as f:
         yaml.dump(data, f, Dumper=Dumper)
 
-def resolve_relative_to_base(target_path: Path | str, base_path: Path | str) -> Path:
+def resolve_relative_to_base(target_path: PathLike, base_path: PathLike) -> Path:
     base_path = Path(base_path)
     target_path = Path(target_path)
     if target_path.is_absolute():
@@ -38,7 +43,7 @@ def resolve_relative_to_base(target_path: Path | str, base_path: Path | str) -> 
     abs_base = base_path.resolve()
     return (abs_base / target_path).resolve()
 
-def path_validator(base_path: Path | str | None = None):
+def path_validator(base_path: Optional[PathLike] = None):
     ops = [Use(Path)]
     if base_path is not None:
         ops.append(Use(lambda p: resolve_relative_to_base(p, base_path)))
@@ -61,13 +66,13 @@ def physical_model_schema(base_path=None):
         "energy_bins": valid_path,
     })
 
-def load_physical_model(yaml_path: Path | str, device=torch.device("cpu")):
+def load_physical_model(yaml_path: PathLike, device=torch.device("cpu")):
     yaml_path = Path(yaml_path)
     schema = physical_model_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return physical_model_from_dict(data, device)
 
-def physical_model_from_dict(data: dict, device=torch.device("cpu")):
+def physical_model_from_dict(data: Dict, device=torch.device("cpu")):
     return PhysicalModel(
         emis_mat=load_emission_matrix(data["emis_mat"]).to(device),
         dens_mat=load_density_matrix(data["dens_mat"]).to(device),
@@ -84,12 +89,12 @@ def frame_schema(base_path=None):
         "field_dec": Use(float),
     })
 
-def load_frame(yaml_path: Path | str, device=torch.device("cpu")):
+def load_frame(yaml_path: PathLike, device=torch.device("cpu")):
     schema = frame_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return frame_from_dict(data, device)
 
-def frame_from_dict(data: dict, device=torch.device("cpu")):
+def frame_from_dict(data: Dict, device=torch.device("cpu")):
     return Frame(
         origin_latitude=data["origin_lat"],
         origin_longitude=data["origin_lon"],
@@ -110,7 +115,7 @@ def frame_to_dict(frame: Frame):
 def bbox_schema(base_path=None):
     valid_path = path_validator(base_path)
     return Schema({
-        Optional("frame"): Or(frame_schema(base_path), valid_path),
+        Option("frame"): Or(frame_schema(base_path), valid_path),
         "east_min": Use(float),
         "east_max": Use(float),
         "south_min": Use(float),
@@ -119,12 +124,12 @@ def bbox_schema(base_path=None):
         "alt_max": Use(float),
     })
 
-def load_bbox(yaml_path: Path | str, frame: Frame | None = None):
+def load_bbox(yaml_path: PathLike, frame: Optional[Frame] = None):
     schema = bbox_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return bbox_from_dict(data, frame)
 
-def bbox_from_dict(data: dict, frame: Frame | None = None):
+def bbox_from_dict(data: Dict, frame: Optional[Frame] = None):
     if frame is None and "frame" in data:
         if isinstance(data["frame"], dict):
             frame = frame_from_dict(data["frame"])
@@ -139,7 +144,7 @@ def bbox_from_dict(data: dict, frame: Frame | None = None):
         altitude_range=(data["alt_min"], data["alt_max"])
     )
 
-def bbox_to_dict(bbox: BBox, frame: Frame | Path | str | None = None):
+def bbox_to_dict(bbox: BBox, frame: Optional[Union[Frame, PathLike]] = None):
     bbox_data = {
         "east_min": bbox.east_range[0],
         "east_max": bbox.east_range[1],
@@ -169,7 +174,7 @@ def config_schema(base_path=None):
         "physics": physical_model_schema(base_path)
     }, ignore_extra_keys=True)
 
-def load_config(yaml_path: Path | str, device=torch.device("cpu")):
+def load_config(yaml_path: PathLike, device=torch.device("cpu")):
     schema = config_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return config_from_dict(data, device)
@@ -180,14 +185,14 @@ def config_from_dict(data: dict, device=torch.device("cpu")):
     physics = physical_model_from_dict(data["physics"], device)
     return Config(frame, bbox, physics)
 
-def load_camera_images(cam_dir: Path | str, device=torch.device("cpu")):
+def load_camera_images(cam_dir: PathLike, device=torch.device("cpu")):
     cam_dir = Path(cam_dir)
     image = load_matrix_data(cam_dir / "image.dat").to(device)
     azimuth = load_matrix_data(cam_dir / "az_cam.dat").to(device)
     zenith = load_matrix_data(cam_dir / "ze_cam.dat").to(device)
     return image, azimuth, zenith
 
-def load_cameras(cam_pos_set: Path | str, cam_images_dir: Path | str, device=torch.device("cpu")) -> list[Camera]:
+def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike, device=torch.device("cpu")) -> List[Camera]:
     cam_pos_set = Path(cam_pos_set)
     cam_images_dir = Path(cam_images_dir)
     positions = load_camera_positions(cam_pos_set)
@@ -207,7 +212,7 @@ def load_cameras(cam_pos_set: Path | str, cam_images_dir: Path | str, device=tor
         cameras.append(cam)
     return cameras
 
-def load_camera_positions(set_path: Path) -> dict[str, dict]:
+def load_camera_positions(set_path: Path) -> Dict[str, dict]:
     with open(set_path, "r") as f:
         data = f.read()
     # Split the data into sections for each camera
@@ -246,25 +251,25 @@ class RadarData:
     altitudes: torch.Tensor
     densities: torch.Tensor
 
-def load_radar_point_cloud(dat_path: Path | str):
+def load_radar_point_cloud(dat_path: PathLike):
     data = np.loadtxt(dat_path, dtype=np.float32)
     data = torch.from_numpy(data)
     alts, lats, lons, dens = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
     return RadarData(lats, lons, alts, dens)
 
-def load_emission_matrix(dat_path: Path | str):
+def load_emission_matrix(dat_path: PathLike):
     return load_matrix_data(dat_path).T
 
-def load_density_matrix(dat_path: Path | str):
+def load_density_matrix(dat_path: PathLike):
     return load_matrix_data(dat_path).T.square()
 
-def load_altitude_bins(dat_path: Path | str):
+def load_altitude_bins(dat_path: PathLike):
     return load_matrix_data(dat_path).flatten()
 
-def load_energy_bins(dat_path: Path | str):
+def load_energy_bins(dat_path: PathLike):
     return load_matrix_data(dat_path).flatten()
 
-def load_matrix_data(dat_path: Path | str):
+def load_matrix_data(dat_path: PathLike):
     mat = []
     with open(dat_path, "r") as f:
         for line in f:
@@ -273,13 +278,13 @@ def load_matrix_data(dat_path: Path | str):
     mat = torch.tensor(mat, dtype=torch.float32)
     return mat
 
-def save_matrix_data(tensor: torch.Tensor, dat_path: Path | str):
+def save_matrix_data(tensor: torch.Tensor, dat_path: PathLike):
     with open(dat_path, "w") as f:
         for row in tensor:
             line = " ".join(f"{val:.6f}" for val in row.tolist())
             f.write(line + "\n")
 
-def load_3d_grid_data(dat_path: Path | str):
+def load_3d_grid_data(dat_path: PathLike):
     data = np.loadtxt(dat_path)
     indices = data[:, :3].astype(int)
     values = data[:, 3]
@@ -290,7 +295,7 @@ def load_3d_grid_data(dat_path: Path | str):
     array[indices[:, 0], indices[:, 1], indices[:, 2]] = values
     return torch.from_numpy(array).to(torch.float32)
 
-def save_3d_grid_data(array: torch.Tensor, file_path: Path):
+def save_3d_grid_data(array: torch.Tensor, file_path: PathLike):
     array = array.numpy(force=True)
     ni, nj, nk = array.shape
     indices = np.indices((ni, nj, nk)).reshape(3, -1).T  # Generate i, j, k indices efficiently
@@ -298,7 +303,7 @@ def save_3d_grid_data(array: torch.Tensor, file_path: Path):
     data = np.hstack((indices, values))  # Combine indices with values
     np.savetxt(file_path, data, fmt="%d %d %d %.6f")  # Save to file with formatting
 
-def load_2d_grid_data(dat_path: Path | str):
+def load_2d_grid_data(dat_path: PathLike):
     data = np.loadtxt(dat_path)
     indices = data[:, :2].astype(int)
     values = data[:, 2]
@@ -307,7 +312,7 @@ def load_2d_grid_data(dat_path: Path | str):
     array[indices[:, 0], indices[:, 1]] = values
     return torch.from_numpy(array).to(torch.float32)
 
-def save_2d_grid_data(array: torch.Tensor, file_path: Path):
+def save_2d_grid_data(array: torch.Tensor, file_path: PathLike):
     array = array.numpy(force=True)
     ni, nj = array.shape
     indices = np.indices((ni, nj)).reshape(2, -1).T  # Generate i, j indices

@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 
 from aurora.frame import Frame
@@ -9,9 +11,9 @@ class BBox:
     def __init__(
             self,
             frame: Frame,
-            south_range: tuple[float, float],
-            east_range: tuple[float, float],
-            altitude_range: tuple[float, float]
+            south_range: Tuple[float, float],
+            east_range: Tuple[float, float],
+            altitude_range: Tuple[float, float]
         ):
         """
         Initialize an oblique bounding box in the given frame.

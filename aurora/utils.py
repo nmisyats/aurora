@@ -5,7 +5,7 @@ import inspect
 import numpy as np
 import torch
 
-Number = int | float
+Number = Union[int, float]
 TensorLike = Union[torch.Tensor, np.ndarray, Number, List[Number], Tuple[Number, ...]]
 
 def as_tensor(data: TensorLike) -> torch.Tensor:
