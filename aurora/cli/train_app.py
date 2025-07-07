@@ -372,6 +372,7 @@ def train_poly_mlp(
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
+    basis: str = typer.Option("mono", help="Polynomial basis to use: mono or chebyshev"),
     num_basis: int = typer.Option(8, help="Number of basis function for polynomial representation"),
     num_hidden: int = typer.Option(4, help="Number of hidden layers"),
     hidden_size: int = typer.Option(128, help="Size of each hidden layer")
@@ -386,6 +387,7 @@ def train_poly_mlp(
         energy_bins=config.physics.energy_bins,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
+        basis_fn=basis,
         num_basis=num_basis,
         num_hidden=num_hidden,
         hidden_size=hidden_size

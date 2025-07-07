@@ -1,3 +1,5 @@
+from typing import Literal
+
 import torch
 import torch.nn as nn
 
@@ -20,6 +22,7 @@ class PolyMLP(FluxModel):
             energy_bins: torch.Tensor,
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
+            basis_fn: Literal["mono", "chebyshev"] = "mono",
             num_basis: int = 8,
             num_hidden: int = 4,
             hidden_size: int =  128
@@ -36,26 +39,44 @@ class PolyMLP(FluxModel):
         self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_basis)
         
         # Pre-compute basis functions
-        self.register_buffer('basis_functions', self._create_basis_functions())
-    
-    def _create_basis_functions(self):
+        self.register_buffer('basis_functions', self._create_basis_functions(basis_fn))
+
+    def _create_basis_functions(self, basis_fn: str):
         # Work in normalized log-energy space
-        e_norm = self._normalize_energy(self.energy_bins) + 1e-8
-        log_energies = torch.log(e_norm)
+        log_energies = torch.log(self.energy_bins)
         log_e_min = log_energies.min()
         log_e_max = log_energies.max()
-        log_e_norm = (log_energies - log_e_min) / (log_e_max - log_e_min)
+        log_e_norm = (log_energies - log_e_min) / (log_e_max - log_e_min) # [0, 1]
+        log_e_norm = 2.0 * log_e_norm - 1.0 # [-1, 1]
         # Create basis functions
-        basis = torch.zeros(self.num_basis, len(self.energy_bins))
+        if basis_fn == "mono":
+            return self._create_monomial_basis(log_e_norm)
+        elif basis_fn == "chebyshev":
+            return self._create_chebyshev_basis(log_e_norm)
+        raise ValueError(f"Unsupported basis function \"{basis_fn}\"")
+    
+    def _create_monomial_basis(self, x: torch.Tensor):
+        basis = torch.zeros(self.num_basis, len(x), device=x.device)
         for i in range(self.num_basis):
-            basis[i] = log_e_norm ** i
+            basis[i] = x ** i
+        basis = (basis + 1.0) / 2.0
+        return basis # (num_basis, num_edges)
+    
+    def _create_chebyshev_basis(self, x: torch.Tensor):
+        basis = torch.zeros(self.num_basis, len(x), device=x.device)
+        basis[0] = torch.ones_like(x)
+        basis[1] = x
+        for i in range(2, self.num_basis):
+            basis[i] = 2.0 * x * basis[i-1] - basis[i-2]
+        basis = (basis + 1.0) / 2.0
         return basis # (num_basis, num_edges)
     
     def forward(self, xy: torch.Tensor):
         xy = self._normalize_xy(xy)
-        x = self.fourier_encoder(xy)
-        coeffs = self.mlp(x) # (batch_size, num_basis)
+        xy_enc = self.fourier_encoder(xy)
+        coeffs = self.mlp(xy_enc) # (batch_size, num_basis)
         log_f_edges = torch.matmul(coeffs, self.basis_functions) # (batch_size, num_edges)
         log_f = 0.5 * (log_f_edges[:, :-1] + log_f_edges[:, 1:]) # (batch_size, num_bins)
-        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
+        log_f = log_f * self.max_log_flux
+        f = torch.pow(10.0, log_f)
         return {"f": f, "log_f": log_f, "coeffs": coeffs}
