@@ -24,10 +24,8 @@ def plot_flux(
     f_image = data.load_3d_grid_data(flux_data)
     config = data.load_config(config_path)
     
-    # Parse figsize
     width, height = map(float, figsize.split(','))
     
-    # Use the generic plotting function
     aplt.plot_flux_2d(
         flux_data=f_image,
         xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
