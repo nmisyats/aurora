@@ -326,6 +326,7 @@ def default_iter_loss(tc: TrainingConfig):
             xy_norm = torch.rand(tc.smooth_batch, 2, device=tc.device)
             xy = model.bbox.real_xy(xy_norm)
             smooth_loss = tc.smooth_weight * au.spectral_smoothness_loss(model, xy)
+            total_loss = total_loss + smooth_loss
             loss_dict["smooth_loss"] = smooth_loss.item()
         
         loss_dict["total_loss"] = total_loss.item()
@@ -517,6 +518,7 @@ def train_residual_mlp(
             xy_norm = torch.rand(tc.smooth_batch, 2, device=tc.device)
             xy = model.bbox.real_xy(xy_norm)
             smooth_loss = tc.smooth_weight * au.spectral_smoothness_loss(model, xy)
+            total_loss = total_loss + smooth_loss
             loss_dict["smooth_loss"] = smooth_loss.item()
         
         loss_dict["total_loss"] = total_loss.item()
