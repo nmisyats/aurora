@@ -44,7 +44,6 @@ def plot_flux_2d(
     title: str = "$Q_0$",
     xlabel: str = "y (km)",
     ylabel: str = "x (km)",
-    colorbar_label: str = "mW/m²",
     cmap: str = "jet",
     figsize: Tuple[float, float] = (8, 6),
     ax: Optional[Axes] = None,
@@ -107,7 +106,7 @@ def plot_flux_2d(
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.1)
         cbar = fig.colorbar(im, cax=cax)
-        cbar.set_label(colorbar_label)
+        cbar.set_label("mW/m²")
     
     # Set labels and title
     ax.set_xlabel(xlabel)
@@ -181,7 +180,6 @@ def plot_flux_2d_comparison(
     reference_bounds: Tuple[torch.Tensor, torch.Tensor],
     energy_edges: Optional[torch.Tensor] = None,
     titles: Tuple[str, str] = ("Reference $Q_0$", "Reconstructed $Q_0$"),
-    colorbar_label: str = "mW/m²",
     cmap: str = "jet",
     figsize: Tuple[float, float] = (8, 4),
     show_mae: bool = True,
@@ -293,7 +291,7 @@ def plot_flux_2d_comparison(
             ref_q0_cropped = ref_q0
         mae = torch.mean(torch.abs(est_q0 - ref_q0_cropped))
         grid[1].text(
-            0.99, 0.01, f"MAE = {mae:.3f} {colorbar_label.split('/')[0]}",
+            0.99, 0.01, f"MAE = {mae:.3f} mW/m²",
             transform=grid[1].transAxes,
             ha='right', va='bottom',
             color='white', fontsize=10,
@@ -302,7 +300,7 @@ def plot_flux_2d_comparison(
     
     # Add colorbar and labels
     cbar = grid[0].cax.colorbar(im)
-    cbar.set_label(colorbar_label)
+    cbar.set_label("mW/m²")
     
     grid[0].set_title(titles[0])
     grid[1].set_title(titles[1])
