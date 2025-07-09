@@ -1,6 +1,9 @@
+from typing import Union
+
 import torch
 
 import aurora.geodesy as geo
+
 
 class Frame:
     def __init__(self,
@@ -35,6 +38,7 @@ class Frame:
         field_to_ecef = torch.matmul(enu_to_ecef, field_to_enu)
 
         metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
+        self.z_metric = metric_tensor[2,2].item()
 
         # Store the reference frame parameters
         self.origin_ecef = o_ecef
@@ -54,11 +58,12 @@ class Frame:
     @property
     def device(self):
         return self.origin_ecef.device
-
-    def metric_scale(self, d_frame: torch.Tensor) -> torch.Tensor:
-        if d_frame.ndim != 1:
-            raise ValueError(f"Unsupported shape {d_frame.shape} for metric scale calculation.")
-        return torch.sqrt(d_frame @ self.metric_tensor @ d_frame)
+    
+    def altitude_to_z(self, h: Union[torch.Tensor, float]):
+        return (h - self.origin_altitude) / self.z_metric
+    
+    def z_to_altitude(self, z: Union[torch.Tensor, float]):
+        return z * self.z_metric + self.origin_altitude
     
     def from_ecef(self, xyz_ecef: torch.Tensor, *, is_point=False):
         if is_point:
@@ -107,6 +112,7 @@ class Frame:
         new_frame.origin_altitude = self.origin_altitude
         new_frame.field_inclination = self.field_inclination
         new_frame.field_declination = self.field_declination
+        new_frame.z_metric = self.z_metric
         
         # Move tensor attributes to the new device (no recomputation)
         new_frame.origin_ecef = self.origin_ecef.to(device)

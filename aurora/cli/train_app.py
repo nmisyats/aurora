@@ -484,7 +484,7 @@ def train_residual_mlp(
             ro, rd, tn, tf, g_ref = tc.ray_data.sample_batch(tc.ray_batch)
             ray_sampler = StratifiedSampler(tc.ray_bins)
             p_frame, t = ray_sampler(ro, rd, tn, tf)
-            xy, z = model.get_xy_z(p_frame)
+            xy, z = p_frame[..., :2], p_frame[..., 2]
             f_out = model.forward(xy)
             l_coarse = model.compute_emission_rate(z, f_out["f_coarse"])
             l_fine = model.compute_emission_rate(z, f_out["f_fine"])
@@ -501,7 +501,7 @@ def train_residual_mlp(
         if tc.radar_data is not None:
             # Train on radar data
             p_frame, d_ref = tc.radar_data.sample_batch(tc.radar_batch)
-            xy, z = model.get_xy_z(p_frame)
+            xy, z = p_frame[..., :2], p_frame[..., 2]
             f_out = model.forward(xy)
             d_coarse = model.compute_electron_density(z, f_out["f_coarse"])
             d_fine = model.compute_electron_density(z, f_out["f_fine"])

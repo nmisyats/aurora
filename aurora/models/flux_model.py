@@ -40,6 +40,10 @@ class FluxModel(nn.Module, ABC):
         self.register_buffer("altitude_bins", altitude_bins)
         self.register_buffer("energy_bins", energy_bins)
 
+        # Compute the altitude bin edges in oblique frame
+        z_bins = frame.altitude_to_z(altitude_bins)
+        self.register_buffer("z_bins", z_bins)
+
         self.num_bins = len(energy_bins) - 1
 
         self.chunk_size = None
@@ -141,15 +145,14 @@ class FluxModel(nn.Module, ABC):
         Calculate the emission rate at points p.
         
         Args:
-            p_frame (torch.Tensor): Tensor of shape (n, 3) in frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (n, 3) in oblique coordinates.
         
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (n,).
         """
-        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
-        xy, z = p_frame[...,:2], p_enu[...,2]
+        xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
-        return phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
+        return phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
     
     @normalize_batch_dims(p_frame=1)
     def get_electron_density(self, p_frame: torch.Tensor) -> torch.Tensor:
@@ -157,15 +160,14 @@ class FluxModel(nn.Module, ABC):
         Calculate the electron density at points p.
         
         Args:
-            p_frame (torch.Tensor): Tensor of shape (n, 3) in frame coordinates.
+            p_frame (torch.Tensor): Tensor of shape (n, 3) in oblique coordinates.
         
         Returns:
             torch.Tensor: Emission rate tensor at the points p of shape (n,).
         """
-        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
-        xy, z = p_frame[...,:2], p_enu[...,2]
+        xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
-        return phy.compute_electron_density(z, f, self.dens_mat, self.altitude_bins)
+        return phy.compute_electron_density(z, f, self.dens_mat, self.z_bins)
 
     @overload
     def integrate_emis_along_ray(
@@ -179,8 +181,8 @@ class FluxModel(nn.Module, ABC):
         with the model's bounding box.
         
         Args:
-            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            ro (torch.Tensor): Ray origins of shape (n, 3) in oblique coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in oblique coordinates.
             sampler (RaySampler): sampler to use for ray integration.
         
         Returns:
@@ -197,8 +199,8 @@ class FluxModel(nn.Module, ABC):
         Integrate the emission along rays.
         
         Args:
-            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            ro (torch.Tensor): Ray origins of shape (n, 3) in oblique coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in oblique coordinates.
             t (torch.Tensor): (n, n_sample) distances to sample points along the rays.
         
         Returns:
@@ -217,8 +219,8 @@ class FluxModel(nn.Module, ABC):
         Integrate the emission along rays.
         
         Args:
-            ro (torch.Tensor): Ray origins of shape (n, 3) in frame coordinates.
-            rd (torch.Tensor): Ray directions of shape (n, 3) in frame coordinates.
+            ro (torch.Tensor): Ray origins of shape (n, 3) in oblique coordinates.
+            rd (torch.Tensor): Ray directions of shape (n, 3) in oblique coordinates.
             tn (torch.Tensor): (n,) near distances of the rays.
             tf (torch.Tensor): (n,) far distances of the rays.
             sampler (RaySampler): sampler to use for ray integration.
@@ -255,23 +257,12 @@ class FluxModel(nn.Module, ABC):
             tf, _ = flatten_batch_dims(tf, 0)
             p_frame, t = sampler(ro, rd, tn, tf)
         
-        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
-        xy, z = p_frame[...,:2], p_enu[...,2]
+        xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
-        l = phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
+        l = phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
         g = phy.integrate_emis_to_rayleigh(t, l)
 
         return unflatten_batch_dims(g, outer_shape)
-    
-    @normalize_batch_dims(p_frame=1)
-    def get_xy_z(self, p_frame: torch.Tensor) -> torch.Tensor:
-        """
-        Extract (xy, z) of xy horizontal positions in the oblique frame,
-        and z the altitude in the ENU frame from full oblique coordinates.
-        """
-        p_enu = self.frame.to_local_enu(p_frame, is_point=True)
-        xy, z = p_frame[...,:2], p_enu[...,2]
-        return xy, z
     
     def compute_electron_density(
             self,
@@ -282,13 +273,13 @@ class FluxModel(nn.Module, ABC):
         Calculate the electron density based on altitude and flux.
         
         Args:
-            z (torch.Tensor): Altitude tensor of shape (n,) [km].
+            z (torch.Tensor): Altitude tensor of shape (n,) in oblique frame [km].
             f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
             
         Returns:
             torch.Tensor: Electron density tensor of shape (n,) [cm-3].
         """
-        return phy.compute_electron_density(z, f, self.dens_mat, self.altitude_bins)
+        return phy.compute_electron_density(z, f, self.dens_mat, self.z_bins)
     
     def compute_emission_rate(
             self,
@@ -299,13 +290,13 @@ class FluxModel(nn.Module, ABC):
         Calculate the emission rate based on altitude and flux.
         
         Args:
-            z (torch.Tensor): Altitude tensor of shape (n,) [km].
+            z (torch.Tensor): Altitude tensor of shape (n,) in oblique frame [km].
             f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
         
         Returns:
             torch.Tensor: Volume emission rate tensor of shape (n,) [cm-3 s-1].
         """
-        return phy.compute_emission_rate(z, f, self.emis_mat, self.altitude_bins)
+        return phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
     
     def compute_total_energy_flux(
             self,

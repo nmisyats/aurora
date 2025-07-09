@@ -29,10 +29,8 @@ class BBox:
         h_min, h_max = altitude_range
 
         # Shift and scale z-axis to account for oblicity and altitude
-        o_alt = frame.origin_altitude
-        z_met = frame.metric_tensor[2,2].item()
-        z_min = (h_min - o_alt) / z_met
-        z_max = (h_max - o_alt) / z_met
+        z_min = frame.altitude_to_z(h_min)
+        z_max = frame.altitude_to_z(h_max)
 
         self.xyz_min = torch.tensor([x_min, y_min, z_min], device=frame.device)
         self.xyz_max = torch.tensor([x_max, y_max, z_max], device=frame.device)
