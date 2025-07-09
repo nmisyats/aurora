@@ -23,7 +23,7 @@ def generate_reconstructed_flux(
     ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
     ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
-    """Generate flux from reconstruction using generic plotting."""
+    """Generate the total energy of reconstruction."""
     device = choose_best_device(gpu)
     recon = models.load_model(recon_path, device)
     recon.eval()
@@ -72,7 +72,7 @@ def generate_reconstructed_flux_at(
     ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
     ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
-    """Generate the flux curve accross energy levels at a given xy location."""
+    """Generate the energy spectrum at a given xy location."""
     device = choose_best_device(gpu)
     recon = models.load_model(recon_path, device)
     recon.eval()
@@ -115,7 +115,7 @@ def generate_volume_emission(
     cmap: str = typer.Option("coolwarm", help="Volume colormap"),
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
-    """Generate volume emission using generic 3D plotting."""
+    """Generate the 3D volume emission rate of a reconstruction."""
     device = choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
@@ -167,7 +167,7 @@ def generate_electron_density(
     cmap: str = typer.Option("coolwarm", help="Volume colormap"),
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
-    """Generate volume emission using generic 3D plotting."""
+    """Generate the 3D electron density of a reconstruction."""
     device = choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
@@ -216,11 +216,11 @@ def generate_images(
     downsample: int = typer.Option(None, help="Downsample factor"),
     gpu: bool = typer.Option(True, help="Use GPU"),
     chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
-    plot: bool = typer.Option(True, help="Plot comparison"),
+    plot: bool = typer.Option(True, help="Plot generated images"),
     cmap: str = typer.Option("viridis", help="Colormap"),
     figsize_per_col: float = typer.Option(2.0, help="Figure size per column")
 ):
-    """Generate images using generic comparison plotting."""
+    """Generate images from cameras using the reconstructed flux."""
     device = choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":

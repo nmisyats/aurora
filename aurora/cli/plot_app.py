@@ -20,7 +20,7 @@ def plot_flux(
     cmap: str = typer.Option("jet", help="Colormap name"),
     figsize: str = typer.Option("8,6", help="Figure size as 'width,height'")
 ):
-    """Plot flux data using the generic plotting function."""
+    """Plot the total energy flux of saved flux data."""
     f_image = data.load_3d_grid_data(flux_data)
     config = data.load_config(config_path)
     
@@ -28,7 +28,7 @@ def plot_flux(
     width, height = map(float, figsize.split(','))
     
     # Use the generic plotting function
-    fig, ax = aplt.plot_flux_2d(
+    aplt.plot_flux_2d(
         flux_data=f_image,
         xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
         energy_edges=config.physics.energy_bins,
@@ -48,7 +48,7 @@ def plot_flux_at(
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
 ):
-    """Plots the flux curve accross energy levels at a given xy location."""
+    """Plots the flux curve accross energy levels at a given xy location from saved flux data."""
     device = choose_best_device(gpu)
     recon = models.load_grid_model(flux_data, config_path, device)
     
@@ -59,7 +59,7 @@ def plot_flux_at(
         data.save_matrix_data(f.unsqueeze(1), save)
     
     if plot:
-        fig, ax = aplt.plot_flux_1d(
+        aplt.plot_flux_1d(
             flux_data=f,
             energy_edges=recon.energy_bins,
             title=f"Flux at (x, y) = ({x}, {y})"
@@ -71,6 +71,7 @@ def plot_volume_emission(
     emis_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
+    """Plot saved 3D volume emission rate."""
     emis_data = data.load_3d_grid_data(emis_data_path)
     config = data.load_config(config_path)
     pl = aplt.plot_volume_3d(
@@ -85,6 +86,7 @@ def plot_electron_density(
     dens_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
+    """Plot saved 3D electron density."""
     dens_data = data.load_3d_grid_data(dens_data_path)
     config = data.load_config(config_path)
     pl = aplt.plot_volume_3d(
@@ -104,10 +106,10 @@ def plot_cameras(
     figsize_per_image: float = typer.Option(3.0, help="Size factor per image"),
     max_cols: int = typer.Option(None, help="Maximum columns in grid")
 ):
-    """Plot camera images using the generic plotting function."""
+    """Plot camera images from a dataset."""
     cams = data.load_cameras(cam_pos, cam_dir)
 
-    fig, axes = aplt.plot_cameras_grid(
+    aplt.plot_cameras_grid(
         cameras=cams,
         selected_camera=location,
         figsize_per_image=figsize_per_image,
