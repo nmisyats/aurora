@@ -154,8 +154,56 @@ def generate_volume_emission(
         plotter.show()
 
 @gen_app.command("dens")
-def generate_electron_density():
-    raise NotImplementedError
+def generate_electron_density(
+    recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
+    config: Path = typer.Option(None, help="Path to configuration for reference flux"),
+    res_x: int = typer.Option(100, help="X resolution"),
+    res_y: int = typer.Option(100, help="Y resolution"), 
+    res_z: int = typer.Option(50, help="Z resolution"),
+    gpu: bool = typer.Option(True, help="Use GPU if available"),
+    chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
+    plot: bool = typer.Option(True, help="Plot the volume"),
+    save: Path = typer.Option(None, help="Save volume data"),
+    cmap: str = typer.Option("coolwarm", help="Volume colormap"),
+    opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
+):
+    """Generate volume emission using generic 3D plotting."""
+    device = choose_best_device(gpu)
+    
+    if recon_or_ref_path.suffix == ".pth":
+        recon = models.load_model(recon_or_ref_path, device)
+        recon.eval()
+        recon.chunk_size = chunk_size
+        recon.chunk_progress_bar = True
+        xyz_min = recon.bbox.xyz_min
+        xyz_max = recon.bbox.xyz_max
+        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        d = recon.get_electron_density(xyz).cpu()
+    else:
+        if config is None:
+            typer.echo("Configuration file required for reference flux", err=True)
+            raise typer.Exit(1)
+        ref_recon = models.load_grid_model(recon_or_ref_path, config, device)
+        xyz_min = ref_recon.bbox.xyz_min
+        xyz_max = ref_recon.bbox.xyz_max
+        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        d = ref_recon.get_electron_density(xyz).cpu()
+    
+    if save is not None:
+        data.save_3d_grid_data(d, save)
+    
+    if plot:
+        # Parse opacity values
+        opacity_vals = list(map(float, opacity.split(',')))
+        
+        plotter = aplt.plot_volume_3d(
+            volume_data=d,
+            xyz_bounds=(xyz_min, xyz_max),
+            scalars_name="Electron density",
+            cmap=cmap,
+            opacity=opacity_vals
+        )
+        plotter.show()
 
 @gen_app.command("imgs")
 def generate_images(

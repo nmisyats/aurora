@@ -81,8 +81,18 @@ def plot_volume_emission(
     pl.show()
 
 @plot_app.command("dens")
-def plot_electron_density():
-    raise NotImplementedError
+def plot_electron_density(
+    dens_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+):
+    dens_data = data.load_3d_grid_data(dens_data_path)
+    config = data.load_config(config_path)
+    pl = aplt.plot_volume_3d(
+        volume_data=dens_data,
+        xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
+        scalars_name="Electron density"
+    )
+    pl.show()
 
 @plot_app.command("cams")
 def plot_cameras(
