@@ -62,7 +62,6 @@ def plot_flux_2d(
         title: Plot title
         xlabel: X-axis label
         ylabel: Y-axis label  
-        colorbar_label: Colorbar label
         cmap: Colormap name
         figsize: Figure size (width, height)
         ax: Existing axes to plot on (optional)
@@ -195,7 +194,6 @@ def plot_flux_2d_comparison(
         reference_bounds: Spatial bounds for reference flux
         energy_edges: Energy bin edges (required if flux tensors are 3D)
         titles: Titles for (reference, estimated) plots
-        colorbar_label: Colorbar label
         cmap: Colormap name
         figsize: Figure size
         show_mae: Whether to compute and display MAE
