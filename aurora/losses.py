@@ -27,7 +27,8 @@ def radar_loss(model: FluxModel, batch: RadarBatch) -> torch.Tensor:
     return F.mse_loss(d_pred, d_target)
 
 def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor) -> torch.Tensor:
-    f_pred = model.flux(xy)
+    out = model.forward(xy)
+    log_f_pred = out["log_f"]
     # Calculate bin centers and widths
     energy_bins = model.energy_bins
     bin_centers = 0.5 * (energy_bins[:-1] + energy_bins[1:])  # (num_bins,)
@@ -37,7 +38,7 @@ def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor) -> torch.Tensor
     log_spacing = torch.diff(log_centers)  # (num_bins-1,)
     # Second-order derivative approximation in log-energy space
     # d²f/d(log E)² ≈ [f(i+1) - f(i)]/Δ(log E) - [f(i) - f(i-1)]/Δ(log E)
-    first_diff = torch.diff(f_pred, dim=1)  # (batch_size, num_bins-1)
+    first_diff = torch.diff(log_f_pred, dim=1)  # (batch_size, num_bins-1)
     # Normalize by log spacing
     normalized_diff = first_diff / log_spacing.unsqueeze(0)  # (batch_size, num_bins-1)
     # Second derivative
