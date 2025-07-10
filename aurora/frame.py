@@ -37,16 +37,12 @@ class Frame:
         ecef_to_field = torch.matmul(enu_to_field, ecef_to_enu)
         field_to_ecef = torch.matmul(enu_to_ecef, field_to_enu)
 
-        metric_tensor = torch.matmul(ecef_to_field, ecef_to_field.T)
-        self.z_metric = metric_tensor[2,2].item()
-
         # Store the reference frame parameters
         self.origin_ecef = o_ecef
         self.enu_to_field_mat = enu_to_field
         self.field_to_enu_mat = field_to_enu
         self.ecef_to_field_mat = ecef_to_field
         self.field_to_ecef_mat = field_to_ecef
-        self.metric_tensor = metric_tensor
 
         self.origin_latitude = o_lat
         self.origin_longitude = o_lon
@@ -54,16 +50,18 @@ class Frame:
 
         self.field_inclination = field_inclination
         self.field_declination = field_declination
+
+        self.z_to_h_factor = z_dir_enu[2].item()
     
     @property
     def device(self):
         return self.origin_ecef.device
     
     def altitude_to_z(self, h: Union[torch.Tensor, float]):
-        return (h - self.origin_altitude) / self.z_metric
+        return (h - self.origin_altitude) / self.z_to_h_factor
     
     def z_to_altitude(self, z: Union[torch.Tensor, float]):
-        return z * self.z_metric + self.origin_altitude
+        return z * self.z_to_h_factor + self.origin_altitude
     
     def from_ecef(self, xyz_ecef: torch.Tensor, *, is_point=False):
         if is_point:
@@ -112,7 +110,7 @@ class Frame:
         new_frame.origin_altitude = self.origin_altitude
         new_frame.field_inclination = self.field_inclination
         new_frame.field_declination = self.field_declination
-        new_frame.z_metric = self.z_metric
+        new_frame.z_to_h_factor = self.z_to_h_factor
         
         # Move tensor attributes to the new device (no recomputation)
         new_frame.origin_ecef = self.origin_ecef.to(device)
@@ -120,6 +118,5 @@ class Frame:
         new_frame.field_to_enu_mat = self.field_to_enu_mat.to(device)
         new_frame.ecef_to_field_mat = self.ecef_to_field_mat.to(device)
         new_frame.field_to_ecef_mat = self.field_to_ecef_mat.to(device)
-        new_frame.metric_tensor = self.metric_tensor.to(device)
         
         return new_frame
