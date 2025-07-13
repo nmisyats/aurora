@@ -116,8 +116,10 @@ Options
     --plot-res-y                             INTEGER  y resolution for plotting [default: 128]
     --ref-flux                               PATH     Reference flux to compare the reconstruction with [default: None]
     --ref-config                             PATH     Path to configuration file for reference flux [default: None]
-    --encoding-exp                           INTEGER  Fourier embedding maximum exponent [default: 4]
-    --max-log_flux                           FLOAT    Logarithmic range of the flux [default: 7.0]
+    --enc-exp                                INTEGER  Fourier embedding maximum exponent [default: 4]
+    --max-log-f                              FLOAT    Logarithmic range of the flux [default: 7.0]
+    --num-hidden                             INTEGER  Number of hidden layers [default: 4]
+    --hidden-size                            INTEGER  Size of each hidden layer [default: 128]
     --help                                            Show this message and exit.
 ```
 
