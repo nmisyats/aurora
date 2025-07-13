@@ -287,15 +287,10 @@ from aurora import Frame, BBox
 class MyModel(FluxModel):
     def __init__(
             self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
+            config: ModelConfig,
             ... # Custom arguments
         ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+        super().__init__(config)
         ... # Custom initialization
 
     def forward(self, xy: torch.Tensor):
@@ -313,17 +308,12 @@ first define your new model:
 class MyModel(FluxModel):
     def __init__(
             self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
+            config: ModelConfig,
             # Extra arguments
             param1: int = 42,
             param2: float = 3.14
         ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+        super().__init__(config)
         ...
 
     def forward(self, xy: torch.Tensor):
@@ -335,19 +325,14 @@ Then, define its training command at the bottom of the`aurora/train_app.py` usin
 
 @model_train_command("my_model", "My model description")
 def train_hybrid_mlp(
-    config: data.Config,
+    config: models.ModelConfig,
     training_config: TrainingConfig,
     param1: int = typer.Option(42, help="Help for param1"),
     param2: float = typer.Option(3.14, help="Help for param2"),
 ):
     # Instantiate reconstruction model
     model = models.HybridMLP(
-        frame=config.frame,
-        bbox=config.bbox,
-        emis_mat=config.physics.emis_mat,
-        dens_mat=config.physics.dens_mat,
-        altitude_bins=config.physics.altitude_bins,
-        energy_bins=config.physics.energy_bins,
+        config=config,
         # Model-specific
         param1=param1,
         param2=param2
