@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import overload, Optional, Union, Dict
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,7 @@ import tqdm
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
+from aurora.physics import PhysicalModel
 import aurora.geometry as gmt
 import aurora.physics as phy
 from aurora.utils import (
@@ -20,31 +22,30 @@ from aurora.utils import (
 from aurora.samplers import RaySampler, EqualSampler
 
 
+@dataclass
+class ModelConfig:
+    frame: Frame
+    bbox: BBox
+    physics: PhysicalModel
+
+
 class FluxModel(nn.Module, ABC):
-    def __init__(
-            self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
-        ):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
-        self.frame = frame
-        self.bbox = bbox
+        self.frame = config.frame
+        self.bbox = config.bbox
         
-        self.register_buffer("emis_mat", emis_mat)
-        self.register_buffer("dens_mat", dens_mat)
-        self.register_buffer("altitude_bins", altitude_bins)
-        self.register_buffer("energy_bins", energy_bins)
+        self.register_buffer("emis_mat", config.physics.emis_mat)
+        self.register_buffer("dens_mat", config.physics.dens_mat)
+        self.register_buffer("altitude_bins", config.physics.altitude_bins)
+        self.register_buffer("energy_bins", config.physics.energy_bins)
 
         # Compute the altitude bin edges in oblique frame
-        z_bins = frame.altitude_to_z(altitude_bins)
+        z_bins = self.frame.altitude_to_z(config.physics.altitude_bins)
         self.register_buffer("z_bins", z_bins)
 
-        self.num_bins = len(energy_bins) - 1
+        self.num_bins = len(config.physics.energy_bins) - 1
 
         self.chunk_size = None
         self.chunk_progress_bar = False
@@ -52,16 +53,6 @@ class FluxModel(nn.Module, ABC):
     @property
     def device(self):
         return self.emis_mat.device
-    
-    def _normalize_xy(self, xy: torch.Tensor):
-        xy_min = self.bbox.xy_min
-        xy_max = self.bbox.xy_max
-        return (xy - xy_min) / (xy_max - xy_min)
-    
-    def _normalize_energy(self, E: torch.Tensor):
-        E_min = self.energy_bins[0]
-        E_max = self.energy_bins[-1]
-        return (E - E_min) / (E_max - E_min)
     
     @abstractmethod
     def forward(self, xy: torch.Tensor) -> Dict[str, torch.Tensor]:

@@ -336,7 +336,7 @@ def default_iter_loss(tc: TrainingConfig):
 
 @model_train_command("spectral_mlp", models.SpectralMLP.__doc__)
 def train_spectral_mlp(
-    config: data.Config,
+    config: models.ModelConfig,
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
@@ -345,12 +345,7 @@ def train_spectral_mlp(
 ):
     # Instantiate reconstruction model
     model = models.SpectralMLP(
-        frame=config.frame,
-        bbox=config.bbox,
-        emis_mat=config.physics.emis_mat,
-        dens_mat=config.physics.dens_mat,
-        altitude_bins=config.physics.altitude_bins,
-        energy_bins=config.physics.energy_bins,
+        config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
         num_hidden=num_hidden,
@@ -369,7 +364,7 @@ def train_spectral_mlp(
 
 @model_train_command("poly_mlp", models.PolyMLP.__doc__)
 def train_poly_mlp(
-    config: data.Config,
+    config: models.ModelConfig,
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
@@ -380,12 +375,7 @@ def train_poly_mlp(
 ):
     # Instantiate reconstruction model
     model = models.PolyMLP(
-        frame=config.frame,
-        bbox=config.bbox,
-        emis_mat=config.physics.emis_mat,
-        dens_mat=config.physics.dens_mat,
-        altitude_bins=config.physics.altitude_bins,
-        energy_bins=config.physics.energy_bins,
+        config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
         basis_fn=basis,
@@ -406,7 +396,7 @@ def train_poly_mlp(
 
 @model_train_command("hybrid_mlp", models.HybridMLP.__doc__)
 def train_hybrid_mlp(
-    config: data.Config,
+    config: models.ModelConfig,
     training_config: TrainingConfig,
     position_embed: int = typer.Option(8, help="Position embedding size (0 for no embedding)"),
     energy_embed: int = typer.Option(8, help="Energy embedding size (0 for no embedding)"),
@@ -419,12 +409,7 @@ def train_hybrid_mlp(
 ):
     # Instantiate reconstruction model
     model = models.HybridMLP(
-        frame=config.frame,
-        bbox=config.bbox,
-        emis_mat=config.physics.emis_mat,
-        dens_mat=config.physics.dens_mat,
-        altitude_bins=config.physics.altitude_bins,
-        energy_bins=config.physics.energy_bins,
+        config=config,
         position_embed=position_embed,
         energy_embed=energy_embed,
         position_enc=pos_enc,
@@ -447,7 +432,7 @@ def train_hybrid_mlp(
 
 @model_train_command("residual_mlp", models.ResidualMLP.__doc__)
 def train_residual_mlp(
-    config: data.Config,
+    config: models.ModelConfig,
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
@@ -458,12 +443,7 @@ def train_residual_mlp(
 ):
     # Instantiate reconstruction model
     model = models.ResidualMLP(
-        frame=config.frame,
-        bbox=config.bbox,
-        emis_mat=config.physics.emis_mat,
-        dens_mat=config.physics.dens_mat,
-        altitude_bins=config.physics.altitude_bins,
-        energy_bins=config.physics.energy_bins,
+        config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
         low_flux_res=low_f_res,

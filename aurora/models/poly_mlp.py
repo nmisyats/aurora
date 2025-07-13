@@ -3,7 +3,7 @@ from typing import Literal
 import torch
 import torch.nn as nn
 
-from aurora.models.flux_model import FluxModel
+from aurora.models.flux_model import FluxModel, ModelConfig
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.dnn as ann
@@ -13,12 +13,7 @@ class PolyMLP(FluxModel):
     """MLP learning a polynomial basis of the flux"""
     def __init__(
             self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
+            config: ModelConfig,
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
             basis_fn: Literal["mono", "chebyshev"] = "mono",
@@ -26,14 +21,14 @@ class PolyMLP(FluxModel):
             num_hidden: int = 4,
             hidden_size: int =  128
         ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+        super().__init__(config)
 
         self.num_basis = num_basis
         self.max_log_flux = max_log_flux
 
-        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
+        self.encoder = ann.FourierEncoder(encoding_exp)
 
-        encode_dim = self.fourier_encoder.output_dim(2)
+        encode_dim = self.encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
         self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_basis)
         
@@ -71,16 +66,18 @@ class PolyMLP(FluxModel):
         return basis # (num_basis, num_edges)
     
     def forward(self, xy: torch.Tensor):
-        xy = self._normalize_xy(xy)
-        xy_enc = self.fourier_encoder(xy)
+        xy = self.bbox.norm_xy(xy)
+        xy_enc = self.encoder(xy)
         coeffs = self.mlp(xy_enc) # (batch_size, num_basis)
         log_f_at_edges = torch.matmul(coeffs, self.basis_functions) # (batch_size, num_edges)
         log_f_at_edges *= self.max_log_flux
         f_at_edges = torch.pow(10.0, log_f_at_edges)
         f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
+        log_f = torch.log(f)
         return {
             "f": f,
             "f_at_edges": f_at_edges,
             "log_f_at_edges": log_f_at_edges,
+            "log_f": log_f,
             "coeffs": coeffs
         }

@@ -1,5 +1,15 @@
+from dataclasses import dataclass
+
 import torch
 
+
+@dataclass
+class PhysicalModel:
+    """Container to group aurora physics tensors."""    
+    emis_mat: torch.Tensor
+    dens_mat: torch.Tensor
+    altitude_bins: torch.Tensor
+    energy_bins: torch.Tensor
 
 def compute_emission_rate(
         z: torch.Tensor,

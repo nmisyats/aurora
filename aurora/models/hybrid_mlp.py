@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from aurora.models.flux_model import FluxModel
+from aurora.models.flux_model import FluxModel, ModelConfig
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.dnn as ann
@@ -11,12 +11,7 @@ class HybridMLP(FluxModel):
     """Hybrid model using two MLPs for position and energy embedding"""
     def __init__(
             self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
+            config: ModelConfig,
             position_embed: int = 8,
             energy_embed: int = 8,
             position_enc: int = 4,
@@ -26,7 +21,7 @@ class HybridMLP(FluxModel):
             num_hidden: int = 3,
             hidden_size: int = 128
         ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+        super().__init__(config)
 
         self.max_log_flux = max_log_flux
 
@@ -84,9 +79,8 @@ class HybridMLP(FluxModel):
     def _forward_batch(self, xy: torch.Tensor):
         # xy: (B, 2)
         B = xy.shape[0]
-        num_bins = len(self.energy_bins) - 1
         
-        xy_norm = self._normalize_xy(xy)
+        xy_norm = self.bbox.norm_xy(xy)
         
         # Create all (x,y,E) combinations efficiently
         # if self.training:
@@ -105,7 +99,7 @@ class HybridMLP(FluxModel):
         
         log_e = torch.log(self.energy_bins)
         log_e_norm = (log_e - log_e.min()) / (log_e.max() - log_e.min())
-        num_edges = num_bins + 1
+        num_edges = self.num_bins + 1
         
         # Expand to create all combinations: (B*N, 3)
         xy_expanded = xy_norm.unsqueeze(1).expand(B, num_edges, 2).reshape(B * num_edges, 2)

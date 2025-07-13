@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from aurora.models.flux_model import FluxModel
+from aurora.models.flux_model import FluxModel, ModelConfig
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.dnn as ann
@@ -14,12 +14,7 @@ class ResidualMLP(FluxModel):
     """Double MLP learning coarse and detailed flux in parallel"""
     def __init__(
             self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
+            config: ModelConfig,
             encoding_exp: int = 4,
             max_log_flux: float = 7.0,
             low_flux_res: int = 8,
@@ -27,12 +22,12 @@ class ResidualMLP(FluxModel):
             hidden_size_coarse: int = 128,
             hidden_size_details: int = 32
         ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+        super().__init__(config)
 
-        self.fourier_encoder = ann.FourierEncoder(encoding_exp)
+        self.encoder = ann.FourierEncoder(encoding_exp)
         self.max_log_flux = max_log_flux
 
-        encode_dim = self.fourier_encoder.output_dim(2)
+        encode_dim = self.encoder.output_dim(2)
 
         hidden_sizes_coarse = [hidden_size_coarse] * num_hidden_coarse
         self.coarse_mlp = ann.create_mlp(encode_dim, *hidden_sizes_coarse, low_flux_res)
@@ -40,8 +35,8 @@ class ResidualMLP(FluxModel):
         self.details_mlp = ann.create_mlp(details_in_dim, hidden_size_details, self.num_bins)
     
     def forward(self, xy: torch.Tensor):
-        xy_norm = self._normalize_xy(xy)
-        xy_enc = self.fourier_encoder(xy_norm)
+        xy_norm = self.bbox.norm_xy(xy)
+        xy_enc = self.encoder(xy_norm)
         log_f_low = self.coarse_mlp(xy_enc)
 
         log_f_coarse = F.interpolate(

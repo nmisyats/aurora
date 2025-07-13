@@ -1,22 +1,13 @@
 import torch
 
-from aurora.models.flux_model import FluxModel
+from aurora.models.flux_model import FluxModel, ModelConfig
 from aurora.frame import Frame
 from aurora.bbox import BBox
 
 
 class GridSampledFlux(FluxModel):
-    def __init__(
-            self,
-            frame: Frame,
-            bbox: BBox,
-            emis_mat: torch.Tensor,
-            dens_mat: torch.Tensor,
-            altitude_bins: torch.Tensor,
-            energy_bins: torch.Tensor,
-            data: torch.Tensor
-        ):
-        super().__init__(frame, bbox, emis_mat, dens_mat, altitude_bins, energy_bins)
+    def __init__(self, config: ModelConfig, data: torch.Tensor):
+        super().__init__(config)
 
         self.register_buffer("data", data)
     
@@ -33,7 +24,7 @@ class GridSampledFlux(FluxModel):
         H, W, B = self.data.shape
 
         # Normalize xy to [0, 1]
-        norm_xy = self._normalize_xy(xy)
+        norm_xy = self.bbox.norm_xy(xy)
         norm_xy = torch.clamp(norm_xy, 0, 1)
 
         # Scale to image pixel coordinates

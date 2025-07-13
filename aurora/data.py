@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Union, Optional, List, Dict, Tuple
+from typing import Union, Optional, List, Dict
 
 from schema import Schema, Optional as Option, And, Or, Use
 import yaml
@@ -18,6 +18,8 @@ import numpy as np
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
+from aurora.physics import PhysicalModel
+from aurora.models import ModelConfig
 
 
 PathLike = Union[Path, str]
@@ -49,13 +51,6 @@ def path_validator(base_path: Optional[PathLike] = None):
         ops.append(Use(lambda p: resolve_relative_to_base(p, base_path)))
     ops.append(lambda p: p.exists())
     return And(*ops, error="Must be a valid path")
-
-@dataclass
-class PhysicalModel:
-    emis_mat: torch.Tensor
-    dens_mat: torch.Tensor
-    altitude_bins: torch.Tensor
-    energy_bins: torch.Tensor
 
 def physical_model_schema(base_path=None):
     valid_path = path_validator(base_path)
@@ -90,6 +85,7 @@ def frame_schema(base_path=None):
     })
 
 def load_frame(yaml_path: PathLike, device=torch.device("cpu")):
+    yaml_path = Path(yaml_path)
     schema = frame_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return frame_from_dict(data, device)
@@ -125,6 +121,7 @@ def bbox_schema(base_path=None):
     })
 
 def load_bbox(yaml_path: PathLike, frame: Optional[Frame] = None):
+    yaml_path = Path(yaml_path)
     schema = bbox_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return bbox_from_dict(data, frame)
@@ -161,12 +158,6 @@ def bbox_to_dict(bbox: BBox, frame: Optional[Union[Frame, PathLike]] = None):
         bbox_data["frame"] = str(Path(frame))
     return bbox_data
 
-@dataclass
-class Config:
-    frame: Frame
-    bbox: BBox
-    physics: PhysicalModel
-
 def config_schema(base_path=None):
     return Schema({
         "frame": frame_schema(base_path),
@@ -175,6 +166,7 @@ def config_schema(base_path=None):
     }, ignore_extra_keys=True)
 
 def load_config(yaml_path: PathLike, device=torch.device("cpu")):
+    yaml_path = Path(yaml_path)
     schema = config_schema(yaml_path.parent)
     data = load_yaml(yaml_path, schema)
     return config_from_dict(data, device)
@@ -183,7 +175,7 @@ def config_from_dict(data: dict, device=torch.device("cpu")):
     frame = frame_from_dict(data["frame"], device)
     bbox = bbox_from_dict(data["bbox"], frame)
     physics = physical_model_from_dict(data["physics"], device)
-    return Config(frame, bbox, physics)
+    return ModelConfig(frame, bbox, physics)
 
 def load_camera_images(cam_dir: PathLike, device=torch.device("cpu")):
     cam_dir = Path(cam_dir)

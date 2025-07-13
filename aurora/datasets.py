@@ -6,7 +6,6 @@ import torch
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
-import aurora.geometry as gmt
 import aurora.geodesy as geo
 
 
@@ -40,7 +39,7 @@ class Dataset(ABC):
             replacement: Whether to sample with replacement.
         
         Returns:
-            A list of tuples containing the sampled data.
+            Tuples of tensors containing the sampled data.
         """
         assert batch_size > 0 and batch_size <= len(self)
         if replacement:
@@ -86,7 +85,7 @@ class RayDataset(Dataset):
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
 
-        tn, tf = gmt.ray_box_intersection(ro, rd, bbox.xyz_min, bbox.xyz_max)
+        tn, tf = bbox.intersection(ro, rd)
 
         # Get mask for non-NaN values in tn
         valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
