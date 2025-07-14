@@ -144,10 +144,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             if radar is not None:
                 points = data.load_radar_point_cloud(radar)
                 radar_data = au.datasets.RadarDataset(
-                    altitudes=points.altitudes,
-                    latitudes=points.latitudes,
-                    longitudes=points.longitudes,
-                    densities=points.densities,
+                    data=points,
                     frame=config.frame
                 )
             

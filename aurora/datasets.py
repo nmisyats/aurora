@@ -7,6 +7,7 @@ from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.geodesy as geo
+from aurora.data import RadarData
 
 
 class Dataset(ABC):
@@ -131,23 +132,20 @@ class RadarBatch(NamedTuple):
 class RadarDataset(Dataset):
     def __init__(
             self,
-            altitudes: torch.Tensor,
-            latitudes: torch.Tensor,
-            longitudes: torch.Tensor,
-            densities: torch.Tensor,
+            data: RadarData,
             frame: Frame,
         ):
         device = frame.device
 
-        lats = latitudes.to(device)
-        lons = longitudes.to(device)
-        alts = altitudes.to(device)
+        lats = data.latitudes.to(device)
+        lons = data.longitudes.to(device)
+        alts = data.altitudes.to(device)
         
         pts_ecef = geo.geodetic_to_ecef(lats, lons, alts)
         pts_frame = frame.from_ecef(pts_ecef, is_point=True)
         
         self.p = pts_frame
-        self.d_ref = densities.to(device)
+        self.d_ref = data.densities.to(device)
 
     def __len__(self):
         return len(self.p)
