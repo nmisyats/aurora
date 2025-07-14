@@ -7,6 +7,7 @@ from aurora.samplers import EqualSampler, StratifiedSampler
 from aurora.losses import ray_loss, radar_loss, spectral_smoothness_loss
 from aurora.models import ModelConfig, save_model, load_model, load_grid_model
 from aurora.datasets import RayDataset, RadarDataset
+from aurora.data import load_config
 
 import aurora.data as data
 import aurora.geodesy as geodesy
@@ -36,6 +37,7 @@ __all__ = [
     "load_grid_model",
     "RayDataset",
     "RadarDataset",
+    "load_config",
     
     "data",
     "geodesy",
