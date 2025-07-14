@@ -206,17 +206,7 @@ def plot_flux_2d_comparison(
     est_q0 = phy.compute_total_energy_flux(estimated_flux, energy_edges).cpu()
     ref_q0 = phy.compute_total_energy_flux(reference_flux, energy_edges).cpu()
     
-    # Setup figure with shared colorbar
-    fig = plt.figure(figsize=figsize)
-    grid = ImageGrid(
-        fig, 111,
-        nrows_ncols=(1, 2),
-        axes_pad=0.1,
-        cbar_location="right",
-        cbar_mode="single",
-        cbar_size="7%",
-        cbar_pad="10%"
-    )
+    fig, grid = plt.subplots(1, 2, figsize=(12, 6), sharex=False, sharey=False)
     
     # Get bounds
     est_xy_min, est_xy_max = estimated_bounds
@@ -297,7 +287,10 @@ def plot_flux_2d_comparison(
         )
     
     # Add colorbar and labels
-    cbar = grid[0].cax.colorbar(im)
+    divider = make_axes_locatable(grid[1])
+    cax = divider.append_axes("right", size="5%", pad=0.05)  # 5% of the image width
+    # Add colorbar in that axes
+    cbar = fig.colorbar(im, cax=cax)
     cbar.set_label("mW/m²")
     
     grid[0].set_title(titles[0])

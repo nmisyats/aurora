@@ -17,6 +17,8 @@ def generate_reconstructed_flux(
     res_x: int = typer.Option(128, help="X resolution"),
     res_y: int = typer.Option(128, help="Y resolution"),
     gpu: bool = typer.Option(True, help="Use GPU if available"),
+    region_x: str = typer.Option(None, help="x range of region to display in the format x_min,x_max"),
+    region_y: str = typer.Option(None, help="y range of region to display in the format y_min,y_max"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
     cmap: str = typer.Option("jet", help="Colormap for plotting"),
@@ -28,8 +30,14 @@ def generate_reconstructed_flux(
     recon = models.load_model(recon_path, device)
     recon.eval()
     
-    xy_min = recon.bbox.xy_min
-    xy_max = recon.bbox.xy_max
+    if region_x and region_y:
+        x_min, x_max = map(float, region_x.split(","))
+        y_min, y_max = map(float, region_y.split(","))
+        xy_min = torch.tensor([x_min, y_min], device=device)
+        xy_max = torch.tensor([x_max, y_max], device=device)
+    else:
+        xy_min = recon.bbox.xy_min
+        xy_max = recon.bbox.xy_max
     xy = xy_grid(xy_min, xy_max, res_x, res_y)
     estimated_f = recon.flux(xy).cpu()
 
