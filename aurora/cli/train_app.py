@@ -427,6 +427,38 @@ def train_hybrid_mlp(
     )
     return model, history
 
+@model_train_command("bilinear_mlp", models.BilinearMLP.__doc__)
+def train_bilinear_mlp(
+    config: models.ModelConfig,
+    training_config: TrainingConfig,
+    position_embed: int = typer.Option(8, help="Position embedding size (0 for no embedding)"),
+    energy_embed: int = typer.Option(8, help="Energy embedding size (0 for no embedding)"),
+    pos_enc: int = typer.Option(4, help="Maximum exponent for positional encoding"),
+    energy_enc: int = typer.Option(2, help="Maximum exponent for energy encoding"),
+    max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
+    embed_hidden_size: int = typer.Option(128, help="Size of the hidden layer in embedding networks")
+):
+    # Instantiate reconstruction model
+    model = models.BilinearMLP(
+        config=config,
+        position_embed=position_embed,
+        energy_embed=energy_embed,
+        position_enc=pos_enc,
+        energy_enc=energy_enc,
+        max_log_flux=max_log_f,
+        embed_hidden_size=embed_hidden_size
+    ).to(training_config.device)
+    typer.echo(f"Instantiated model:\n{model}")
+    # Train the reconstruction on the provided data
+    history = au.train(
+        model=model,
+        iter_loss=default_iter_loss(training_config),
+        num_iters=training_config.iters,
+        lr=training_config.lr,
+        weight_decay=training_config.reg_strength,
+    )
+    return model, history
+
 @model_train_command("residual_mlp", models.ResidualMLP.__doc__)
 def train_residual_mlp(
     config: models.ModelConfig,
