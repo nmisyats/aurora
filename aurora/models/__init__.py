@@ -17,6 +17,7 @@ __all__ = [
     "PolyMLP",
     "HybridMLP",
     "ResidualMLP",
+    "BilinearMLP",
     "save_model",
     "load_model",
     "load_grid_model",
