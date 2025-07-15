@@ -15,7 +15,7 @@ class HybridMLP(FluxModel):
             position_embed: int = 8,
             energy_embed: int = 8,
             position_enc: int = 4,
-            energy_enc: int = 4,
+            energy_enc: int = 2,
             max_log_flux: float = 7.0,
             embed_hidden_size: int = 64,
             num_hidden: int = 3,
