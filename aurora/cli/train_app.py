@@ -400,9 +400,7 @@ def train_hybrid_mlp(
     pos_enc: int = typer.Option(4, help="Maximum exponent for positional encoding"),
     energy_enc: int = typer.Option(4, help="Maximum exponent for energy encoding"),
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
-    embed_hidden_size: int = typer.Option(128, help="Size of the hidden layer in embedding networks"),
-    num_hidden: int = typer.Option(3, help="Number of hidden layers in combined network"),
-    hidden_size: int = typer.Option(128, help="Size of hidden layers in combined network")
+    embed_hidden_size: int = typer.Option(128, help="Size of the hidden layer in embedding networks")
 ):
     # Instantiate reconstruction model
     model = models.HybridMLP(
@@ -412,9 +410,7 @@ def train_hybrid_mlp(
         position_enc=pos_enc,
         energy_enc=energy_enc,
         max_log_flux=max_log_f,
-        embed_hidden_size=embed_hidden_size,
-        num_hidden=num_hidden,
-        hidden_size=hidden_size
+        embed_hidden_size=embed_hidden_size
     ).to(training_config.device)
     typer.echo(f"Instantiated model:\n{model}")
     # Train the reconstruction on the provided data
