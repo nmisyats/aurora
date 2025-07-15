@@ -122,5 +122,6 @@ class HybridMLP(FluxModel):
             "xye_embed": combined_input,
             "log_f_at_edges": log_f_at_edges,
             "f_at_edges": f_at_edges,
+            "log_f": torch.log(f),
             "f": f
         }
