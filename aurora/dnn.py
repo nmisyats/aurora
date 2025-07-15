@@ -21,7 +21,7 @@ class FourierEncoder(nn.Module):
     
     def output_dim(self, input_dim: int):
         """Returns the encoded size of a tensor of size input_dim"""
-        return (2 * self.encoding_exp + 1) * input_dim
+        return 2 * self.encoding_exp * input_dim
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -53,7 +53,7 @@ class FourierEncoder(nn.Module):
         sin_features = torch.sin(freq_x).flatten(start_dim=-2)  # (..., input_dim * encoding_exp)
         
         # Concatenate original input with sin/cos features
-        return torch.cat([x, cos_features, sin_features], dim=-1)
+        return torch.cat([sin_features, cos_features], dim=-1)
     
     def __repr__(self):
         return f"FourierEncoder(encoding_exp={self.encoding_exp})"
