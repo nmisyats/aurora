@@ -8,7 +8,7 @@ import aurora.dnn as ann
 
 
 class HybridMLP(FluxModel):
-    """Hybrid model using two MLPs for position and energy embedding"""
+    """Hybrid model using two MLPs for position and energy embedding with final MLP combiner"""
     def __init__(
             self,
             config: ModelConfig,
@@ -54,7 +54,7 @@ class HybridMLP(FluxModel):
 
         combined_dim = position_embed_dim + energy_embed_dim
         hidden_sizes = [hidden_size] * num_hidden
-        self.combined_mlp = ann.create_mlp(combined_dim, *hidden_sizes, 1)
+        self.combiner = ann.create_mlp(combined_dim, *hidden_sizes, 1)
 
         self._initialize_weights()
     
@@ -79,49 +79,35 @@ class HybridMLP(FluxModel):
     def _forward_batch(self, xy: torch.Tensor):
         # xy: (B, 2)
         B = xy.shape[0]
-        
-        xy_norm = self.bbox.norm_xy(xy)
-        
-        # Create all (x,y,E) combinations efficiently
-        # if self.training:
-        #     # Random sampling within each bin during training
-        #     rand_uniform = torch.rand(num_bins, device=xy.device)
-        #     # Linear interpolation in log space
-        #     log_e_low = torch.log(self.energy_bins[:-1])
-        #     log_e_high = torch.log(self.energy_bins[1:])
-        #     log_e = log_e_low + rand_uniform * (log_e_high - log_e_low)
-        #     e = torch.exp(log_e)
-        # else:
-        #     # Use geometric mean during inference for consistency
-        #     e = torch.sqrt(self.energy_bins[1:] * self.energy_bins[:-1])
-        # e_norm = self._normalize_energy(e)
 
+        xy_norm = self.bbox.norm_xy(xy) # (B, 2)
+        xy_encoded = self.position_encoder(xy_norm) # (B, pos_enc)
+        xy_embed = self.position_embedder(xy_encoded) # (B, pos_embed)
         
-        log_e = torch.log(self.energy_bins)
+        e_low = self.energy_bins[:-1]
+        e_high = self.energy_bins[1:]
+        log_e = torch.log(0.5 * (e_low + e_high))
         log_e_norm = (log_e - log_e.min()) / (log_e.max() - log_e.min())
-        num_edges = self.num_bins + 1
+        log_e_norm = log_e_norm.reshape(self.num_bins, 1) # (N, 1)
+        e_encoded = self.energy_encoder(log_e_norm) # (N, energy_enc)
+        e_embed = self.energy_embedder(e_encoded) # (N, energy_embed)
         
-        # Expand to create all combinations: (B*N, 3)
-        xy_expanded = xy_norm.unsqueeze(1).expand(B, num_edges, 2).reshape(B * num_edges, 2)
-        e_expanded = log_e_norm.unsqueeze(0).expand(B, num_edges).reshape(B * num_edges, 1)
+        # Expand to create all combinations
+        _, n_pos = xy_embed.shape
+        _, n_energy = e_embed.shape
+        xy_expanded = xy_embed.unsqueeze(1).expand(B, self.num_bins, n_pos).reshape(B * self.num_bins, n_pos)
+        e_expanded = e_embed.unsqueeze(0).expand(B, self.num_bins, n_energy).reshape(B * self.num_bins, n_energy)
 
         # Evaluate the hybrid model
-        xy_encoded = self.position_encoder(xy_expanded)
-        e_encoded = self.energy_encoder(e_expanded)
-        xy_embed = self.position_embedder(xy_encoded)
-        e_embed = self.energy_embedder(e_encoded)
-        combined_input = torch.cat((xy_embed, e_embed), dim=1)
-        log_f_at_edges = self.combined_mlp(combined_input)
-        f_at_edges = ann.clamped_exp10(log_f_at_edges, 0.0, self.max_log_flux)
-        f_at_edges = f_at_edges.reshape(B, num_edges) # Reshape back to (B, N)
-        f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
+        xye_embed = torch.cat((xy_expanded, e_expanded), dim=-1)
+        log_f = self.combiner(xye_embed)
+        log_f = log_f.reshape(B, self.num_bins)
+        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
 
         return {
             "xy_embed": xy_embed,
             "e_embed": e_embed,
-            "xye_embed": combined_input,
-            "log_f_at_edges": log_f_at_edges,
-            "f_at_edges": f_at_edges,
-            "log_f": torch.log(f),
+            "xye_embed": xye_embed,
+            "log_f": log_f,
             "f": f
         }
