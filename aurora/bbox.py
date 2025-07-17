@@ -43,14 +43,6 @@ class BBox:
     def device(self):
         return self.xyz_min.device
     
-    @property
-    def xy_min(self):
-        return self.xyz_min[:2]
-    
-    @property
-    def xy_max(self):
-        return self.xyz_max[:2]
-    
     def norm_xyz(self, xyz: torch.Tensor):
         return (xyz - self.xyz_min) / (self.xy_max - self.xyz_min)
     
@@ -76,12 +68,44 @@ class BBox:
         return xyz_grid(self.xyz_min, self.xyz_max, res_x, res_y, res_z)
     
     @property
+    def xy_min(self):
+        return self.xyz_min[:2]
+    
+    @property
+    def xy_max(self):
+        return self.xyz_max[:2]
+    
+    @property
     def xy_bounds(self):
         return (self.xy_min, self.xy_max)
     
     @property
     def xyz_bounds(self):
         return (self.xyz_min, self.xyz_max)
+    
+    @property
+    def x_min(self) -> float:
+        return self.xyz_min[0].item()
+    
+    @property
+    def x_max(self) -> float:
+        return self.xyz_max[0].item()
+    
+    @property
+    def y_min(self) -> float:
+        return self.xyz_min[1].item()
+    
+    @property
+    def y_max(self) -> float:
+        return self.xyz_max[1].item()
+    
+    @property
+    def z_min(self) -> float:
+        return self.xyz_min[2].item()
+    
+    @property
+    def z_max(self) -> float:
+        return self.xyz_max[2].item()
 
     def __repr__(self):
         return (

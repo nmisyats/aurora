@@ -305,7 +305,7 @@ class FluxModel(nn.Module, ABC):
         return phy.compute_total_energy_flux(f, self.energy_bins)
     
     @overload
-    def generate_image(self, cam: Camera, num_samples: int, nan=0.0):
+    def generate_image(self, cam: Camera, num_samples: int, nan=0.0, ignore_bbox=False):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -313,12 +313,14 @@ class FluxModel(nn.Module, ABC):
             cam (Camera): Camera object to generate the image from.
             num_samples (int): Number of samples to use for uniform ray integration.
             nan (float): Value to replace NaN values in the image.
+            ignore_bbox (bool): Whether to evaluate the model of all camera rays
+                regardless if they interesct the bouding box or not
         
         Returns:
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @overload
-    def generate_image(self, cam: Camera, sampler: RaySampler, nan=0.0):
+    def generate_image(self, cam: Camera, sampler: RaySampler, nan=0.0, ignore_bbox=False):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -326,17 +328,24 @@ class FluxModel(nn.Module, ABC):
             cam (Camera): Camera object to generate the image from.
             sampler (RaySampler): Sampler to use for ray integration.
             nan (float): Value to replace NaN values in the image.
+            ignore_bbox (bool): Whether to evaluate the model of all camera rays
+                regardless if they interesct the bouding box or not
         
         Returns:
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @torch.no_grad()
-    def generate_image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0):
+    def generate_image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0, ignore_bbox=False):
         ro, rd = cam.create_rays_ecef(self.device)
         ro = self.frame.from_ecef(ro, is_point=True) # (n, 3)
         rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
         
-        tn, tf = self.bbox.intersection(ro, rd)
+        if ignore_bbox:
+            box_min = torch.tensor([-torch.inf, -torch.inf, self.bbox.z_min], device=self.device)
+            box_max = torch.tensor([ torch.inf,  torch.inf, self.bbox.z_max], device=self.device)
+            tn, tf = gmt.ray_box_intersection(ro, rd, box_min, box_max)
+        else:
+            tn, tf = self.bbox.intersection(ro, rd)
         
         if isinstance(n_or_sampler, RaySampler):
             sampler = n_or_sampler
