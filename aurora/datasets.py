@@ -69,7 +69,7 @@ class RayBatch(NamedTuple):
     g_ref: torch.Tensor
 
 class RayDataset(Dataset):
-    def __init__(self, cams: List[Camera], frame: Frame, bbox: BBox):
+    def __init__(self, cams: List[Camera], frame: Frame, bbox: BBox, intersect_only=False):
         device = frame.device
 
         ro_list, rd_list, g_ref_list = [], [], []
@@ -87,19 +87,22 @@ class RayDataset(Dataset):
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
 
-        tn_bbox, tf_bbox = bbox.intersection(ro, rd)
-        bbox_mask = ~(torch.isnan(tn_bbox) | torch.isnan(tf_bbox))
-
         slice_min = torch.tensor([-torch.inf, -torch.inf, bbox.z_min], device=device)
         slice_max = torch.tensor([ torch.inf,  torch.inf, bbox.z_max], device=device)
         tn, tf = gmt.ray_box_intersection(ro, rd, slice_min, slice_max)
 
+        if intersect_only:
+            tn_bbox, tf_bbox = bbox.intersection(ro, rd)
+            valid_mask = ~(torch.isnan(tn_bbox) | torch.isnan(tf_bbox))
+        else:
+            valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
+
         # Apply the mask to all tensors
-        self.ro = ro[bbox_mask].contiguous()
-        self.rd = rd[bbox_mask].contiguous()
-        self.tn = tn[bbox_mask].contiguous()
-        self.tf = tf[bbox_mask].contiguous()
-        self.g_ref = g_ref[bbox_mask].contiguous()
+        self.ro = ro[valid_mask].contiguous()
+        self.rd = rd[valid_mask].contiguous()
+        self.tn = tn[valid_mask].contiguous()
+        self.tf = tf[valid_mask].contiguous()
+        self.g_ref = g_ref[valid_mask].contiguous()
 
     def __len__(self):
         return len(self.ro)
