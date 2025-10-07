@@ -73,6 +73,7 @@ class PolyMLP(FluxModel):
         log_f_at_edges *= self.max_log_flux
         f_at_edges = torch.pow(10.0, log_f_at_edges)
         f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
+        f = torch.max(f, torch.tensor(1e-3, device=f.device))
         log_f = torch.log(f)
         return {
             "f": f,
