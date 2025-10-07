@@ -156,7 +156,7 @@ def plot_flux_1d(
     
     if labels is not None:
         for data, label in zip(flux_data, labels):
-            ax.plot(energies, data, label=label, marker="x")
+            ax.plot(energies, torch.pi * data, label=label, marker="x")
         ax.legend()
     else:
         for data in flux_data:
@@ -306,7 +306,7 @@ def plot_cameras_grid(
     cameras: List[Camera],
     selected_camera: Optional[str] = None,
     figsize_per_image: float = 3.0,
-    colorbar_label: str = "Rayleigh",
+    colorbar_label: str = "kR",
     cmap: str = "viridis",
     title_format: str = "{name}",
     global_color_scale: bool = True,
@@ -336,7 +336,7 @@ def plot_cameras_grid(
         
         cam = cam_dict[selected_camera]
         fig, ax = plt.subplots(figsize=(8, 6))
-        im = ax.imshow(cam.image, cmap=cmap)
+        im = ax.imshow(cam.image / 1000, cmap=cmap)
         cbar = fig.colorbar(im)
         cbar.set_label(colorbar_label)
         
@@ -366,8 +366,8 @@ def plot_cameras_grid(
         
         # Determine color scale
         if global_color_scale:
-            vmin = min(cam.image.min() for cam in cameras)
-            vmax = max(cam.image.max() for cam in cameras)
+            vmin = min(cam.image.min() / 1000 for cam in cameras)
+            vmax = max(cam.image.max() / 1000 for cam in cameras)
         else:
             vmin = vmax = None
         
@@ -387,12 +387,12 @@ def plot_cameras_grid(
         # Plot images
         im = None
         for ax, cam in zip(grid, cameras):
-            im = ax.imshow(cam.image, cmap=cmap, vmin=vmin, vmax=vmax)
+            im = ax.imshow(cam.image / 1000, cmap=cmap, vmin=vmin, vmax=vmax)
             ax.axis('off')
             
             # Format title
             title = title_format.format(
-                name=cam.name,
+                name=cam.name.capitalize(),
                 latitude=cam.latitude,
                 longitude=cam.longitude,
                 altitude=cam.altitude
@@ -494,7 +494,7 @@ def plot_image_comparison(
     reference_images: List[torch.Tensor],
     camera_names: List[str],
     figsize_per_col: float = 2.0,
-    colorbar_label: str = "Rayleigh",
+    colorbar_label: str = "kR",
     cmap: str = "viridis",
     global_color_scale: bool = True,
     row_labels: Tuple[str, str] = ("Generated", "Reference")
@@ -548,7 +548,7 @@ def plot_image_comparison(
     im = None
     
     for i, (ax, img) in enumerate(zip(grid, all_imgs_flat)):
-        im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap=cmap)
+        im = ax.imshow(img / 1000, vmin=vmin, vmax=vmax, cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
         
@@ -569,6 +569,70 @@ def plot_image_comparison(
     axes_rows = [list(grid[:n_cams]), list(grid[n_cams:2*n_cams])]
     
     return fig, axes_rows
+
+def plot_3d_scatter(points, values, xlim=None, ylim=None, zlim=None, unit='m$^{-3}$'):
+    """
+    Create a 3D scatter plot with equal aspect ratio and color-coded values.
+    
+    Parameters:
+    -----------
+    points : numpy.ndarray
+        Array of shape (n, 3) containing 3D coordinates of points
+    values : numpy.ndarray
+        Array of shape (n,) containing scalar values for each point
+    xlim : tuple, optional
+        (xmin, xmax) for x-axis range. If None, deduced from data.
+    ylim : tuple, optional
+        (ymin, ymax) for y-axis range. If None, deduced from data.
+    zlim : tuple, optional
+        (zmin, zmax) for z-axis range. If None, deduced from data.
+    unit : str, optional
+        Unit label for the colorbar
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Deduce ranges from data if not provided
+    if xlim is None:
+        xlim = (points[:, 0].min(), points[:, 0].max())
+    if ylim is None:
+        ylim = (points[:, 1].min(), points[:, 1].max())
+    if zlim is None:
+        zlim = (points[:, 2].min(), points[:, 2].max())
+    
+    # Create scatter plot with jet colormap
+    scatter = ax.scatter(points[:, 0], points[:, 1], points[:, 2], 
+                        c=values, cmap='jet', s=5)
+    
+    # Add colorbar with unit
+    cbar = fig.colorbar(scatter, ax=ax, pad=0.1, shrink=0.8)
+    cbar.set_label(unit, rotation=270, labelpad=20)
+    
+    # Set axis limits
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_zlim(zlim)
+    
+    # Set axis labels
+    ax.set_xlabel('$x$ (km)')
+    ax.set_ylabel('$y$ (km)')
+    ax.set_zlabel('$z$ (km)')
+    
+    # Calculate ranges for equal aspect ratio
+    x_range = xlim[1] - xlim[0]
+    y_range = ylim[1] - ylim[0]
+    z_range = zlim[1] - zlim[0]
+    
+    # Set equal aspect ratio
+    max_range = max(x_range, y_range, z_range)
+    ax.set_box_aspect([x_range/max_range, y_range/max_range, z_range/max_range])
+    
+    plt.tight_layout()
+    return fig, ax
 
 # Context manager for plot styling
 class PlotStyle:

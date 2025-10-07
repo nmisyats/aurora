@@ -7,6 +7,7 @@ import torch
 from aurora import models, data
 import aurora.plot as aplt
 from aurora.utils import choose_best_device
+import aurora as au
 
 
 # Create subcommand for plotting
@@ -115,4 +116,22 @@ def plot_cameras(
         title_format=title_format,
         max_cols=max_cols
     )
+    plt.show()
+
+@plot_app.command("radar")
+def plot_cameras(
+    radar_data: Path = typer.Argument(..., help="Radar data file"),
+    config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+):
+    """Plot camera images from a dataset."""
+    radar = data.load_radar_point_cloud(radar_data)
+    config = data.load_config(config_path)
+    pts_ecef = au.geodesy.geodetic_to_ecef(radar.latitudes, radar.longitudes, radar.altitudes)
+    pts_frame = config.frame.from_ecef(pts_ecef, is_point=True)
+    dens = radar.densities
+    aplt.plot_3d_scatter(pts_frame, dens / 10**5, unit=r"$10^5 \mathrm{cm}^{-3}$",
+                        #  xlim=(config.bbox.x_min, config.bbox.x_max),
+                        #  ylim=(config.bbox.y_min, config.bbox.y_max),
+                        #  zlim=(config.bbox.z_min, config.bbox.z_max)
+                         )
     plt.show()
