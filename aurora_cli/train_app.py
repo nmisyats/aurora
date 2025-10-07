@@ -1,20 +1,14 @@
 from pathlib import Path
 import inspect
-from typing import Callable, Tuple, Dict, List, Optional
+from typing import Callable, Tuple, Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 
 import typer
 from matplotlib import pyplot as plt
-import torch
-import torch.nn.functional as F
 
-import aurora as au
-from aurora import models, data
-from aurora.samplers import StratifiedSampler
-from aurora.utils import choose_best_device, xy_grid
-from aurora.models import FluxModel
-import aurora.physics as phy
-import aurora.plot as aplt
+if TYPE_CHECKING:
+    import torch
+    import aurora as au
 
 
 # Create subcommand for train
@@ -27,23 +21,22 @@ MODEL_TRAINING_COMMANDS = {}
 @dataclass
 class TrainingConfig:
     iters: int
-    ray_data: Optional[au.RayDataset]
+    ray_data: Optional['au.RayDataset']
     ray_batch: int
     ray_bins: int
     ray_weight: float
-    radar_data: Optional[au.RadarDataset]
+    radar_data: Optional['au.RadarDataset']
     radar_batch: int
     radar_weight: float
     smooth_batch: int
     smooth_weight: float
     lr: float
     reg_strength: float
-    device: torch.device
+    device: 'torch.device'
 
 def model_train_command(model_name: str, model_decsription: Optional[str] = None):
     """Dynamically create a train command for a specific model"""
-    
-    def make_train_func(train_model: Callable[..., Tuple[FluxModel, Dict[str, List[float]]]]):
+    def make_train_func(train_model: Callable[..., Tuple['au.models.FluxModel', Dict[str, List[float]]]]):
         def train_func(
             config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
             options: Path = typer.Option(None, help="Path to YAML training configuration file"),
@@ -70,6 +63,8 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
             **model_kwargs
         ):
+            import aurora as au
+
             typer.echo(f"Training model: {model_name}")
 
             # Get function signature to identify default values
@@ -86,7 +81,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             # Load training options from YAML if provided
             train_options = {}
             if options is not None:
-                train_options = data.load_yaml(options)
+                train_options = au.data.load_yaml(options)
                 typer.echo(f"Loaded training options from {options}")
 
             # Helper function to get final parameter value
@@ -132,17 +127,17 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                 final_config_kwargs[key] = get_param_value(key, value)
 
             # Choose device
-            device = choose_best_device(gpu)
+            device = au.utils.choose_best_device(gpu)
 
-            config = data.load_config(config_file, device)
+            config = au.data.load_config(config_file, device)
 
             # Load the datasets
             ray_data, radar_data = None, None
             if cam_pos is not None and cam_dir is not None:
-                cams = data.load_cameras(cam_pos, cam_dir)
+                cams = au.data.load_cameras(cam_pos, cam_dir)
                 ray_data = au.datasets.RayDataset(cams, config.frame, config.bbox)
             if radar is not None:
-                points = data.load_radar_point_cloud(radar)
+                points = au.data.load_radar_point_cloud(radar)
                 radar_data = au.datasets.RadarDataset(
                     data=points,
                     frame=config.frame
@@ -168,24 +163,24 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             model, history = train_model(config, training_config, **final_config_kwargs)
 
             if save is not None:
-                models.save_model(model, save)
+                au.models.save_model(model, save)
                 print(f"Saved model in {save}")
             
             if plot_loss:
-                aplt.plot_training_losses(history)
+                au.plot.plot_training_losses(history)
 
             if plot_flux:
                 model.eval()
                 rec_xy_min = model.bbox.xy_min
                 rec_xy_max = model.bbox.xy_max
-                recon_xy = xy_grid(rec_xy_min, rec_xy_max, plot_res_x, plot_res_y)
+                recon_xy = au.utils.xy_grid(rec_xy_min, rec_xy_max, plot_res_x, plot_res_y)
                 estimated_f = model.flux(recon_xy)
                 if ref_flux is not None and ref_config is not None:
-                    ref = models.load_grid_model(ref_flux, ref_config, device)
+                    ref = au.models.load_grid_model(ref_flux, ref_config, device)
                     reference_f = ref.data
                     ref_xy_min = ref.bbox.xy_min
                     ref_xy_max = ref.bbox.xy_max
-                    aplt.plot_flux_2d_comparison(
+                    au.plot.plot_flux_2d_comparison(
                         estimated_flux=estimated_f,
                         reference_flux=reference_f,
                         estimated_bounds=(rec_xy_min, rec_xy_max),
@@ -193,7 +188,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                         energy_edges=model.energy_bins,
                     )
                 else:
-                    aplt.plot_flux_2d(
+                    au.plot.plot_flux_2d(
                         flux_data=estimated_f,
                         xy_bounds=(model.bbox.xy_min, model.bbox.xy_max),
                         energy_edges=model.energy_bins
@@ -297,8 +292,10 @@ def make_options_file_for_model(model_name: str, file_path: Path):
 
 def default_iter_loss(tc: TrainingConfig):
     """Generic iteration loss, should be suitable for most models out of the box."""
+    import torch
+    import aurora as au
     
-    def iter_loss(model: FluxModel):
+    def iter_loss(model: au.models.FluxModel):
         # Train the reconstruction on the provided data
         loss_dict = {}
         total_loss = torch.scalar_tensor(0.0, device=tc.device)
@@ -306,7 +303,7 @@ def default_iter_loss(tc: TrainingConfig):
         if tc.ray_data is not None:
             # Train on ray data
             ray_batch = tc.ray_data.sample_batch(tc.ray_batch)
-            ray_sampler = StratifiedSampler(tc.ray_bins)
+            ray_sampler = au.StratifiedSampler(tc.ray_bins)
             ray_loss = tc.ray_weight * au.ray_loss(model, ray_batch, ray_sampler)
             total_loss = total_loss + ray_loss
             loss_dict["ray_loss"] = ray_loss.item()
@@ -331,17 +328,19 @@ def default_iter_loss(tc: TrainingConfig):
     
     return iter_loss
 
-@model_train_command("spectral_mlp", models.SpectralMLP.__doc__)
+@model_train_command("spectral_mlp", "MLP outputing the energy spectrum from the xy position")
 def train_spectral_mlp(
-    config: models.ModelConfig,
+    config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
     num_hidden: int = typer.Option(4, help="Number of hidden layers"),
     hidden_size: int = typer.Option(128, help="Size of each hidden layer")
 ):
+    import aurora as au
+
     # Instantiate reconstruction model
-    model = models.SpectralMLP(
+    model = au.models.SpectralMLP(
         config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
@@ -359,9 +358,9 @@ def train_spectral_mlp(
     )
     return model, history
 
-@model_train_command("poly_mlp", models.PolyMLP.__doc__)
+@model_train_command("poly_mlp", "MLP learning a polynomial basis of the flux")
 def train_poly_mlp(
-    config: models.ModelConfig,
+    config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
@@ -370,8 +369,10 @@ def train_poly_mlp(
     num_hidden: int = typer.Option(4, help="Number of hidden layers"),
     hidden_size: int = typer.Option(128, help="Size of each hidden layer")
 ):
+    import aurora as au
+
     # Instantiate reconstruction model
-    model = models.PolyMLP(
+    model = au.models.PolyMLP(
         config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
@@ -391,9 +392,9 @@ def train_poly_mlp(
     )
     return model, history
 
-@model_train_command("hybrid_mlp", models.HybridMLP.__doc__)
+@model_train_command("hybrid_mlp", "Hybrid model using two MLPs for position and energy embedding with final MLP combiner")
 def train_hybrid_mlp(
-    config: models.ModelConfig,
+    config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     position_embed: int = typer.Option(8, help="Position embedding size (0 for no embedding)"),
     energy_embed: int = typer.Option(8, help="Energy embedding size (0 for no embedding)"),
@@ -404,8 +405,10 @@ def train_hybrid_mlp(
     num_hidden: int = typer.Option(3, help="Number of hidden layers in combined network"),
     hidden_size: int = typer.Option(128, help="Size of hidden layers in combined network")
 ):
+    import aurora as au
+
     # Instantiate reconstruction model
-    model = models.HybridMLP(
+    model = au.models.HybridMLP(
         config=config,
         position_embed=position_embed,
         energy_embed=energy_embed,
@@ -427,9 +430,9 @@ def train_hybrid_mlp(
     )
     return model, history
 
-@model_train_command("bilinear_mlp", models.BilinearMLP.__doc__)
+@model_train_command("bilinear_mlp", "Hybrid model using two MLPs for position and energy embedding with final bilinear combination")
 def train_bilinear_mlp(
-    config: models.ModelConfig,
+    config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     position_embed: int = typer.Option(8, help="Position embedding size (0 for no embedding)"),
     energy_embed: int = typer.Option(8, help="Energy embedding size (0 for no embedding)"),
@@ -438,8 +441,10 @@ def train_bilinear_mlp(
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
     embed_hidden_size: int = typer.Option(128, help="Size of the hidden layer in embedding networks")
 ):
+    import aurora as au
+
     # Instantiate reconstruction model
-    model = models.BilinearMLP(
+    model = au.models.BilinearMLP(
         config=config,
         position_embed=position_embed,
         energy_embed=energy_embed,
@@ -459,9 +464,9 @@ def train_bilinear_mlp(
     )
     return model, history
 
-@model_train_command("residual_mlp", models.ResidualMLP.__doc__)
+@model_train_command("residual_mlp", "Double MLP learning coarse and detailed flux in parallel")
 def train_residual_mlp(
-    config: models.ModelConfig,
+    config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: int = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
@@ -470,8 +475,12 @@ def train_residual_mlp(
     hidden_size_coarse: int = typer.Option(64, help="Size of hidden layers in coarse network"),
     hidden_size_details: int = typer.Option(32, help="Size of the hidden layers in details network")
 ):
+    import aurora as au
+    from aurora import physics as phy
+    import torch.nn.functional as F
+
     # Instantiate reconstruction model
-    model = models.ResidualMLP(
+    model = au.models.ResidualMLP(
         config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
@@ -482,7 +491,7 @@ def train_residual_mlp(
     ).to(training_config.device)
     typer.echo(f"Instantiated model:\n{model}")
 
-    def iter_loss(model: FluxModel):
+    def iter_loss(model: au.models.FluxModel):
         # Train the reconstruction on the provided data
         tc = training_config
         loss_dict = {}
@@ -491,7 +500,7 @@ def train_residual_mlp(
         if tc.ray_data is not None:
             # Train on ray data
             ro, rd, tn, tf, g_ref = tc.ray_data.sample_batch(tc.ray_batch)
-            ray_sampler = StratifiedSampler(tc.ray_bins)
+            ray_sampler = au.StratifiedSampler(tc.ray_bins)
             p_frame, t = ray_sampler(ro, rd, tn, tf)
             xy, z = p_frame[..., :2], p_frame[..., 2]
             f_out = model.forward(xy)

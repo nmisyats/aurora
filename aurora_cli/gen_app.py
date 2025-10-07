@@ -2,11 +2,7 @@ from pathlib import Path
 
 import typer
 from matplotlib import pyplot as plt
-import torch
 
-from aurora import models, data
-from aurora.utils import choose_best_device, xy_grid, xyz_grid
-import aurora.plot as aplt
 
 # Create subcommand for generating
 gen_app = typer.Typer(help="Generation utilities")
@@ -26,8 +22,11 @@ def generate_reconstructed_flux(
     ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate the total energy of reconstruction."""
-    device = choose_best_device(gpu)
-    recon = models.load_model(recon_path, device)
+    import torch
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
+    recon = au.models.load_model(recon_path, device)
     recon.eval()
     
     if region_x and region_y:
@@ -38,21 +37,21 @@ def generate_reconstructed_flux(
     else:
         xy_min = recon.bbox.xy_min
         xy_max = recon.bbox.xy_max
-    xy = xy_grid(xy_min, xy_max, res_x, res_y)
+    xy = au.utils.xy_grid(xy_min, xy_max, res_x, res_y)
     estimated_f = recon.flux(xy).cpu()
 
     if save is not None:
-        data.save_3d_grid_data(estimated_f, save)
+        au.data.save_3d_grid_data(estimated_f, save)
     
     if plot:
         rec_xy_min = xy_min.cpu()
         rec_xy_max = xy_max.cpu()
         if ref_flux is not None and ref_config is not None:
-            ref = models.load_grid_model(ref_flux, ref_config, device)
+            ref = au.models.load_grid_model(ref_flux, ref_config, device)
             reference_f = ref.data.cpu()
             ref_xy_min = ref.bbox.xy_min.cpu()
             ref_xy_max = ref.bbox.xy_max.cpu()
-            aplt.plot_flux_2d_comparison(
+            au.plot.plot_flux_2d_comparison(
                 estimated_flux=estimated_f,
                 reference_flux=reference_f,
                 estimated_bounds=(rec_xy_min, rec_xy_max),
@@ -61,7 +60,7 @@ def generate_reconstructed_flux(
                 cmap=cmap
             )
         else:
-            aplt.plot_flux_2d(
+            au.plot.plot_flux_2d(
                 flux_data=estimated_f,
                 xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
                 energy_edges=recon.energy_bins.cpu(),
@@ -81,28 +80,31 @@ def generate_reconstructed_flux_at(
     ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate the energy spectrum at a given xy location."""
-    device = choose_best_device(gpu)
-    recon = models.load_model(recon_path, device)
+    import torch
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
+    recon = au.models.load_model(recon_path, device)
     recon.eval()
     
     xy = torch.tensor([x, y], device=device)
     estimated_f = recon.flux(xy).cpu()
 
     if save is not None:
-        data.save_matrix_data(estimated_f.unsqueeze(1), save)
+        au.data.save_matrix_data(estimated_f.unsqueeze(1), save)
     
     if plot:
         if ref_flux is not None and ref_config is not None:
-            ref = models.load_grid_model(ref_flux, ref_config, device)
+            ref = au.models.load_grid_model(ref_flux, ref_config, device)
             reference_f = ref.flux(xy).cpu()
-            aplt.plot_flux_1d(
+            au.plot.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
                 energy_edges=recon.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})",
                 labels=("Reference", "Reconstructed")
             )
         else:
-            aplt.plot_flux_1d(
+            au.plot.plot_flux_1d(
                 flux_data=estimated_f,
                 energy_edges=recon.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})"
@@ -124,35 +126,37 @@ def generate_volume_emission(
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
     """Generate the 3D volume emission rate of a reconstruction."""
-    device = choose_best_device(gpu)
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path, device)
         recon.eval()
         recon.chunk_size = chunk_size
         recon.chunk_progress_bar = True
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
-        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = recon.get_emission_rate(xyz).cpu()
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        ref_recon = models.load_grid_model(recon_or_ref_path, config, device)
+        ref_recon = au.models.load_grid_model(recon_or_ref_path, config, device)
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
-        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         l = ref_recon.get_emission_rate(xyz).cpu()
     
     if save is not None:
-        data.save_3d_grid_data(l, save)
+        au.data.save_3d_grid_data(l, save)
     
     if plot:
         # Parse opacity values
         opacity_vals = list(map(float, opacity.split(',')))
         
-        plotter = aplt.plot_volume_3d(
+        plotter = au.plot.plot_volume_3d(
             volume_data=l,
             xyz_bounds=(xyz_min, xyz_max),
             scalars_name="Volume emission rate",
@@ -176,35 +180,37 @@ def generate_electron_density(
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
     """Generate the 3D electron density of a reconstruction."""
-    device = choose_best_device(gpu)
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path, device)
         recon.eval()
         recon.chunk_size = chunk_size
         recon.chunk_progress_bar = True
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
-        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         d = recon.get_electron_density(xyz).cpu()
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        ref_recon = models.load_grid_model(recon_or_ref_path, config, device)
+        ref_recon = au.models.load_grid_model(recon_or_ref_path, config, device)
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
-        xyz = xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
         d = ref_recon.get_electron_density(xyz).cpu()
     
     if save is not None:
-        data.save_3d_grid_data(d, save)
+        au.data.save_3d_grid_data(d, save)
     
     if plot:
         # Parse opacity values
         opacity_vals = list(map(float, opacity.split(',')))
         
-        plotter = aplt.plot_volume_3d(
+        plotter = au.plot.plot_volume_3d(
             volume_data=d,
             xyz_bounds=(xyz_min, xyz_max),
             scalars_name="Electron density",
@@ -229,20 +235,22 @@ def generate_images(
     figsize_per_col: float = typer.Option(2.0, help="Figure size per column")
 ):
     """Generate images from cameras using the reconstructed flux."""
-    device = choose_best_device(gpu)
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path, device)
         recon.chunk_size = chunk_size
         recon.chunk_progress_bar = True
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        recon = models.load_grid_model(recon_or_ref_path, config, device)
+        recon = au.models.load_grid_model(recon_or_ref_path, config, device)
     recon.eval()
 
-    cams = data.load_cameras(cam_pos, cam_dir)
+    cams = au.data.load_cameras(cam_pos, cam_dir)
     if locations is not None:
         location_list = locations.split(',')
         cams = [c for c in cams if c.name in location_list]
@@ -263,7 +271,7 @@ def generate_images(
         camera_names.append(cam.name)
 
     if plot:
-        aplt.plot_image_comparison(
+        au.plot.plot_image_comparison(
             generated_images=generated_imgs,
             reference_images=reference_imgs,
             camera_names=camera_names,

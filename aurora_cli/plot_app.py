@@ -2,12 +2,6 @@ from pathlib import Path
 
 import typer
 from matplotlib import pyplot as plt
-import torch
-
-from aurora import models, data
-import aurora.plot as aplt
-from aurora.utils import choose_best_device
-import aurora as au
 
 
 # Create subcommand for plotting
@@ -22,12 +16,14 @@ def plot_flux(
     figsize: str = typer.Option("8,6", help="Figure size as 'width,height'")
 ):
     """Plot the total energy flux of saved flux data."""
-    f_image = data.load_3d_grid_data(flux_data)
-    config = data.load_config(config_path)
+    import aurora as au
+
+    f_image = au.data.load_3d_grid_data(flux_data)
+    config = au.data.load_config(config_path)
     
     width, height = map(float, figsize.split(','))
     
-    aplt.plot_flux_2d(
+    au.plot.plot_flux_2d(
         flux_data=f_image,
         xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
         energy_edges=config.physics.energy_bins,
@@ -48,17 +44,20 @@ def plot_flux_at(
     save: Path = typer.Option(None, help="Save flux data to file"),
 ):
     """Plots the flux curve accross energy levels at a given xy location from saved flux data."""
-    device = choose_best_device(gpu)
-    recon = models.load_grid_model(flux_data, config_path, device)
+    import torch
+    import aurora as au
+
+    device = au.utils.choose_best_device(gpu)
+    recon = au.models.load_grid_model(flux_data, config_path, device)
     
     xy = torch.tensor([x, y], device=device)
     f = recon.flux(xy)
 
     if save is not None:
-        data.save_matrix_data(f.unsqueeze(1), save)
+        au.data.save_matrix_data(f.unsqueeze(1), save)
     
     if plot:
-        aplt.plot_flux_1d(
+        au.plot.plot_flux_1d(
             flux_data=f,
             energy_edges=recon.energy_bins,
             title=f"Flux at (x, y) = ({x}, {y})"
@@ -71,9 +70,11 @@ def plot_volume_emission(
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
     """Plot saved 3D volume emission rate."""
-    emis_data = data.load_3d_grid_data(emis_data_path)
-    config = data.load_config(config_path)
-    pl = aplt.plot_volume_3d(
+    import aurora as au
+
+    emis_data = au.data.load_3d_grid_data(emis_data_path)
+    config = au.data.load_config(config_path)
+    pl = au.plot.plot_volume_3d(
         volume_data=emis_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
         scalars_name="Volume emission rate"
@@ -86,9 +87,11 @@ def plot_electron_density(
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
     """Plot saved 3D electron density."""
-    dens_data = data.load_3d_grid_data(dens_data_path)
-    config = data.load_config(config_path)
-    pl = aplt.plot_volume_3d(
+    import aurora as au
+
+    dens_data = au.data.load_3d_grid_data(dens_data_path)
+    config = au.data.load_config(config_path)
+    pl = au.plot.plot_volume_3d(
         volume_data=dens_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
         scalars_name="Electron density"
@@ -106,9 +109,11 @@ def plot_cameras(
     max_cols: int = typer.Option(None, help="Maximum columns in grid")
 ):
     """Plot camera images from a dataset."""
-    cams = data.load_cameras(cam_pos, cam_dir)
+    import aurora as au
 
-    aplt.plot_cameras_grid(
+    cams = au.data.load_cameras(cam_pos, cam_dir)
+
+    au.plot.plot_cameras_grid(
         cameras=cams,
         selected_camera=location,
         figsize_per_image=figsize_per_image,
@@ -124,14 +129,16 @@ def plot_cameras(
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
     """Plot camera images from a dataset."""
-    radar = data.load_radar_point_cloud(radar_data)
-    config = data.load_config(config_path)
+    import aurora as au
+
+    radar = au.data.load_radar_point_cloud(radar_data)
+    config = au.data.load_config(config_path)
     pts_ecef = au.geodesy.geodetic_to_ecef(radar.latitudes, radar.longitudes, radar.altitudes)
     pts_frame = config.frame.from_ecef(pts_ecef, is_point=True)
     dens = radar.densities
-    aplt.plot_3d_scatter(pts_frame, dens / 10**5, unit=r"$10^5 \mathrm{cm}^{-3}$",
+    au.plot.plot_3d_scatter(pts_frame, dens / 10**5, unit=r"$10^5 \mathrm{cm}^{-3}$",
                         #  xlim=(config.bbox.x_min, config.bbox.x_max),
                         #  ylim=(config.bbox.y_min, config.bbox.y_max),
                         #  zlim=(config.bbox.z_min, config.bbox.z_max)
-                         )
+                        )
     plt.show()

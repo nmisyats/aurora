@@ -8,10 +8,10 @@ setup(
     name = "aurora",
     version = "0.0.1",
     author = "Nazar Misyats",
-    packages=['aurora'],
+    packages=['aurora', 'aurora_cli'],
     entry_points={
         'console_scripts': [
-            'aurora = aurora.cli.main:main',
+            'aurora = aurora_cli.main:main',
         ]
     }
 )
