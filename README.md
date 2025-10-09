@@ -1,15 +1,24 @@
 ## Installation
 
-Requires **3.11 or higher**. It is recommended to create a
+Requires **Python 3.11 or higher**. It is recommended to create a
 [virtual environment](https://docs.python.org/3/library/venv.html)
 and work within this environment:
+
+**Linux:**
 
 ```
 python -m venv .venv
 source .venv/bin/activate
 ```
 
-Then, build and install the library `aurora` library and command line tool
+**Windows:**
+
+```
+python -m venv .venv
+.\.venv\Scripts\activate
+```
+
+Then, build and install the `aurora` library and command line tool
 by running the following commands at the root of the project directory:
 
 ```
@@ -298,8 +307,10 @@ class MyModel(FluxModel):
     def forward(self, xy: torch.Tensor):
         # Pytorch's nn.Module forward method outputing the flux estimate
         # input: (N, 2) xy tensor
-        # output: (N, n_energy_bins) tensor
-        return ...
+        # output: dictionary containing at least an "f" entry
+        return {
+            "f": ... # (N, n_energy_bins)
+        }
 ```
 
 ### Adding a model to the command line
@@ -321,7 +332,7 @@ class MyModel(FluxModel):
     def forward(self, xy: torch.Tensor):
         ...
 ```
-Then, define its training command at the bottom of the`aurora/train_app.py` using the following template:
+Then, define its training command at the bottom of the`aurora_cli/train_app.py` using the following template:
 ```python
 ... # Other models
 
