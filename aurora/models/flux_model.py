@@ -154,7 +154,7 @@ class FluxModel(nn.Module, ABC):
             p_frame (torch.Tensor): Tensor of shape (n, 3) in oblique coordinates.
         
         Returns:
-            torch.Tensor: Emission rate tensor at the points p of shape (n,).
+            torch.Tensor: Electron density tensor at the points p of shape (n,).
         """
         xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
