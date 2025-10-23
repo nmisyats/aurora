@@ -121,7 +121,7 @@ def plot_flux_1d(
     title: str = "Electron flux",
     labels: Optional[Tuple[str, ...]] = None,
     xlabel: str = "E [eV]",
-    ylabel: str = "f [cm$^{-2}$s$^{-1}$eV$^{-1}$]",
+    ylabel: str = "f [m$^{-2}$s$^{-1}$eV$^{-1}$]",
     figsize: Tuple[float, float] = (8, 6),
     ax: Optional[Axes] = None,
 ) -> Tuple[Figure, Axes]:
@@ -156,7 +156,7 @@ def plot_flux_1d(
     
     if labels is not None:
         for data, label in zip(flux_data, labels):
-            ax.plot(energies, torch.pi * data, label=label, marker="x")
+            ax.plot(energies, 10**3 * torch.pi * data, label=label, marker="x")
         ax.legend()
     else:
         for data in flux_data:
