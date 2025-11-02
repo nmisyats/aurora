@@ -93,7 +93,7 @@ def compute_total_energy_flux(
         energy_bins (torch.Tensor): Edges of energy bins of shape (n_E+1,) [eV].
     
     Returns:
-        torch.Tensor: Total energy flux tensor of shape (n) [W m-2].
+        torch.Tensor: Total energy flux tensor of shape (n) [mW m-2].
     """
     e = 1.602e-19
     lower_E, upper_E = energy_bins[:-1], energy_bins[1:]
