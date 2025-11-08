@@ -587,24 +587,16 @@ def plot_3d_scatter(points, values, xlim=None, ylim=None, zlim=None, unit='m$^{-
     """
     Create a 3D scatter plot with equal aspect ratio and color-coded values.
     
-    Parameters:
-    -----------
-    points : numpy.ndarray
-        Array of shape (n, 3) containing 3D coordinates of points
-    values : numpy.ndarray
-        Array of shape (n,) containing scalar values for each point
-    xlim : tuple, optional
-        (xmin, xmax) for x-axis range. If None, deduced from data.
-    ylim : tuple, optional
-        (ymin, ymax) for y-axis range. If None, deduced from data.
-    zlim : tuple, optional
-        (zmin, zmax) for z-axis range. If None, deduced from data.
-    unit : str, optional
-        Unit label for the colorbar
+    Args:
+        points: Tensor of shape (n, 3) containing 3D coordinates of points
+        values: Tensor of shape (n,) containing scalar values for each point
+        xlim: (xmin, xmax) for x-axis range. If None, deduced from data.
+        ylim: (ymin, ymax) for y-axis range. If None, deduced from data.
+        zlim: (zmin, zmax) for z-axis range. If None, deduced from data.
+        unit: Unit label for the colorbar
     
     Returns:
-    --------
-    fig, ax : matplotlib figure and axis objects
+        A tuple (fig, ax) of the matplotlib figure and axis objects
     """
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
