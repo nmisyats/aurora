@@ -68,6 +68,7 @@ def plot_flux_at(
 def plot_volume_emission(
     emis_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+    save: Path = typer.Option(None, help="Save plot to file"),
 ):
     """Plot saved 3D volume emission rate."""
     import aurora as au
@@ -75,16 +76,24 @@ def plot_volume_emission(
     emis_data = au.data.load_3d_grid_data(emis_data_path)
     config = au.data.load_config(config_path)
     pl = au.plot.plot_volume_3d(
-        volume_data=emis_data,
+        volume_data=10**6 * emis_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
-        scalars_name="Volume emission rate"
+        scalars_name="L [photons/m³/s]"
     )
+
+    if save is not None:
+        pl.save_graphic(
+            filename=save,
+            title="3D volume emission rate"
+        )
+    
     pl.show()
 
 @plot_app.command("dens")
 def plot_electron_density(
     dens_data_path: Path = typer.Argument(..., help="Path to emission rate data"),
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
+    save: Path = typer.Option(None, help="Save plot to file"),
 ):
     """Plot saved 3D electron density."""
     import aurora as au
@@ -92,10 +101,17 @@ def plot_electron_density(
     dens_data = au.data.load_3d_grid_data(dens_data_path)
     config = au.data.load_config(config_path)
     pl = au.plot.plot_volume_3d(
-        volume_data=dens_data,
+        volume_data=10**6 * dens_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
-        scalars_name="Electron density"
+        scalars_name="D [electrons/m³]"
     )
+
+    if save is not None:
+        pl.save_graphic(
+            filename=save,
+            title="3D electron density"
+        )
+
     pl.show()
 
 @plot_app.command("cams")

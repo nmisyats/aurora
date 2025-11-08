@@ -477,7 +477,20 @@ def plot_volume_3d(
         scalars=scalars_name,
         cmap=cmap,
         opacity=opacity,
-        shade=False
+        shade=False,
+        scalar_bar_args=dict(
+            title=scalars_name,
+            vertical=True,
+            title_font_size=16,
+            label_font_size=12,
+            fmt="%.2e",
+            n_labels=5,
+            italic=False,
+            width=0.08,
+            height=0.6,
+            position_x=0.87,
+            position_y=0.2,
+        ),
     )
     
     # Optional additions
