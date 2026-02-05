@@ -24,7 +24,7 @@ class SpectralMLP(FluxModel):
 
         encode_dim = self.encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
-        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_bins)
+        self.mlp = ann.MLP(encode_dim, self.num_bins, hidden_sizes)
 
         nn.init.normal_(self.mlp[-1].weight, mean=0, std=0.1)
         nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)

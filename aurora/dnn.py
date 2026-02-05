@@ -55,6 +55,31 @@ class FourierEncoder(nn.Module):
     def __repr__(self):
         return f"FourierEncoder(encoding_exp={self.encoding_exp})"
 
+
+class MLP(nn.Sequential):
+    """Multi-layer perceptron (MLP) neural network with inner ReLU activations"""
+    def __init__(self, in_dim: int, out_dim: int, hidden_dims=()):
+        """Creates a multi-layer perceptron (MLP).
+ 
+        Args:
+            in_dim: Input feature dimension.
+            out_dim: Output feature dimension.
+            hidden_dims: Hidden layer sizes. If empty, the MLP is a single Linear
+                layer mapping `in_dim -> out_dim`.
+        """
+        super().__init__()
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.hidden_dims = hidden_dims
+
+        sizes = (in_dim, *hidden_dims, out_dim)
+        for i in range(len(sizes) - 2):
+            self.append(nn.Linear(sizes[i], sizes[i + 1]))
+            self.append(nn.ReLU())
+        self.append(nn.Linear(sizes[-2], sizes[-1]))
+
+
 def clamped_exp10(
         x: torch.Tensor,
         log_min: Optional[float] = None,
@@ -73,33 +98,3 @@ def clamped_exp10(
     """
     x = torch.clamp(x, log_min, log_max)
     return torch.pow(10.0, x)
-
-def create_mlp(*sizes: int):
-    """Creates a multi-layer perceptron (MLP) neural network with inner ReLU activations.
-    
-    Args:
-        *sizes: Variable number of integers specifying the layer sizes.
-               Must provide at least 2 sizes (input and output dimensions).
-               
-    Returns:
-        nn.Module: A PyTorch Sequential module containing the MLP layers.
-                  For 2 sizes, returns a single Linear layer.
-                  For 3+ sizes, returns a Sequential with Linear layers and ReLU 
-                  activations between hidden layers (no activation after final layer).
-                  
-    Raises:
-        AssertionError: If fewer than 2 sizes are provided.
-    """
-    assert len(sizes) >= 2
-
-    if len(sizes) == 2:
-        return nn.Linear(sizes[0], sizes[1])
-    
-    mlp = nn.Sequential()
-    num_hidden = len(sizes) - 2
-    for i in range(num_hidden):
-        mlp.append(nn.Linear(sizes[i], sizes[i+1]))
-        mlp.append(nn.ReLU())
-    mlp.append(nn.Linear(sizes[-2], sizes[-1]))
-    
-    return mlp

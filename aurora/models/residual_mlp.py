@@ -30,9 +30,9 @@ class ResidualMLP(FluxModel):
         encode_dim = self.encoder.output_dim(2)
 
         hidden_sizes_coarse = [hidden_size_coarse] * num_hidden_coarse
-        self.coarse_mlp = ann.create_mlp(encode_dim, *hidden_sizes_coarse, low_flux_res)
+        self.coarse_mlp = ann.MLP(encode_dim, low_flux_res, hidden_sizes_coarse)
         details_in_dim = encode_dim + low_flux_res
-        self.details_mlp = ann.create_mlp(details_in_dim, hidden_size_details, self.num_bins)
+        self.details_mlp = ann.MLP(details_in_dim, self.num_bins, hidden_size_details)
     
     def forward(self, xy: torch.Tensor):
         xy_norm = self.bbox.norm_xy(xy)

@@ -30,7 +30,7 @@ class PolyMLP(FluxModel):
 
         encode_dim = self.encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
-        self.mlp = ann.create_mlp(encode_dim, *hidden_sizes, self.num_basis)
+        self.mlp = ann.MLP(encode_dim, self.num_basis, hidden_sizes)
         
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions(basis_fn))
