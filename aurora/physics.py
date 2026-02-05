@@ -102,3 +102,28 @@ def compute_total_energy_flux(
     q = (10**3) * e * (10**4) * torch.pi * (f * E * dE)
     q = torch.sum(q, dim=-1)
     return q
+
+def compute_mean_energy(
+        f: torch.Tensor,
+        energy_bins: torch.Tensor
+    ) -> torch.Tensor:
+    """
+    Calculate the mean energy from the flux tensor.
+    
+    Args:
+        f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+        energy_bins (torch.Tensor): Edges of energy bins of shape (n_E+1,) [eV].
+    
+    Returns:
+        torch.Tensor: Mean energy tensor of shape (n,) [keV].
+    """
+    e = 1.602e-19
+    lower_E, upper_E = energy_bins[:-1], energy_bins[1:]
+    E = (lower_E + upper_E) / 2.0
+    dE = upper_E - lower_E
+    eflux = torch.pi * (f * E * dE)
+    eflux = torch.sum(eflux, dim=-1)
+    nflux = torch.pi * (f * dE)
+    nflux = torch.sum(nflux, dim=-1)
+    emean = eflux / nflux * 1e-3
+    return emean

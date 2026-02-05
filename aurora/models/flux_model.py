@@ -129,6 +129,21 @@ class FluxModel(nn.Module, ABC):
         f = self.flux(xy)
         q0 = phy.compute_total_energy_flux(f, self.energy_bins)
         return q0
+    
+    @normalize_batch_dims(xy=1)
+    def mean_energy(self, xy: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the mean energy at xy.
+        
+        Args:
+            xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
+        
+        Returns:
+            torch.Tensor: Mean tensor of shape (n,).
+        """
+        f = self.flux(xy)
+        q0 = phy.compute_mean_energy(f, self.energy_bins)
+        return q0
 
     @normalize_batch_dims(p_frame=1)
     def get_emission_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
