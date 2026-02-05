@@ -99,7 +99,7 @@ class BilinearMLP(FluxModel):
         # Evaluate the hybrid model
         log_f = self.combiner(xy_expanded, e_expanded)
         log_f = log_f.reshape(B, self.num_bins)
-        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
+        f = ann.exp10(log_f, 0.0, self.max_log_flux)
 
         return {
             "xy_embed": xy_embed,

@@ -45,13 +45,13 @@ class ResidualMLP(FluxModel):
             mode='linear', 
             align_corners=True
         ).squeeze(1) # (n, num_bins)
-        f_coarse = ann.clamped_exp10(log_f_coarse, 0.0, self.max_log_flux)
+        f_coarse = ann.exp10(log_f_coarse, 0.0, self.max_log_flux)
 
         details_input = torch.cat([log_f_low, xy_enc], dim=-1)
         log_f_details = self.details_mlp(details_input)
         log_f_details = torch.clamp(log_f_details, 0.5, 2.0)
         log_f_fine = f_coarse + log_f_details
-        f_fine = ann.clamped_exp10(log_f_fine, 0.0, self.max_log_flux)
+        f_fine = ann.exp10(log_f_fine, 0.0, self.max_log_flux)
 
         return {
             "f": f_fine,

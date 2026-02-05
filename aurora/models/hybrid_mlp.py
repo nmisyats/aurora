@@ -102,7 +102,7 @@ class HybridMLP(FluxModel):
         xye_embed = torch.cat((xy_expanded, e_expanded), dim=-1)
         log_f = self.combiner(xye_embed)
         log_f = log_f.reshape(B, self.num_bins)
-        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
+        f = ann.exp10(log_f, 0.0, self.max_log_flux)
 
         return {
             "xy_embed": xy_embed,

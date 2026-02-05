@@ -33,5 +33,5 @@ class SpectralMLP(FluxModel):
         xy_norm = self.bbox.norm_xy(xy)
         xy_enc = self.encoder(xy_norm)
         log_f = self.mlp(xy_enc)
-        f = ann.clamped_exp10(log_f, 0.0, self.max_log_flux)
+        f = ann.exp10(log_f, 0.0, self.max_log_flux)
         return {"log_f": log_f, "f": f}

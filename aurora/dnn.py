@@ -80,7 +80,7 @@ class MLP(nn.Sequential):
         self.append(nn.Linear(sizes[-2], sizes[-1]))
 
 
-def clamped_exp10(
+def exp10(
         x: torch.Tensor,
         log_min: Optional[float] = None,
         log_max: Optional[float] = None
