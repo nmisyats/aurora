@@ -319,6 +319,21 @@ class FluxModel(nn.Module, ABC):
         """
         return phy.compute_total_energy_flux(f, self.energy_bins)
     
+    def compute_mean_energy(
+            self,
+            f: torch.Tensor
+        ) -> torch.Tensor:
+        """
+        Calculate the mean energy from the flux tensor.
+        
+        Args:
+            f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+        
+        Returns:
+            torch.Tensor: Mean energy tensor of shape (n) [W m-2].
+        """
+        return phy.compute_mean_energy(f, self.energy_bins)
+    
     @overload
     def generate_image(self, cam: Camera, num_samples: int, nan=0.0, ignore_bbox=False):
         """
