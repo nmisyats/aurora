@@ -61,7 +61,7 @@ class PhysicalModel:
         else:
             new_physics.emis_mats = None
         
-        self.wl_to_idx = self.wl_to_idx
+        new_physics.wl_to_idx = self.wl_to_idx
         
         if self.dens_mat is not None:
             new_physics.dens_mat = self.dens_mat.to(device)
