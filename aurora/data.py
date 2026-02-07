@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Union, Optional, List, Dict
+from typing import Union, Optional, List, Dict, Tuple
 
 from schema import Schema, Optional as Option, And, Or, Use
 import yaml
@@ -55,7 +55,7 @@ def path_validator(base_path: Optional[PathLike] = None):
 def physical_model_schema(base_path=None):
     valid_path = path_validator(base_path)
     return Schema({
-        "emis_mat": valid_path,
+        "emis_mat": Or(valid_path, {str: valid_path}, only_one=True),
         "dens_mat": valid_path,
         "altitude_bins": valid_path,
         "energy_bins": valid_path,
@@ -68,8 +68,14 @@ def load_physical_model(yaml_path: PathLike, device=torch.device("cpu")):
     return physical_model_from_dict(data, device)
 
 def physical_model_from_dict(data: Dict, device=torch.device("cpu")):
+    if isinstance(data["emis_mat"], dict):
+        emis_mats = {}
+        for wl, dat_path in data["emis_mat"].items():
+            emis_mats[wl] = load_emission_matrix(dat_path).to(device)
+    else:
+        emis_mats = load_emission_matrix(data["emis_mat"]).to(device)
     return PhysicalModel(
-        emis_mat=load_emission_matrix(data["emis_mat"]).to(device),
+        emis_mats=emis_mats,
         dens_mat=load_density_matrix(data["dens_mat"]).to(device),
         altitude_bins=load_altitude_bins(data["altitude_bins"]).to(device),
         energy_bins=load_energy_bins(data["energy_bins"]).to(device),
@@ -177,64 +183,136 @@ def config_from_dict(data: dict, device=torch.device("cpu")):
     physics = physical_model_from_dict(data["physics"], device)
     return ModelConfig(frame, bbox, physics)
 
-def load_camera_images(cam_dir: PathLike, device=torch.device("cpu")):
-    cam_dir = Path(cam_dir)
-    image = load_matrix_data(cam_dir / "image.dat").to(device)
-    azimuth = load_matrix_data(cam_dir / "az_cam.dat").to(device)
-    zenith = load_matrix_data(cam_dir / "ze_cam.dat").to(device)
-    return image, azimuth, zenith
+
+@dataclass
+class CameraInfo:
+    camera_id: int
+    longitude: float
+    latitude: float
+    altitude: float
+    location_name: str
+    wavelength: Optional[str] = None
 
 def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike, device=torch.device("cpu")) -> List[Camera]:
     cam_pos_set = Path(cam_pos_set)
     cam_images_dir = Path(cam_images_dir)
-    positions = load_camera_positions(cam_pos_set)
+    cams_info = load_camera_positions(cam_pos_set)
     cameras = []
-    for cam_name, cam_pos in positions.items():
-        cam_dir = cam_images_dir / cam_name
-        image, azimuth, zenith = load_camera_images(cam_dir, device)
-        cam = Camera(
-            name=cam_name,
-            longitude=cam_pos["longitude"],
-            latitude=cam_pos["latitude"],
-            altitude=cam_pos["altitude"],
-            image=image,
-            azimuth=azimuth,
-            zenith=zenith,
-        )
+    for cam_info in cams_info:
+        cam_dir = cam_images_dir / cam_info.location_name
+        if cam_info.wavelength is not None:
+            cam_dir = cam_dir / cam_info.wavelength
+        if not cam_dir.exists():
+            print(f"Warning: couldn't find images for camera {cam_info.camera_id}.")
+            continue
+        cam = load_camera(cam_info, cam_dir, device)
         cameras.append(cam)
     return cameras
 
-def load_camera_positions(set_path: Path) -> Dict[str, dict]:
+def load_camera(cam_info: CameraInfo, cam_dir: PathLike, device=torch.device("cpu")):
+    cam_dir = Path(cam_dir)
+    image = load_matrix_data(cam_dir / "image.dat").to(device)
+    azimuth = load_matrix_data(cam_dir / "az_cam.dat").to(device)
+    zenith = load_matrix_data(cam_dir / "ze_cam.dat").to(device)
+    
+    cam_name = cam_info.location_name
+    if cam_info.wavelength is not None:
+        cam_name = f"{cam_info.location_name}-{cam_info.wavelength}"
+    
+    return Camera(
+        camera_id=cam_info.camera_id,
+        name=cam_name,
+        longitude=cam_info.longitude,
+        latitude=cam_info.latitude,
+        altitude=cam_info.altitude,
+        location_name=cam_info.location_name,
+        image=image,
+        azimuth=azimuth,
+        zenith=zenith,
+        wavelength=cam_info.wavelength
+    )
+
+def load_camera_positions(set_path: PathLike) -> List[CameraInfo]:
+    """
+    Load camera positions from a .set file.
+    
+    Args:
+        set_path (PathLike): Path to the .set file
+        
+    Returns:
+        List of CameraData objects with all available data
+        
+    Raises:
+        ValueError: If a camera section is missing required data.
+    """
     with open(set_path, "r") as f:
         data = f.read()
+    
     # Split the data into sections for each camera
     sections = data.strip().split('----------------------------------')
-    # Remove empty sections
     sections = [s.strip() for s in sections if s.strip()]
-    positions = {}
-    for section in sections:
-        # Split section into lines and remove empty lines
+    
+    cameras = []
+    
+    for idx, section in enumerate(sections, start=1):
         lines = [line.strip() for line in section.split('\n') if line.strip()]
-        if len(lines) < 4:  # Skip sections that don't have enough data
+        
+        if len(lines) < 4:
             continue
-        # Extract camera name
-        name_line = lines[1].strip()
-        # Extract position data
-        coords_line = lines[3].strip()
-        try:
-            # Parse coordinates
-            lon, lat, alt = map(float, coords_line.split())
-            # Create camera entry
-            position = {
-                'longitude': lon,
-                'latitude': lat,
-                'altitude': alt
-            }
-            positions[name_line] = position
-        except (ValueError, IndexError) as e:
-            print(f"Error parsing camera data: {e}")
-            continue
-    return positions
+        
+        # Parse the section
+        location_name = None
+        wavelength = None
+        coords = None
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Look for position name
+            if 'position name' in line.lower():
+                if i + 1 < len(lines):
+                    location_name = lines[i + 1].strip()
+                    i += 2
+                    continue
+            # Look for coordinates
+            if 'longitude' in line.lower() and 'latitude' in line.lower():
+                if i + 1 < len(lines):
+                    coords_line = lines[i + 1].strip()
+                    try:
+                        lon, lat, alt = map(float, coords_line.split())
+                        coords = (lon, lat, alt)
+                    except (ValueError, IndexError) as e:
+                        raise ValueError(f"Error parsing coordinates in section {idx}: {e}")
+                    i += 2
+                    continue
+            # Look for wavelength
+            if 'wavelength' in line.lower():
+                if i + 1 < len(lines):
+                    try:
+                        wavelength = lines[i + 1].strip()
+                    except (ValueError, IndexError) as e:
+                        raise ValueError(f"Error parsing wavelength in section {idx}: {e}")
+                    i += 2
+                    continue
+            i += 1
+        
+        # Validate required fields
+        if coords is None:
+            raise ValueError(f"Section {idx} missing coordinates")
+        if location_name is None:
+            raise ValueError(f"Section {idx} missing location name")
+        # Create CameraData object
+        camera = CameraInfo(
+            camera_id=idx,
+            longitude=coords[0],
+            latitude=coords[1],
+            altitude=coords[2],
+            location_name=location_name,
+            wavelength=wavelength
+        )
+        cameras.append(camera)
+    return cameras
+
 
 @dataclass
 class RadarData:
@@ -248,6 +326,7 @@ def load_radar_point_cloud(dat_path: PathLike):
     data = torch.from_numpy(data)
     alts, lats, lons, dens = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
     return RadarData(lats, lons, alts, dens)
+
 
 def load_emission_matrix(dat_path: PathLike):
     return load_matrix_data(dat_path).T

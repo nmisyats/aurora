@@ -392,10 +392,12 @@ def plot_cameras_grid(
             
             # Format title
             title = title_format.format(
-                name=cam.name.capitalize(),
+                name=cam.name,
                 latitude=cam.latitude,
                 longitude=cam.longitude,
-                altitude=cam.altitude
+                altitude=cam.altitude,
+                wavelength=cam.wavelength,
+                location=cam.location_name
             )
             ax.set_title(title)
         
@@ -537,6 +539,10 @@ def plot_image_comparison(
     ref_imgs = [img.cpu().detach().numpy() if torch.is_tensor(img) else img 
                 for img in reference_images]
     
+    # Convert to kR
+    gen_imgs = [img / 1000 for img in gen_imgs]
+    ref_imgs = [img / 1000 for img in ref_imgs]
+
     if global_color_scale:
         all_imgs = gen_imgs + ref_imgs
         vmin = min(img.min() for img in all_imgs)
@@ -561,7 +567,7 @@ def plot_image_comparison(
     im = None
     
     for i, (ax, img) in enumerate(zip(grid, all_imgs_flat)):
-        im = ax.imshow(img / 1000, vmin=vmin, vmax=vmax, cmap=cmap)
+        im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
         

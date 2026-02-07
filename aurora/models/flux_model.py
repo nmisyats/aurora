@@ -36,10 +36,11 @@ class FluxModel(nn.Module, ABC):
         self.frame = config.frame
         self.bbox = config.bbox
         
-        self.register_buffer("emis_mat", config.physics.emis_mat)
+        self.register_buffer("emis_mats", config.physics.emis_mats)
         self.register_buffer("dens_mat", config.physics.dens_mat)
         self.register_buffer("altitude_bins", config.physics.altitude_bins)
         self.register_buffer("energy_bins", config.physics.energy_bins)
+        self.wl_to_idx = config.physics.wl_to_idx
 
         # Compute the altitude bin edges in oblique frame
         z_bins = self.frame.altitude_to_z(config.physics.altitude_bins)
@@ -52,7 +53,7 @@ class FluxModel(nn.Module, ABC):
     
     @property
     def device(self):
-        return self.emis_mat.device
+        return self.emis_mats.device
     
     @abstractmethod
     def forward(self, xy: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -146,19 +147,22 @@ class FluxModel(nn.Module, ABC):
         return q0
 
     @normalize_batch_dims(p_frame=1)
-    def get_emission_rate(self, p_frame: torch.Tensor) -> torch.Tensor:
+    def get_emission_rate(self, p_frame: torch.Tensor, wl: Optional[str] = None) -> torch.Tensor:
         """
         Calculate the emission rate at points p.
         
         Args:
             p_frame (torch.Tensor): Tensor of shape (n, 3) in oblique coordinates.
+            wl (str, optional): Wavelength label.
         
         Returns:
-            torch.Tensor: Emission rate tensor at the points p of shape (n,).
+            torch.Tensor: Emission rate tensor of shape (n,) at the points p_frame
+            for the wavelength wl.
         """
         xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
-        return phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
+        emis_mat = self.emis_mats[self.wl_to_idx[wl]]
+        return phy.compute_emission_rate(z, f, emis_mat, self.z_bins)
     
     @normalize_batch_dims(p_frame=1)
     def get_electron_density(self, p_frame: torch.Tensor) -> torch.Tensor:
@@ -180,7 +184,8 @@ class FluxModel(nn.Module, ABC):
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor,
-            sampler: RaySampler
+            sampler: RaySampler,
+            wl: Optional[str] = None
         ) -> torch.Tensor:
         """
         Integrate the emission along rays. Computes the intersection distances
@@ -190,6 +195,7 @@ class FluxModel(nn.Module, ABC):
             ro (torch.Tensor): Ray origins of shape (n, 3) in oblique coordinates.
             rd (torch.Tensor): Ray directions of shape (n, 3) in oblique coordinates.
             sampler (RaySampler): sampler to use for ray integration.
+            wl (str, optional): Wavelength label.
         
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
@@ -199,7 +205,8 @@ class FluxModel(nn.Module, ABC):
             self, 
             ro: torch.Tensor, 
             rd: torch.Tensor, 
-            t: torch.Tensor
+            t: torch.Tensor,
+            wl: Optional[str] = None
         ) -> torch.Tensor:
         """
         Integrate the emission along rays.
@@ -208,6 +215,7 @@ class FluxModel(nn.Module, ABC):
             ro (torch.Tensor): Ray origins of shape (n, 3) in oblique coordinates.
             rd (torch.Tensor): Ray directions of shape (n, 3) in oblique coordinates.
             t (torch.Tensor): (n, n_sample) distances to sample points along the rays.
+            wl (str, optional): Wavelength label.
         
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
@@ -219,7 +227,8 @@ class FluxModel(nn.Module, ABC):
             rd: torch.Tensor, 
             tn: torch.Tensor,
             tf: torch.Tensor,
-            sampler: RaySampler
+            sampler: RaySampler,
+            wl: Optional[str] = None
         ) -> torch.Tensor:
         """
         Integrate the emission along rays.
@@ -230,6 +239,7 @@ class FluxModel(nn.Module, ABC):
             tn (torch.Tensor): (n,) near distances of the rays.
             tf (torch.Tensor): (n,) far distances of the rays.
             sampler (RaySampler): sampler to use for ray integration.
+            wl (str, optional): Wavelength label.
         
         Returns:
             torch.Tensor: Integrated emission tensor of shape (n,).
@@ -239,33 +249,38 @@ class FluxModel(nn.Module, ABC):
             ro: torch.Tensor, 
             rd: torch.Tensor, 
             t_tn_sampler: Union[torch.Tensor, RaySampler],
-            tf: Optional[torch.Tensor] = None,
+            tf_wl: Union[Optional[torch.Tensor], Optional[str]] = None,
             sampler: Optional[RaySampler] = None,
+            wl: Optional[str] = None,
         ) -> torch.Tensor:
         
         ro, outer_shape = flatten_batch_dims(ro, 1)
         rd, _ = flatten_batch_dims(rd, 1)
         
         if isinstance(t_tn_sampler, RaySampler):
-            # ro, rd, sampler
+            # ro, rd, sampler, wl
             tn, tf = self.bbox.intersection(ro, rd)
+            wl = tf_wl
             sampler = t_tn_sampler
             p_frame, t = sampler(ro, rd, tn, tf)
-        elif tf is None or sampler is None:
-            # ro, rd, t
+        elif tf_wl is None or sampler is None:
+            # ro, rd, t, wl
             t = t_tn_sampler
             t, _ = flatten_batch_dims(t, 1)
+            wl = tf_wl
             p_frame = gmt.get_ray_points(ro, rd, t)
         else:
-            # ro, rd, tn, tf, sampler
+            # ro, rd, tn, tf, sampler, wl
             tn = t_tn_sampler
+            tf = tf_wl
             tn, _ = flatten_batch_dims(tn, 0)
             tf, _ = flatten_batch_dims(tf, 0)
             p_frame, t = sampler(ro, rd, tn, tf)
         
         xy, z = p_frame[...,:2], p_frame[...,2]
         f = self.flux(xy)
-        l = phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
+        emis_mat = self.emis_mats[self.wl_to_idx[wl]]
+        l = phy.compute_emission_rate(z, f, emis_mat, self.z_bins)
         g = phy.integrate_emis_to_rayleigh(t, l)
 
         return unflatten_batch_dims(g, outer_shape)
@@ -291,6 +306,7 @@ class FluxModel(nn.Module, ABC):
             self,
             z: torch.Tensor,
             f: torch.Tensor,
+            wl: Optional[str] = None
         ) -> torch.Tensor:
         """
         Calculate the emission rate based on altitude and flux.
@@ -298,11 +314,13 @@ class FluxModel(nn.Module, ABC):
         Args:
             z (torch.Tensor): Altitude tensor of shape (n,) in oblique frame [km].
             f (torch.Tensor): Flux tensor of shape (n, n_E) [cm-2 s-1 eV-1].
+            wl (str, optional): Wavelength label.
         
         Returns:
             torch.Tensor: Volume emission rate tensor of shape (n,) [cm-3 s-1].
         """
-        return phy.compute_emission_rate(z, f, self.emis_mat, self.z_bins)
+        emis_mat = self.emis_mats[self.wl_to_idx[wl]]
+        return phy.compute_emission_rate(z, f, emis_mat, self.z_bins)
     
     def compute_total_energy_flux(
             self,
@@ -383,7 +401,7 @@ class FluxModel(nn.Module, ABC):
             num_samples = n_or_sampler
             sampler = EqualSampler(num_samples)
         
-        g = self.integrate_emis_along_ray(ro, rd, tn, tf, sampler)
+        g = self.integrate_emis_along_ray(ro, rd, tn, tf, sampler, cam.wavelength)
         h, w = cam.image.shape
         img = g.reshape(h, w)
         img = torch.nan_to_num(img, nan=nan)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Optional
 
 import torch
 
@@ -67,13 +67,21 @@ class RayBatch(NamedTuple):
     tn: torch.Tensor
     tf: torch.Tensor
     g_ref: torch.Tensor
+    wl: str
 
 class RayDataset(Dataset):
-    def __init__(self, cams: List[Camera], frame: Frame, bbox: BBox, intersect_only=False):
+    def __init__(
+            self,
+            cams: List[Camera],
+            frame: Frame,
+            bbox: BBox,
+            wl: Optional[str] = None,
+            intersect_only=False
+        ):
         device = frame.device
 
         ro_list, rd_list, g_ref_list = [], [], []
-        for cam in cams:
+        for cam in filter(lambda c: c.wavelength == wl, cams):
             cam_ro, cam_rd = cam.create_rays_ecef(device)
             cam_ro = frame.from_ecef(cam_ro, is_point=True)
             cam_rd = frame.from_ecef(cam_rd, is_point=False)
@@ -83,19 +91,24 @@ class RayDataset(Dataset):
             cam_g_ref = cam.image.flatten().to(device)
             g_ref_list.append(cam_g_ref)
         
+        if len(ro_list) == 0:
+            if wl is None and len(cams) != 0:
+                raise ValueError("Missing wavelength for dataset.")
+            else:
+                raise ValueError(f"No camera with wavelength {wl}.")
+
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
 
-        slice_min = torch.tensor([-torch.inf, -torch.inf, bbox.z_min], device=device)
-        slice_max = torch.tensor([ torch.inf,  torch.inf, bbox.z_max], device=device)
-        tn, tf = gmt.ray_box_intersection(ro, rd, slice_min, slice_max)
-
         if intersect_only:
-            tn_bbox, tf_bbox = bbox.intersection(ro, rd)
-            valid_mask = ~(torch.isnan(tn_bbox) | torch.isnan(tf_bbox))
+            tn, tf = bbox.intersection(ro, rd)
         else:
-            valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
+            slice_min = torch.tensor([-torch.inf, -torch.inf, bbox.z_min], device=device)
+            slice_max = torch.tensor([ torch.inf,  torch.inf, bbox.z_max], device=device)
+            tn, tf = gmt.ray_box_intersection(ro, rd, slice_min, slice_max)
+        
+        valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
 
         # Apply the mask to all tensors
         self.ro = ro[valid_mask].contiguous()
@@ -103,6 +116,7 @@ class RayDataset(Dataset):
         self.tn = tn[valid_mask].contiguous()
         self.tf = tf[valid_mask].contiguous()
         self.g_ref = g_ref[valid_mask].contiguous()
+        self.wl = wl
 
     def __len__(self):
         return len(self.ro)
@@ -113,7 +127,8 @@ class RayDataset(Dataset):
             self.rd[idx],
             self.tn[idx],
             self.tf[idx],
-            self.g_ref[idx]
+            self.g_ref[idx],
+            self.wl
         )
     
     @property
@@ -128,6 +143,7 @@ class RayDataset(Dataset):
         new_dataset.tn = self.tn.to(device)
         new_dataset.tf = self.tf.to(device)
         new_dataset.g_ref = self.g_ref.to(device)
+        new_dataset.wl = self.wl
 
         return new_dataset
 

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import torch
 
@@ -8,13 +9,16 @@ import aurora.geodesy as geo
 
 @dataclass
 class Camera:
+    camera_id: int
     name: str
-    latitude: float
     longitude: float
+    latitude: float
     altitude: float
+    location_name: str
     image: torch.Tensor
     azimuth: torch.Tensor
     zenith: torch.Tensor
+    wavelength: Optional[str] = None
 
     @property
     def width(self):
@@ -26,24 +30,30 @@ class Camera:
 
     def __repr__(self):
         return ("Camera=("
+            f"camera_id={self.camera_id}, "
             f"name={self.name}, "
+            f"location_name={self.name}, "
             f"latitude={self.latitude}, "
             f"longitude={self.longitude}, "
             f"altitude={self.altitude}, "
-            f"image={type(self.image)} {self.image.shape}, "
-            f"azimuth={type(self.azimuth)} {self.azimuth.shape}, "
-            f"zenith={type(self.zenith)} {self.zenith.shape}"
+            f"image={type(self.image)} {tuple(self.image.shape)}, "
+            f"azimuth={type(self.azimuth)} {tuple(self.azimuth.shape)}, "
+            f"zenith={type(self.zenith)} {tuple(self.zenith.shape)}, "
+            f"wavelength={self.wavelength}"
         ")")
 
-    def downsample(self, factor: int) -> 'Camera':
+    def downsample(self, factor: int):
         return Camera(
+            camera_id=self.camera_id,
             name=self.name,
             longitude=self.longitude,
             latitude=self.latitude,
             altitude=self.altitude,
+            location_name=self.location_name,
             image=downsample_image(self.image, factor),
             azimuth=downsample_image(self.azimuth, factor),
-            zenith=downsample_image(self.zenith, factor)
+            zenith=downsample_image(self.zenith, factor),
+            wavelength=self.wavelength
         )
     
     def create_rays_ecef(self, device=torch.device('cpu')):

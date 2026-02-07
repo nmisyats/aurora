@@ -17,8 +17,8 @@ __all__ = [
 
 
 def ray_loss(model: FluxModel, batch: RayBatch, sampler: RaySampler) -> torch.Tensor:
-    ro, rd, tn, tf, g_target = batch
-    g_pred = model.integrate_emis_along_ray(ro, rd, tn, tf, sampler)
+    ro, rd, tn, tf, g_target, wl = batch
+    g_pred = model.integrate_emis_along_ray(ro, rd, tn, tf, sampler, wl)
     return F.mse_loss(g_pred, g_target)
 
 def radar_loss(model: FluxModel, batch: RadarBatch) -> torch.Tensor:
