@@ -137,7 +137,7 @@ class CameraInfo:
     location_name: str
     wavelength: Optional[str] = None
 
-def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike, device=torch.device("cpu")) -> List[Camera]:
+def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike) -> List[Camera]:
     cam_images_dir = Path(cam_images_dir)
     if not cam_images_dir.exists():
         raise FileNotFoundError(f"Camera image directory {cam_images_dir} not found.")
@@ -150,15 +150,15 @@ def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike, device=torch.d
         if not cam_dir.exists():
             print(f"Warning: couldn't find images for camera {cam_info.camera_id}.")
             continue
-        cam = load_camera(cam_info, cam_dir, device)
+        cam = load_camera(cam_info, cam_dir)
         cameras.append(cam)
     return cameras
 
-def load_camera(cam_info: CameraInfo, cam_dir: PathLike, device=torch.device("cpu")):
+def load_camera(cam_info: CameraInfo, cam_dir: PathLike):
     cam_dir = Path(cam_dir)
-    image = load_matrix_data(cam_dir / "image.dat").to(device)
-    azimuth = load_matrix_data(cam_dir / "az_cam.dat").to(device)
-    zenith = load_matrix_data(cam_dir / "ze_cam.dat").to(device)
+    image = load_matrix_data(cam_dir / "image.dat")
+    azimuth = load_matrix_data(cam_dir / "az_cam.dat")
+    zenith = load_matrix_data(cam_dir / "ze_cam.dat")
     
     return Camera(
         camera_id=cam_info.camera_id,
