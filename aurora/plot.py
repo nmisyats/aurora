@@ -24,6 +24,15 @@ import aurora.physics as phy
 
 
 def plot_training_losses(losses: Union[List[float], Dict[str, List[float]]]):
+    """
+    Plots the training loss over iterations.
+
+    Args:
+        losses: The (labelled) loss history to plot.
+    
+    Returns:
+        Tuple of (figure, axes)
+    """
     fig, ax = plt.subplots()
     if isinstance(losses, dict):
         for name, loss in losses.items():
@@ -37,13 +46,14 @@ def plot_training_losses(losses: Union[List[float], Dict[str, List[float]]]):
     ax.set_yscale("log")
     return fig, ax
 
+
 def plot_flux_2d(
     flux_data: torch.Tensor,
     xy_bounds: Tuple[torch.Tensor, torch.Tensor],
-    energy_edges: torch.Tensor,
     title: str = "$Q_0$",
     xlabel: str = "y (km)",
     ylabel: str = "x (km)",
+    unit: str = "mW/m²",
     cmap: str = "jet",
     figsize: Tuple[float, float] = (8, 6),
     ax: Optional[Axes] = None,
@@ -53,12 +63,11 @@ def plot_flux_2d(
     aspect: str = "equal"
 ) -> Tuple[Figure, Axes]:
     """
-    Plot 2D flux data.
+    Plot 2D flux scalar data.
     
     Args:
-        flux_data: 2D or 3D tensor. If 3D, will compute total energy flux.
+        flux_data: 2D tensor.
         xy_bounds: Tuple of (xy_min, xy_max) tensors defining spatial bounds
-        energy_edges: Energy bin edges for total flux calculation (required if flux_data is 3D)
         title: Plot title
         xlabel: X-axis label
         ylabel: Y-axis label  
@@ -72,11 +81,6 @@ def plot_flux_2d(
     Returns:
         Tuple of (figure, axes)
     """
-    # Process flux data
-    flux_data = flux_data.cpu()
-    energy_edges = energy_edges.cpu()
-    plot_data = phy.compute_total_energy_flux(flux_data, energy_edges)
-    
     # Create figure/axes if not provided
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -91,7 +95,7 @@ def plot_flux_2d(
     
     # Plot image
     im = ax.imshow(
-        plot_data,
+        flux_data.cpu(),
         interpolation='none',
         extent=[y_min, y_max, x_max, x_min],
         cmap=cmap,
@@ -105,7 +109,7 @@ def plot_flux_2d(
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.1)
         cbar = fig.colorbar(im, cax=cax)
-        cbar.set_label("mW/m²")
+        cbar.set_label(unit)
     
     # Set labels and title
     ax.set_xlabel(xlabel)
@@ -173,14 +177,16 @@ def plot_flux_1d(
 
 
 def plot_flux_2d_comparison(
-    estimated_flux: torch.Tensor,
-    reference_flux: torch.Tensor,
-    estimated_bounds: Tuple[torch.Tensor, torch.Tensor],
-    reference_bounds: Tuple[torch.Tensor, torch.Tensor],
-    energy_edges: Optional[torch.Tensor] = None,
+    est_data: torch.Tensor,
+    ref_data: torch.Tensor,
+    est_bounds: Tuple[torch.Tensor, torch.Tensor],
+    ref_bounds: Tuple[torch.Tensor, torch.Tensor],
     titles: Tuple[str, str] = ("Reference $Q_0$", "Reconstructed $Q_0$"),
+    xlabel: str = "y (km)",
+    ylabel: str = "x (km)",
+    unit: str = "mW/m²",
     cmap: str = "jet",
-    figsize: Tuple[float, float] = (8, 4),
+    figsize: Tuple[float, float] = (12, 6),
     show_mae: bool = True,
     highlight_reconstruction_area: bool = True
 ) -> Tuple[Figure, List[Axes]]:
@@ -192,7 +198,6 @@ def plot_flux_2d_comparison(
         reference_flux: Reference flux tensor  
         estimated_bounds: Spatial bounds for estimated flux
         reference_bounds: Spatial bounds for reference flux
-        energy_edges: Energy bin edges (required if flux tensors are 3D)
         titles: Titles for (reference, estimated) plots
         cmap: Colormap name
         figsize: Figure size
@@ -203,14 +208,14 @@ def plot_flux_2d_comparison(
         Tuple of (figure, list of axes)
     """
     # Process flux data
-    est_q0 = phy.compute_total_energy_flux(estimated_flux, energy_edges).cpu()
-    ref_q0 = phy.compute_total_energy_flux(reference_flux, energy_edges).cpu()
+    est_data = est_data.cpu()
+    ref_data = ref_data.cpu()
     
-    fig, grid = plt.subplots(1, 2, figsize=(12, 6), sharex=False, sharey=False)
+    fig, grid = plt.subplots(1, 2, figsize=figsize, sharex=False, sharey=False)
     
     # Get bounds
-    est_xy_min, est_xy_max = estimated_bounds
-    ref_xy_min, ref_xy_max = reference_bounds
+    est_xy_min, est_xy_max = est_bounds
+    ref_xy_min, ref_xy_max = ref_bounds
     est_xy_min = est_xy_min.cpu()
     est_xy_max = est_xy_max.cpu()
     ref_xy_min = ref_xy_min.cpu()
@@ -220,12 +225,12 @@ def plot_flux_2d_comparison(
     x_ref_min, x_ref_max, y_ref_min, y_ref_max = bounds2d_to_tuple(ref_xy_min, ref_xy_max)
     
     # Determine color range
-    vmin = min(est_q0.min(), ref_q0.min())
-    vmax = max(est_q0.max(), ref_q0.max())
+    vmin = min(est_data.min(), ref_data.min())
+    vmax = max(est_data.max(), ref_data.max())
     
     # Plot reference flux
     grid[0].imshow(
-        ref_q0,
+        ref_data,
         interpolation='none',
         extent=[y_ref_min, y_ref_max, x_ref_max, x_ref_min],
         cmap=cmap,
@@ -244,7 +249,7 @@ def plot_flux_2d_comparison(
     
     # Plot estimated flux
     im = grid[1].imshow(
-        est_q0,
+        est_data,
         interpolation='none',
         extent=[y_est_min, y_est_max, x_est_max, x_est_min],
         cmap=cmap,
@@ -254,9 +259,9 @@ def plot_flux_2d_comparison(
     # Show MAE if requested
     if show_mae:
         # Extract corresponding region from reference for MAE calculation
-        if est_q0.shape != ref_q0.shape:
+        if est_data.shape != ref_data.shape:
             # Calculate pixel indices for the estimated region within the reference
-            ref_height, ref_width = ref_q0.shape
+            ref_height, ref_width = ref_data.shape
             
             # Calculate the pixel coordinates of the estimated bounds within the reference grid
             y_start_idx = int((y_est_min - y_ref_min) / (y_ref_max - y_ref_min) * ref_width)
@@ -265,21 +270,21 @@ def plot_flux_2d_comparison(
             x_end_idx = int((x_est_max - x_ref_min) / (x_ref_max - x_ref_min) * ref_height)
             
             # Extract the corresponding subregion from reference
-            ref_q0_cropped = ref_q0[x_start_idx:x_end_idx, y_start_idx:y_end_idx]
+            ref_est_cropped = ref_data[x_start_idx:x_end_idx, y_start_idx:y_end_idx]
             
             # Resize to match estimated tensor if needed
-            if ref_q0_cropped.shape != est_q0.shape:
-                ref_q0_cropped = torch.nn.functional.interpolate(
-                    ref_q0_cropped.unsqueeze(0).unsqueeze(0), 
-                    size=est_q0.shape, 
+            if ref_est_cropped.shape != est_data.shape:
+                ref_est_cropped = torch.nn.functional.interpolate(
+                    ref_est_cropped.unsqueeze(0).unsqueeze(0), 
+                    size=est_data.shape, 
                     mode='bilinear', 
                     align_corners=False
                 ).squeeze()
         else:
-            ref_q0_cropped = ref_q0
-        mae = torch.mean(torch.abs(est_q0 - ref_q0_cropped))
+            ref_est_cropped = ref_data
+        mae = torch.mean(torch.abs(est_data - ref_est_cropped))
         grid[1].text(
-            0.99, 0.01, f"MAE = {mae:.3f} mW/m²",
+            0.99, 0.01, f"MAE = {mae:.3f} {unit}",
             transform=grid[1].transAxes,
             ha='right', va='bottom',
             color='white', fontsize=10,
@@ -291,13 +296,13 @@ def plot_flux_2d_comparison(
     cax = divider.append_axes("right", size="5%", pad=0.05)  # 5% of the image width
     # Add colorbar in that axes
     cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label("mW/m²")
+    cbar.set_label(unit)
     
     grid[0].set_title(titles[0])
     grid[1].set_title(titles[1])
-    grid[0].set_xlabel("y (km)")
-    grid[1].set_xlabel("y (km)")
-    grid[0].set_ylabel("x (km)")
+    grid[0].set_xlabel(xlabel)
+    grid[1].set_xlabel(xlabel)
+    grid[0].set_ylabel(ylabel)
     
     return fig, [grid[0], grid[1]]
 

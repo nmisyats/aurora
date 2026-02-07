@@ -173,27 +173,21 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
 
             if plot_flux:
                 model.eval()
-                rec_xy_min = model.bbox.xy_min
-                rec_xy_max = model.bbox.xy_max
-                recon_xy = au.utils.xy_grid(rec_xy_min, rec_xy_max, plot_res_x, plot_res_y)
-                estimated_f = model.flux(recon_xy)
+                rec_xy = model.bbox.xy_grid(plot_res_x, plot_res_y)
+                est_f = model.flux(rec_xy)
                 if ref_flux is not None and ref_config is not None:
                     ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
-                    reference_f = ref.data
-                    ref_xy_min = ref.bbox.xy_min
-                    ref_xy_max = ref.bbox.xy_max
+                    ref_f = ref.data
                     au.plot.plot_flux_2d_comparison(
-                        estimated_flux=estimated_f,
-                        reference_flux=reference_f,
-                        estimated_bounds=(rec_xy_min, rec_xy_max),
-                        reference_bounds=(ref_xy_min, ref_xy_max),
-                        energy_edges=model.energy_bins,
+                        est_data=model.compute_total_energy_flux(est_f),
+                        ref_data=model.compute_total_energy_flux(ref_f),
+                        est_bounds=model.bbox.xy_bounds,
+                        ref_bounds=ref.bbox.xy_bounds
                     )
                 else:
                     au.plot.plot_flux_2d(
-                        flux_data=estimated_f,
-                        xy_bounds=(model.bbox.xy_min, model.bbox.xy_max),
-                        energy_edges=model.energy_bins
+                        flux_data=model.compute_total_energy_flux(est_f),
+                        xy_bounds=model.bbox.xy_bounds
                     )
             
             if plot_loss or plot_flux:

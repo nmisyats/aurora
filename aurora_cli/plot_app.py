@@ -17,16 +17,17 @@ def plot_flux(
 ):
     """Plot the total energy flux of saved flux data."""
     import aurora as au
+    import aurora.physics as phy
 
-    f_image = au.data.load_3d_grid_data(flux_data)
     config = au.data.load_config(config_path)
+    f = au.data.load_3d_grid_data(flux_data)
+    q0 = phy.compute_total_energy_flux(f, config.energy_bins)
     
     width, height = map(float, figsize.split(','))
     
     au.plot.plot_flux_2d(
-        flux_data=f_image,
-        xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
-        energy_edges=config.energy_bins,
+        flux_data=q0,
+        xy_bounds=config.bbox.xy_bounds,
         title=title,
         cmap=cmap,
         figsize=(width, height)
@@ -39,7 +40,6 @@ def plot_flux_at(
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
     x: float = typer.Argument(..., help="x coordinate"),
     y: float = typer.Argument(..., help="y coordinate"),
-    gpu: bool = typer.Option(True, help="Use GPU if available"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
 ):
@@ -47,11 +47,8 @@ def plot_flux_at(
     import torch
     import aurora as au
 
-    device = au.utils.choose_best_device(gpu)
-    recon = au.models.load_grid_model(flux_data, config_path).to(device)
-    
-    xy = torch.tensor([x, y], device=device)
-    f = recon.flux(xy)
+    recon = au.models.load_grid_model(flux_data, config_path)
+    f = recon.flux(torch.tensor([x, y]))
 
     if save is not None:
         au.data.save_matrix_data(f.unsqueeze(1), save)

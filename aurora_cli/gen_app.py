@@ -15,7 +15,7 @@ def generate_reconstructed_flux(
     gpu: bool = typer.Option(True, help="Use GPU if available"),
     region_x: str = typer.Option(None, help="x range of region to display in the format x_min,x_max"),
     region_y: str = typer.Option(None, help="y range of region to display in the format y_min,y_max"),
-    plot: bool = typer.Option(True, help="Plot the generated flux"),
+    plot: str = typer.Option(None, help="Plot the total energy flux (Q0) or mean energy (E0)"),
     save: Path = typer.Option(None, help="Save flux data to file"),
     cmap: str = typer.Option("jet", help="Colormap for plotting"),
     ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
@@ -40,35 +40,60 @@ def generate_reconstructed_flux(
         xy_min = recon.bbox.xy_min
         xy_max = recon.bbox.xy_max
     xy = au.utils.xy_grid(xy_min, xy_max, res_x, res_y)
-    estimated_f = recon.flux(xy).cpu()
+    est_f = recon.flux(xy)
 
     if save is not None:
-        au.data.save_3d_grid_data(estimated_f, save)
+        au.data.save_3d_grid_data(est_f, save)
     
-    if plot:
-        rec_xy_min = xy_min.cpu()
-        rec_xy_max = xy_max.cpu()
-        if ref_flux is not None and ref_config is not None:
-            ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
-            reference_f = ref.data.cpu()
-            ref_xy_min = ref.bbox.xy_min.cpu()
-            ref_xy_max = ref.bbox.xy_max.cpu()
-            au.plot.plot_flux_2d_comparison(
-                estimated_flux=estimated_f,
-                reference_flux=reference_f,
-                estimated_bounds=(rec_xy_min, rec_xy_max),
-                reference_bounds=(ref_xy_min, ref_xy_max),
-                energy_edges=recon.energy_bins.cpu(),
+    if not plot:
+        return
+    
+    if ref_flux is None or ref_config is None:
+        if plot == "Q0":
+            est_q0 = recon.compute_total_energy_flux(est_f)
+            au.plot.plot_flux_2d(
+                flux_data=est_q0,
+                xy_bounds=(xy_min, xy_max),
+                title="$Q_0$",
+                unit="mW/m²",
                 cmap=cmap
             )
         else:
+            est_e0 = recon.compute_mean_energy(est_f)
             au.plot.plot_flux_2d(
-                flux_data=estimated_f,
-                xy_bounds=(recon.bbox.xy_min, recon.bbox.xy_max),
-                energy_edges=recon.energy_bins.cpu(),
+                flux_data=est_e0,
+                xy_bounds=(xy_min, xy_max),
+                title="$E_0$",
+                unit="keV",
                 cmap=cmap
             )
-        plt.show()
+    else:
+        ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
+        if plot == "Q0":
+            est_q0 = recon.compute_total_energy_flux(est_f)
+            ref_q0 = recon.compute_total_energy_flux(ref.data)
+            au.plot.plot_flux_2d_comparison(
+                est_data=est_q0,
+                ref_data=ref_q0,
+                est_bounds=(xy_min, xy_max),
+                ref_bounds=ref.bbox.xy_bounds,
+                unit="mW/m²",
+                titles=("Reference $Q_0$", "Reconstructed $Q_0$"),
+                cmap=cmap
+            )
+        else:
+            est_e0 = recon.compute_mean_energy(est_f)
+            ref_e0 = recon.compute_mean_energy(ref.data)
+            au.plot.plot_flux_2d_comparison(
+                est_data=est_e0,
+                ref_data=ref_e0,
+                est_bounds=(xy_min, xy_max),
+                ref_bounds=ref.bbox.xy_bounds,
+                unit="keV",
+                titles=("Reference $E_0$", "Reconstructed $E_0$"),
+                cmap=cmap
+            )
+    plt.show()
 
 @gen_app.command("flux-at", context_settings={"ignore_unknown_options": True})
 def generate_reconstructed_flux_at(
