@@ -140,7 +140,7 @@ def plot_cameras(
     plt.show()
 
 @plot_app.command("radar")
-def plot_cameras(
+def plot_radar(
     radar_data: Path = typer.Argument(..., help="Radar data file"),
     config_path: Path = typer.Argument(..., help="Path to configuration YAML file"),
 ):
