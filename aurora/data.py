@@ -18,170 +18,113 @@ import numpy as np
 from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
-from aurora.physics import PhysicalModel
 from aurora.models import ModelConfig
 
 
 PathLike = Union[Path, str]
 
 
-def load_yaml(file_path: PathLike, schema: Optional[Schema] = None) -> Dict:
+def load_yaml(file_path: PathLike) -> Dict:
     with open(file_path, "r") as f:
         data = yaml.load(f, Loader=Loader)
-    if schema is not None:
-        return schema.validate(data)
-    else:
-        return data
+    return data
 
 def save_yaml(file_path: PathLike, data):
     with open(file_path, "w") as f:
         yaml.dump(data, f, Dumper=Dumper)
 
 def resolve_relative_to_base(target_path: PathLike, base_path: PathLike) -> Path:
-    base_path = Path(base_path)
     target_path = Path(target_path)
     if target_path.is_absolute():
         return target_path.resolve()
+    base_path = Path(base_path)
     abs_base = base_path.resolve()
-    return (abs_base / target_path).resolve()
+    abs_target = abs_base / target_path
+    return abs_target.resolve()
 
 def path_validator(base_path: Optional[PathLike] = None):
-    ops = [Use(Path)]
+    validators = [Use(Path)]
     if base_path is not None:
-        ops.append(Use(lambda p: resolve_relative_to_base(p, base_path)))
-    ops.append(lambda p: p.exists())
-    return And(*ops, error="Must be a valid path")
+        validators.append(Use(lambda p: resolve_relative_to_base(p, base_path)))
+    validators.append(lambda p: p.exists())
+    return And(*validators, error="Must be a valid path")
 
-def physical_model_schema(base_path=None):
-    valid_path = path_validator(base_path)
-    return Schema({
-        "emis_mat": Or(valid_path, {str: valid_path}, only_one=True),
-        "dens_mat": valid_path,
-        "altitude_bins": valid_path,
-        "energy_bins": valid_path,
-    })
-
-def load_physical_model(yaml_path: PathLike, device=torch.device("cpu")):
-    yaml_path = Path(yaml_path)
-    schema = physical_model_schema(yaml_path.parent)
-    data = load_yaml(yaml_path, schema)
-    return physical_model_from_dict(data, device)
-
-def physical_model_from_dict(data: Dict, device=torch.device("cpu")):
-    if isinstance(data["emis_mat"], dict):
-        emis_mats = {}
-        for wl, dat_path in data["emis_mat"].items():
-            emis_mats[wl] = load_emission_matrix(dat_path).to(device)
-    else:
-        emis_mats = load_emission_matrix(data["emis_mat"]).to(device)
-    return PhysicalModel(
-        emis_mats=emis_mats,
-        dens_mat=load_density_matrix(data["dens_mat"]).to(device),
-        altitude_bins=load_altitude_bins(data["altitude_bins"]).to(device),
-        energy_bins=load_energy_bins(data["energy_bins"]).to(device),
-    )
-
-def frame_schema(base_path=None):
-    return Schema({
-        "origin_lat": Use(float),
-        "origin_lon": Use(float),
-        "origin_alt": Use(float),
-        "field_inc": Use(float),
-        "field_dec": Use(float),
-    })
-
-def load_frame(yaml_path: PathLike, device=torch.device("cpu")):
-    yaml_path = Path(yaml_path)
-    schema = frame_schema(yaml_path.parent)
-    data = load_yaml(yaml_path, schema)
-    return frame_from_dict(data, device)
-
-def frame_from_dict(data: Dict, device=torch.device("cpu")):
-    return Frame(
-        origin_latitude=data["origin_lat"],
-        origin_longitude=data["origin_lon"],
-        origin_altitude=data["origin_alt"],
-        field_inclination=data["field_inc"],
-        field_declination=data["field_dec"],
-    ).to(device)
-
-def frame_to_dict(frame: Frame):
-    return {
-        "origin_lat": frame.origin_latitude,
-        "origin_lon": frame.origin_latitude,
-        "origin_alt": frame.origin_latitude,
-        "field_inc": frame.field_inclination,
-        "field_dec": frame.field_declination
-    }
-
-def bbox_schema(base_path=None):
-    valid_path = path_validator(base_path)
-    return Schema({
-        Option("frame"): Or(frame_schema(base_path), valid_path),
-        "east_min": Use(float),
-        "east_max": Use(float),
-        "south_min": Use(float),
-        "south_max": Use(float),
-        "alt_min": Use(float),
-        "alt_max": Use(float),
-    })
-
-def load_bbox(yaml_path: PathLike, frame: Optional[Frame] = None):
-    yaml_path = Path(yaml_path)
-    schema = bbox_schema(yaml_path.parent)
-    data = load_yaml(yaml_path, schema)
-    return bbox_from_dict(data, frame)
-
-def bbox_from_dict(data: Dict, frame: Optional[Frame] = None):
-    if frame is None and "frame" in data:
-        if isinstance(data["frame"], dict):
-            frame = frame_from_dict(data["frame"])
-        else:
-            frame = load_frame(data["frame"])
-    if frame is None:
-        raise ValueError("Missing frame description")
-    return BBox(
-        frame=frame,
-        south_range=(data["south_min"], data["south_max"]),
-        east_range=(data["east_min"], data["east_max"]),
-        altitude_range=(data["alt_min"], data["alt_max"])
-    )
-
-def bbox_to_dict(bbox: BBox, frame: Optional[Union[Frame, PathLike]] = None):
-    bbox_data = {
-        "east_min": bbox.east_range[0],
-        "east_max": bbox.east_range[1],
-        "south_min": bbox.south_range[0],
-        "south_max": bbox.south_range[1],
-        "alt_min": bbox.altitude_range[0],
-        "alt_max": bbox.altitude_range[1]
-    }
-    if frame is None:
-        return bbox_data
-    if isinstance(frame, Frame):
-        bbox_data["frame"] = frame_to_dict(frame)
-    else:
-        bbox_data["frame"] = str(Path(frame))
-    return bbox_data
 
 def config_schema(base_path=None):
+    valid_path = path_validator(base_path)
     return Schema({
-        "frame": frame_schema(base_path),
-        "bbox": bbox_schema(base_path),
-        "physics": physical_model_schema(base_path)
+        "frame": {
+            "origin_lat": Use(float),
+            "origin_lon": Use(float),
+            "origin_alt": Use(float),
+            "field_inc": Use(float),
+            "field_dec": Use(float),
+        },
+        "bbox": {
+            "east_min": Use(float),
+            "east_max": Use(float),
+            "south_min": Use(float),
+            "south_max": Use(float),
+            "alt_min": Use(float),
+            "alt_max": Use(float),
+        },
+        "physics": {
+            "emis_mat": Or(valid_path, {str: valid_path}, only_one=True),
+            "dens_mat": valid_path,
+            "altitude_bins": valid_path,
+            "energy_bins": valid_path,
+        }
     }, ignore_extra_keys=True)
 
-def load_config(yaml_path: PathLike, device=torch.device("cpu")):
+def load_config(yaml_path: PathLike):
     yaml_path = Path(yaml_path)
     schema = config_schema(yaml_path.parent)
-    data = load_yaml(yaml_path, schema)
-    return config_from_dict(data, device)
+    data = load_yaml(yaml_path)
+    data = schema.validate(data)
+    return config_from_dict(data)
 
-def config_from_dict(data: dict, device=torch.device("cpu")):
-    frame = frame_from_dict(data["frame"], device)
-    bbox = bbox_from_dict(data["bbox"], frame)
-    physics = physical_model_from_dict(data["physics"], device)
-    return ModelConfig(frame, bbox, physics)
+def config_from_dict(data: dict):
+    frame_data = data["frame"]
+    frame = Frame(
+        origin_latitude=frame_data["origin_lat"],
+        origin_longitude=frame_data["origin_lon"],
+        origin_altitude=frame_data["origin_alt"],
+        field_inclination=frame_data["field_inc"],
+        field_declination=frame_data["field_dec"]
+    )
+    
+    bbox_data = data["bbox"]
+    bbox = BBox(
+        south_range=(bbox_data["south_min"], bbox_data["south_max"]),
+        east_range=(bbox_data["east_min"], bbox_data["east_max"]),
+        altitude_range=(bbox_data["alt_min"], bbox_data["alt_max"]),
+        frame=frame
+    )
+    
+    phys_data = data["physics"]
+    altitude_bins = load_altitude_bins(phys_data["altitude_bins"])
+    energy_bins = load_energy_bins(phys_data["energy_bins"])
+
+    emis_mats = None
+    if "emis_mat" in phys_data:
+        if isinstance(phys_data["emis_mat"],  Path):
+            emis_mats = load_emission_matrix(phys_data["emis_mat"])
+        else:
+            emis_mats = {}
+            for wl, emis_dat_path in phys_data["emis_mat"].items():
+                emis_mats[wl] = load_emission_matrix(emis_dat_path)
+    
+    dens_mat = None
+    if "dens_mat" in phys_data:
+        dens_mat = load_density_matrix(phys_data["dens_mat"])
+    
+    return ModelConfig(
+        bbox=bbox,
+        altitude_bins=altitude_bins,
+        energy_bins=energy_bins,
+        emis_mats=emis_mats,
+        dens_mat=dens_mat
+    )
 
 
 @dataclass
@@ -319,7 +262,7 @@ def load_camera_positions(set_path: PathLike) -> List[CameraInfo]:
 
 
 @dataclass
-class RadarData:
+class RadarPointCloud:
     latitudes: torch.Tensor
     longitudes: torch.Tensor
     altitudes: torch.Tensor
@@ -327,9 +270,9 @@ class RadarData:
 
 def load_radar_point_cloud(dat_path: PathLike):
     data = np.loadtxt(dat_path, dtype=np.float32)
-    data = torch.from_numpy(data)
-    alts, lats, lons, dens = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
-    return RadarData(lats, lons, alts, dens)
+    data = torch.from_numpy(data) # (n, 4)
+    h, lat, lon, d = data.T # (4, n)
+    return RadarPointCloud(lat, lon, h, d)
 
 
 def load_emission_matrix(dat_path: PathLike):

@@ -63,6 +63,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
             **model_kwargs
         ):
+            import torch
             import aurora as au
 
             typer.echo(f"Training model: {model_name}")
@@ -129,19 +130,18 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             # Choose device
             device = au.utils.choose_best_device(gpu)
 
-            config = au.data.load_config(config_file, device)
+            config = au.data.load_config(config_file)
 
             # Load the datasets
-            ray_data, radar_data = None, None
-            if cam_pos is not None and cam_dir is not None:
+            ray_data, rad_data = None, None
+            if cam_pos and cam_dir:
                 cams = au.data.load_cameras(cam_pos, cam_dir)
-                ray_data = au.datasets.RayDataset(cams, config.frame, config.bbox)
-            if radar is not None:
-                points = au.data.load_radar_point_cloud(radar)
-                radar_data = au.datasets.RadarDataset(
-                    data=points,
-                    frame=config.frame
-                )
+                ray_data = au.datasets.RayDataset(cams, config.bbox)
+                ray_data = ray_data.to(device)
+            if radar:
+                pts = au.data.load_radar_point_cloud(radar)
+                rad_data = au.datasets.RadarDataset(pts, config.bbox)
+                rad_data = rad_data.to(device)
             
             training_config = TrainingConfig(
                 iters=iters,
@@ -149,7 +149,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                 ray_batch=ray_batch,
                 ray_bins=ray_bins,
                 ray_weight=ray_weight,
-                radar_data=radar_data,
+                radar_data=rad_data,
                 radar_batch=radar_batch,
                 radar_weight=radar_weight,
                 smooth_batch=smooth_batch,
@@ -169,6 +169,8 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             if plot_loss:
                 au.plot.plot_training_losses(history)
 
+            torch.set_grad_enabled(False)
+
             if plot_flux:
                 model.eval()
                 rec_xy_min = model.bbox.xy_min
@@ -176,7 +178,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                 recon_xy = au.utils.xy_grid(rec_xy_min, rec_xy_max, plot_res_x, plot_res_y)
                 estimated_f = model.flux(recon_xy)
                 if ref_flux is not None and ref_config is not None:
-                    ref = au.models.load_grid_model(ref_flux, ref_config, device)
+                    ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
                     reference_f = ref.data
                     ref_xy_min = ref.bbox.xy_min
                     ref_xy_max = ref.bbox.xy_max

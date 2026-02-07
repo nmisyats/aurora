@@ -26,7 +26,7 @@ def plot_flux(
     au.plot.plot_flux_2d(
         flux_data=f_image,
         xy_bounds=(config.bbox.xy_min, config.bbox.xy_max),
-        energy_edges=config.physics.energy_bins,
+        energy_edges=config.energy_bins,
         title=title,
         cmap=cmap,
         figsize=(width, height)
@@ -48,7 +48,7 @@ def plot_flux_at(
     import aurora as au
 
     device = au.utils.choose_best_device(gpu)
-    recon = au.models.load_grid_model(flux_data, config_path, device)
+    recon = au.models.load_grid_model(flux_data, config_path).to(device)
     
     xy = torch.tensor([x, y], device=device)
     f = recon.flux(xy)

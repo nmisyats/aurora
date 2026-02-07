@@ -4,25 +4,24 @@ from typing import NamedTuple, List, Optional
 import torch
 
 from aurora.camera import Camera
-from aurora.frame import Frame
 from aurora.bbox import BBox
 import aurora.geodesy as geo
 import aurora.geometry as gmt
-from aurora.data import RadarData
+from aurora.data import RadarPointCloud
 
 
 class Dataset(ABC):
     @abstractmethod
     def __len__(self) -> int:
         """
-        Return the number of samples in the dataset.
+        Returns the number of samples in the dataset.
         """
         ...
 
     @abstractmethod
     def __getitem__(self, idx) -> NamedTuple:
         """
-        Get sample(s) from the dataset at index idx.
+        Get sample(s) from the dataset at index `idx`.
         
         Args:
             idx: Index of the sample to retrieve.
@@ -70,21 +69,14 @@ class RayBatch(NamedTuple):
     wl: str
 
 class RayDataset(Dataset):
-    def __init__(
-            self,
-            cams: List[Camera],
-            frame: Frame,
-            bbox: BBox,
-            wl: Optional[str] = None,
-            bbox_only=False
-        ):
-        device = frame.device
+    def __init__(self, cams: List[Camera], bbox: BBox, wl: Optional[str] = None, bbox_only=False):
+        device = bbox.device
 
         ro_list, rd_list, g_ref_list = [], [], []
         for cam in filter(lambda c: c.wavelength == wl, cams):
             cam_ro, cam_rd = cam.create_rays_ecef(device)
-            cam_ro = frame.from_ecef(cam_ro, is_point=True)
-            cam_rd = frame.from_ecef(cam_rd, is_point=False)
+            cam_ro = bbox.frame.from_ecef(cam_ro, is_point=True)
+            cam_rd = bbox.frame.from_ecef(cam_rd, is_point=False)
             ro_list.append(cam_ro)
             rd_list.append(cam_rd)
 
@@ -135,7 +127,7 @@ class RayDataset(Dataset):
     def device(self):
         return self.ro.device
     
-    def to(self, device: torch.device) -> 'RayDataset':
+    def to(self, device: torch.device):
         new_dataset = object.__new__(RayDataset)
         
         new_dataset.ro = self.ro.to(device)
@@ -153,22 +145,24 @@ class RadarBatch(NamedTuple):
     d_ref: torch.Tensor
 
 class RadarDataset(Dataset):
-    def __init__(
-            self,
-            data: RadarData,
-            frame: Frame,
-        ):
-        device = frame.device
+    def __init__(self, data: RadarPointCloud, bbox: BBox, bbox_only=False):
+        device = bbox.device
 
-        lats = data.latitudes.to(device)
-        lons = data.longitudes.to(device)
-        alts = data.altitudes.to(device)
+        lat = data.latitudes.to(device)
+        lon = data.longitudes.to(device)
+        h = data.altitudes.to(device)
+        d = data.densities.to(device)
         
-        pts_ecef = geo.geodetic_to_ecef(lats, lons, alts)
-        pts_frame = frame.from_ecef(pts_ecef, is_point=True)
+        p_ecef = geo.geodetic_to_ecef(lat, lon, h)
+        p = bbox.frame.from_ecef(p_ecef, is_point=True)
+
+        if bbox_only:
+            inside_mask = bbox.contains(p)
+            p = p[inside_mask]
+            d = d[inside_mask]
         
-        self.p = pts_frame
-        self.d_ref = data.densities.to(device)
+        self.p = p.contiguous()
+        self.d_ref = d.contiguous()
 
     def __len__(self):
         return len(self.p)
@@ -180,7 +174,7 @@ class RadarDataset(Dataset):
     def device(self):
         return self.p.device
     
-    def to(self, device: torch.device) -> 'RadarDataset':
+    def to(self, device: torch.device):
         new_dataset = object.__new__(RadarDataset)
         
         new_dataset.p = self.p.to(device)

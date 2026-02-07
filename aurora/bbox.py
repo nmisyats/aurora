@@ -10,10 +10,10 @@ from aurora.utils import xy_grid, xyz_grid
 class BBox:
     def __init__(
             self,
-            frame: Frame,
             south_range: Tuple[float, float],
             east_range: Tuple[float, float],
-            altitude_range: Tuple[float, float]
+            altitude_range: Tuple[float, float],
+            frame: Frame
         ):
         """
         Initialize an oblique bounding box in the given frame.
@@ -32,12 +32,15 @@ class BBox:
         z_min = frame.altitude_to_z(h_min)
         z_max = frame.altitude_to_z(h_max)
 
-        self.xyz_min = torch.tensor([x_min, y_min, z_min], device=frame.device)
-        self.xyz_max = torch.tensor([x_max, y_max, z_max], device=frame.device)
+        device = frame.device
+        self.xyz_min = torch.tensor([x_min, y_min, z_min], device=device)
+        self.xyz_max = torch.tensor([x_max, y_max, z_max], device=device)
 
         self.south_range = south_range
         self.east_range = east_range
         self.altitude_range = altitude_range
+
+        self.frame = frame
     
     @property
     def device(self):
@@ -106,12 +109,21 @@ class BBox:
     @property
     def z_max(self) -> float:
         return self.xyz_max[2].item()
-
+    
+    @property
+    def h_min(self):
+        return self.altitude_range[0]
+    
+    @property
+    def h_max(self):
+        return self.altitude_range[1]
+    
     def __repr__(self):
         return (
             f"BBbox("
             f"xyz_min={self.xyz_min.tolist()}, "
-            f"xyz_max={self.xyz_max.tolist()}"
+            f"xyz_max={self.xyz_max.tolist()}, "
+            f"device={self.device}"
             f")"
         )
     
@@ -125,6 +137,8 @@ class BBox:
         new_bbox.south_range = self.south_range
         new_bbox.east_range = self.east_range
         new_bbox.altitude_range = self.altitude_range
+
+        new_bbox.frame = self.frame.to(device)
         
         return new_bbox
 

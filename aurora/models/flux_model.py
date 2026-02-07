@@ -1,15 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import overload, Optional, Union, Dict
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 import tqdm
 
 from aurora.camera import Camera
-from aurora.frame import Frame
 from aurora.bbox import BBox
-from aurora.physics import PhysicalModel
 import aurora.geometry as gmt
 import aurora.physics as phy
 from aurora.utils import (
@@ -21,42 +18,68 @@ from aurora.utils import (
 from aurora.samplers import RaySampler, EqualSampler
 
 
-@dataclass
 class ModelConfig:
-    frame: Frame
-    bbox: BBox
-    physics: PhysicalModel
+    def __init__(
+        self,
+        bbox: BBox,
+        altitude_bins: torch.Tensor,
+        energy_bins: torch.Tensor,
+        emis_mats: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+        dens_mat: Optional[torch.Tensor] = None,
+    ):
+        if emis_mats is None and dens_mat is None:
+            raise ValueError("Missing emission or density matrix.")
+        
+        if emis_mats is not None:
+            if torch.is_tensor(emis_mats):
+                # Single wavelength
+                self.emis_mats = emis_mats.unsqueeze(0) # (1, n_z, n_E)
+                self.wl_to_idx = {None: 0}
+            else:
+                # Multiple wavelengths
+                self.wl_to_idx = {}
+                emis_mats_list = []
+                for i, (wl, emis_mat) in enumerate(emis_mats.items()):
+                    emis_mats_list.append(emis_mat)
+                    self.wl_to_idx[wl] = i
+                self.emis_mats = torch.stack(emis_mats_list) # (n_lam, n_z, n_E)
+        else:
+            self.emis_mats = None
+            self.wl_to_idx = None
+        
+        self.dens_mat = dens_mat
+        
+        self.altitude_bins = altitude_bins
+        self.energy_bins = energy_bins
 
-    def to(self, device: torch.device):
-        new_config = object.__new__(ModelConfig)
-        new_config.frame = self.frame.to(device)
-        new_config.bbox = self.bbox.to(device)
-        new_config.physics = self.physics.to(device)
-        return new_config
+        self.bbox = bbox
 
 
 class FluxModel(nn.Module, ABC):
     def __init__(self, config: ModelConfig):
         super().__init__()
 
-        self.frame = config.frame
         self.bbox = config.bbox
         
-        self.register_buffer("emis_mats", config.physics.emis_mats)
-        self.register_buffer("dens_mat", config.physics.dens_mat)
-        self.register_buffer("altitude_bins", config.physics.altitude_bins)
-        self.register_buffer("energy_bins", config.physics.energy_bins)
-        self.wl_to_idx = config.physics.wl_to_idx
+        self.register_buffer("emis_mats", config.emis_mats)
+        self.register_buffer("dens_mat", config.dens_mat)
+        self.register_buffer("altitude_bins", config.altitude_bins)
+        self.register_buffer("energy_bins", config.energy_bins)
+        self.wl_to_idx = config.wl_to_idx
 
         # Compute the altitude bin edges in oblique frame
-        z_bins = self.frame.altitude_to_z(config.physics.altitude_bins)
+        z_bins = self.frame.altitude_to_z(config.altitude_bins)
         self.register_buffer("z_bins", z_bins)
 
-        self.num_bins = len(config.physics.energy_bins) - 1
+        self.num_bins = len(config.energy_bins) - 1
     
     @property
     def device(self):
         return self.altitude_bins.device
+    
+    @property
+    def frame(self):
+        return self.bbox.frame
     
     @property
     def is_multi_wavelength(self):
@@ -382,8 +405,8 @@ class FluxModel(nn.Module, ABC):
         progress_bar=False
     ):
         ro, rd = cam.create_rays_ecef(self.device)
-        ro = self.frame.from_ecef(ro, is_point=True) # (n, 3)
-        rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
+        ro = self.bbox.frame.from_ecef(ro, is_point=True) # (n, 3)
+        rd = self.bbox.frame.from_ecef(rd, is_point=False) # (n, 3)
         
         if ignore_bbox:
             box_min = torch.tensor([-torch.inf, -torch.inf, self.bbox.z_min], device=self.device)
@@ -419,23 +442,19 @@ class FluxModel(nn.Module, ABC):
         return img
     
     def to(self, *args, **kwargs):
-        result = super().to(*args, **kwargs)
+        new_model = super().to(*args, **kwargs)
         
-        device = self._get_device_from_args(*args, **kwargs)
-        if device is not None:
-            result.frame = self.frame.to(device)
-            result.bbox = self.bbox.to(device)
-        
-        return result
-    
-    def _get_device_from_args(self, *args, **kwargs):
-        """Extract device from .to() arguments."""
+        device = None
         if args:
             arg = args[0]
             if isinstance(arg, (torch.device, str)):
-                return arg
+                device = arg
             elif hasattr(arg, 'device'): # tensor-like
-                return arg.device
+                device = arg.device
         if 'device' in kwargs:
-            return kwargs['device']
-        return None
+            device = kwargs['device']
+        
+        if device is not None:
+            new_model.bbox = self.bbox.to(device)
+        
+        return new_model

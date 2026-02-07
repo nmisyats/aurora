@@ -28,7 +28,7 @@ def generate_reconstructed_flux(
     torch.set_grad_enabled(False)
 
     device = au.utils.choose_best_device(gpu)
-    recon = au.models.load_model(recon_path, device)
+    recon = au.models.load_model(recon_path).to(device)
     recon.eval()
     
     if region_x and region_y:
@@ -49,7 +49,7 @@ def generate_reconstructed_flux(
         rec_xy_min = xy_min.cpu()
         rec_xy_max = xy_max.cpu()
         if ref_flux is not None and ref_config is not None:
-            ref = au.models.load_grid_model(ref_flux, ref_config, device)
+            ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
             reference_f = ref.data.cpu()
             ref_xy_min = ref.bbox.xy_min.cpu()
             ref_xy_max = ref.bbox.xy_max.cpu()
@@ -88,7 +88,7 @@ def generate_reconstructed_flux_at(
     torch.set_grad_enabled(False)
 
     device = au.utils.choose_best_device(gpu)
-    recon = au.models.load_model(recon_path, device)
+    recon = au.models.load_model(recon_path).to(device)
     recon.eval()
     
     xy = torch.tensor([x, y], device=device)
@@ -99,7 +99,7 @@ def generate_reconstructed_flux_at(
     
     if plot:
         if ref_flux is not None and ref_config is not None:
-            ref = au.models.load_grid_model(ref_flux, ref_config, device)
+            ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
             reference_f = ref.flux(xy).cpu()
             au.plot.plot_flux_1d(
                 flux_data=(reference_f, estimated_f),
@@ -139,12 +139,12 @@ def generate_volume_emission(
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = au.models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path).to(device)
     else:
         if config is None:
             typer.echo("Configuration file required.", err=True)
             raise typer.Exit(1)
-        recon = au.models.load_grid_model(recon_or_ref_path, config, device)
+        recon = au.models.load_grid_model(recon_or_ref_path, config).to(device)
     if recon.is_multi_wavelength:
         if wl is None:
             typer.echo("Missing wavelength argument.", err=True)
@@ -199,7 +199,7 @@ def generate_electron_density(
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = au.models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path).to(device)
         recon.eval()
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
@@ -209,7 +209,7 @@ def generate_electron_density(
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
             raise typer.Exit(1)
-        ref_recon = au.models.load_grid_model(recon_or_ref_path, config, device)
+        ref_recon = au.models.load_grid_model(recon_or_ref_path, config).to(device)
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
         xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -255,31 +255,31 @@ def generate_images(
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
-        recon = au.models.load_model(recon_or_ref_path, device)
+        recon = au.models.load_model(recon_or_ref_path).to(device)
     else:
         if config is None:
             typer.echo("Configuration file required.", err=True)
             raise typer.Exit(1)
-        recon = au.models.load_grid_model(recon_or_ref_path, config, device)
+        recon = au.models.load_grid_model(recon_or_ref_path, config).to(device)
     recon.eval()
 
-    cam_infos = au.data.load_camera_positions(cam_pos)
-    
-    if names is not None:
+    if names is None:
+        cams = au.data.load_cameras(cam_pos, cam_dir)
+    else:
+        infos = au.data.load_camera_positions(cam_pos)
+        
         names_list = names.split(',')
-        cam_infos = [c for c in cam_infos if c.name in names_list]
-    
-    cams = []
-    for cam_info in cam_infos:
-        wl_dir = cam_dir / cam_info.location_name
-        if cam_info.wavelength is not None:
-            wl_dir = wl_dir / cam_info.wavelength
-        else:
-            wl_dir = cam_dir
-        cam = au.data.load_camera(cam_info, wl_dir, device)
-        if downsample:
-            cam = cam.downsample(downsample)
-        cams.append(cam)
+        infos = [c for c in infos if c.name in names_list]
+        
+        cams = []
+        for info in infos:
+            loc = cam_dir / info.location_name
+            if info.wavelength is not None:
+                loc = loc / info.wavelength
+            cam = au.data.load_camera(info, loc, device)
+            if downsample:
+                cam = cam.downsample(downsample)
+            cams.append(cam)
     
     if len(cams) == 0:
         typer.echo("No camera found.")
