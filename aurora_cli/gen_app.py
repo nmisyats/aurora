@@ -225,7 +225,7 @@ def generate_images(
     cam_pos: Path = typer.Argument(..., help="Camera positions file"),
     cam_dir: Path = typer.Argument(..., help="Cameras directory"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
-    locations: str = typer.Option(None, help="Comma-separated camera names"),
+    names: str = typer.Option(None, help="Comma-separated camera names"),
     ray_bins: int = typer.Option(100, help="Number of ray bins"),
     downsample: int = typer.Option(None, help="Downsample factor"),
     gpu: bool = typer.Option(True, help="Use GPU"),
@@ -250,10 +250,11 @@ def generate_images(
         recon = au.models.load_grid_model(recon_or_ref_path, config, device)
     recon.eval()
 
-    cams = au.data.load_cameras(cam_pos, cam_dir)
-    if locations is not None:
-        location_list = locations.split(',')
-        cams = [c for c in cams if c.name in location_list]
+    cams = au.data.load_cameras(cam_pos, cam_dir, device)
+    
+    if names is not None:
+        names_list = names.split(',')
+        cams = [c for c in cams if c.name in names_list]
     
     if downsample is not None:
         cams = [cam.downsample(downsample) for cam in cams]
