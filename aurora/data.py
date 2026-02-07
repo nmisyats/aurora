@@ -138,8 +138,9 @@ class CameraInfo:
     wavelength: Optional[str] = None
 
 def load_cameras(cam_pos_set: PathLike, cam_images_dir: PathLike, device=torch.device("cpu")) -> List[Camera]:
-    cam_pos_set = Path(cam_pos_set)
     cam_images_dir = Path(cam_images_dir)
+    if not cam_images_dir.exists():
+        raise FileNotFoundError(f"Camera image directory {cam_images_dir} not found.")
     cams_info = load_camera_positions(cam_pos_set)
     cameras = []
     for cam_info in cams_info:

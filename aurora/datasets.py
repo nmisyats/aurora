@@ -69,11 +69,14 @@ class RayBatch(NamedTuple):
     wl: str
 
 class RayDataset(Dataset):
-    def __init__(self, cams: List[Camera], bbox: BBox, wl: Optional[str] = None):
+    def __init__(self, cameras: List[Camera], bbox: BBox, wl: Optional[str] = None):
+        if len(cameras) == 0:
+            raise ValueError("Empty camera list.")
+        
         device = bbox.device
 
         ro_list, rd_list, g_ref_list = [], [], []
-        for cam in filter(lambda c: c.wavelength == wl, cams):
+        for cam in filter(lambda c: c.wavelength == wl, cameras):
             cam_ro, cam_rd = cam.create_rays_ecef(device)
             cam_ro = bbox.frame.from_ecef(cam_ro, is_point=True)
             cam_rd = bbox.frame.from_ecef(cam_rd, is_point=False)
@@ -84,10 +87,7 @@ class RayDataset(Dataset):
             g_ref_list.append(cam_g_ref)
         
         if len(ro_list) == 0:
-            if wl is None and len(cams) != 0:
-                raise ValueError("Missing wavelength for dataset.")
-            else:
-                raise ValueError(f"No camera with wavelength {wl}.")
+            raise ValueError(f"Empty dataset for wavelength {wl}.")
 
         ro = torch.cat(ro_list)
         rd = torch.cat(rd_list)
@@ -141,6 +141,9 @@ class RadarBatch(NamedTuple):
 
 class RadarDataset(Dataset):
     def __init__(self, data: RadarPointCloud, bbox: BBox):
+        if len(data.latitudes) == 0:
+            raise ValueError("Empty radar cloud.")
+
         device = bbox.device
 
         lat = data.latitudes.to(device)
