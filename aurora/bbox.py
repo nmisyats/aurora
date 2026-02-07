@@ -118,6 +118,27 @@ class BBox:
     def h_max(self):
         return self.altitude_range[1]
     
+    def expand(self, dx=torch.inf, dy=torch.inf):
+        """Expands the bounding box by `dx` and `dy` in the x and y directions."""
+        new_bbox = object.__new__(BBox)
+
+        xyz_min = self.xyz_min.detach().clone()
+        xyz_max = self.xyz_max.detach().clone()
+        xyz_min[0] -= dx
+        xyz_min[1] -= dy
+        xyz_max[0] += dx
+        xyz_max[1] += dy
+        new_bbox.xyz_min = xyz_min
+        new_bbox.xyz_max = xyz_max
+
+        new_bbox.south_range = self.south_range
+        new_bbox.east_range = self.east_range
+        new_bbox.altitude_range = self.altitude_range
+
+        new_bbox.frame = self.frame
+        
+        return new_bbox
+
     def __repr__(self):
         return (
             f"BBbox("

@@ -69,7 +69,7 @@ class RayBatch(NamedTuple):
     wl: str
 
 class RayDataset(Dataset):
-    def __init__(self, cams: List[Camera], bbox: BBox, wl: Optional[str] = None, bbox_only=False):
+    def __init__(self, cams: List[Camera], bbox: BBox, wl: Optional[str] = None):
         device = bbox.device
 
         ro_list, rd_list, g_ref_list = [], [], []
@@ -93,12 +93,7 @@ class RayDataset(Dataset):
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
 
-        if bbox_only:
-            tn, tf = bbox.intersection(ro, rd)
-        else:
-            slice_min = torch.tensor([-torch.inf, -torch.inf, bbox.z_min], device=device)
-            slice_max = torch.tensor([ torch.inf,  torch.inf, bbox.z_max], device=device)
-            tn, tf = gmt.ray_box_intersection(ro, rd, slice_min, slice_max)
+        tn, tf = bbox.intersection(ro, rd)
         
         valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
 
@@ -145,7 +140,7 @@ class RadarBatch(NamedTuple):
     d_ref: torch.Tensor
 
 class RadarDataset(Dataset):
-    def __init__(self, data: RadarPointCloud, bbox: BBox, bbox_only=False):
+    def __init__(self, data: RadarPointCloud, bbox: BBox):
         device = bbox.device
 
         lat = data.latitudes.to(device)
@@ -156,13 +151,9 @@ class RadarDataset(Dataset):
         p_ecef = geo.geodetic_to_ecef(lat, lon, h)
         p = bbox.frame.from_ecef(p_ecef, is_point=True)
 
-        if bbox_only:
-            inside_mask = bbox.contains(p)
-            p = p[inside_mask]
-            d = d[inside_mask]
-        
-        self.p = p.contiguous()
-        self.d_ref = d.contiguous()
+        inside_mask = bbox.contains(p)
+        self.p = p[inside_mask].contiguous()
+        self.d_ref = d[inside_mask].contiguous()
 
     def __len__(self):
         return len(self.p)
