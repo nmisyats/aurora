@@ -1,4 +1,4 @@
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Callable
 import functools
 import inspect
 
@@ -111,7 +111,7 @@ def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
         return image[::factor, ::factor, :]
 
 def ceiled_div(a: int, b: int):
-    return -(-a // b) # ceil(numel/chunk_size)
+    return -(-a // b) # ceil(a/b)
 
 def iter_chunks(numel: int, chunk_size: int):
     num_chunks = ceiled_div(numel, chunk_size)
