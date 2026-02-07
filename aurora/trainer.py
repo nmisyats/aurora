@@ -16,7 +16,7 @@ def train_loop(
     optimizer: Optimizer,
     num_iters: int,
     start_iter: int = 0,
-    scheduler: Optional[LRScheduler] = None,
+    lr_scheduler: Optional[LRScheduler] = None,
     progress_bar: bool = True
 ):
     stop_iter = start_iter + num_iters
@@ -41,8 +41,8 @@ def train_loop(
         
         optimizer.step()
 
-        if scheduler is not None:
-            scheduler.step()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
         
         for name, val in loss_dict.items():
             loss_hist = history.setdefault(name, [])
@@ -51,8 +51,8 @@ def train_loop(
         if progress_bar:
             loss_str = " ".join([f"{name}:{val:.2f}" for name, val in loss_dict.items()])
             postfix = [loss_str]
-            if scheduler is not None:
-                last_lr = scheduler.get_last_lr()[0]
+            if lr_scheduler is not None:
+                last_lr = lr_scheduler.get_last_lr()[0]
                 postfix.append(f"lr:{last_lr:.2e}")
             iterator.set_postfix_str(" ".join(postfix))
     
@@ -65,7 +65,6 @@ def train(
     start_iter: int = 0,
     lr: float = 5e-5,
     weight_decay: float = 1.0,
-    scheduler: Optional[LRScheduler] = None,
     progress_bar: bool = True
 ):
     optimizer = torch.optim.Adam(
@@ -79,6 +78,5 @@ def train(
         optimizer=optimizer,
         num_iters=num_iters,
         start_iter=start_iter,
-        scheduler=scheduler,
         progress_bar=progress_bar
     )
