@@ -14,7 +14,6 @@ import aurora.geometry as gmt
 import aurora.physics as phy
 from aurora.utils import (
     normalize_batch_dims,
-    ceiled_div,
     iter_chunks,
     flatten_batch_dims,
     unflatten_batch_dims
@@ -27,6 +26,12 @@ class ModelConfig:
     frame: Frame
     bbox: BBox
     physics: PhysicalModel
+
+    def to(self, device: torch.device):
+        new_config = object.__new__(ModelConfig)
+        new_config.frame = self.frame.to(device)
+        new_config.bbox = self.bbox.to(device)
+        new_config.physics = self.physics.to(device)
 
 
 class FluxModel(nn.Module, ABC):
@@ -47,13 +52,18 @@ class FluxModel(nn.Module, ABC):
         self.register_buffer("z_bins", z_bins)
 
         self.num_bins = len(config.physics.energy_bins) - 1
-
-        self.chunk_size = None
-        self.chunk_progress_bar = False
     
     @property
     def device(self):
-        return self.emis_mats.device
+        return self.altitude_bins.device
+    
+    @property
+    def is_multi_wavelength(self):
+        return None not in self.wl_to_idx
+    
+    @property
+    def wavelengths(self):
+        return tuple(self.wl_to_idx.keys())
     
     @abstractmethod
     def forward(self, xy: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -76,45 +86,7 @@ class FluxModel(nn.Module, ABC):
         """
         Calculate the electron flux distribution at points xy. See `forward`.
         """
-        if self.training:
-            return self._forward_flux_train(xy)
-        else:
-            return self._forward_flux_eval(xy)
-    
-    def _forward_flux_train(self, xy: torch.Tensor) -> torch.Tensor:
-        out = self.forward(xy)
-        return out["f"]
-    
-    @torch.no_grad()
-    def _forward_flux_eval(self, xy: torch.Tensor) -> torch.Tensor:
-        if self.chunk_size is not None:
-            return self._eval_flux_chunked(xy)
-        else:
-            out = self.forward(xy)
-            return out["f"]
-
-    def _eval_flux_chunked(self, xy: torch.Tensor) -> torch.Tensor:
-        """
-        Evaluate the flux on a batch of positions by splitting the batch into
-        smaller chunks.
-        """
-        f_chunks = []
-        num_chunks = ceiled_div(len(xy), self.chunk_size)
-
-        progress_bar = self.chunk_progress_bar
-        iterator = tqdm.trange(num_chunks) if progress_bar else range(num_chunks)
-
-        chunks = iter_chunks(len(xy), self.chunk_size)
-        
-        for _, (chunk_start, chunk_stop) in zip(iterator, chunks):
-            xy_chunk = xy[chunk_start:chunk_stop]
-            out_chunk = self.forward(xy_chunk)
-            f_chunks.append(out_chunk["f"])
-            
-            if progress_bar:
-                iterator.set_postfix_str(f"flux_evals:{chunk_stop}/{len(xy)}")
-        
-        return torch.cat(f_chunks, dim=0)
+        return self.forward(xy)["f"]
     
     @normalize_batch_dims(xy=1)
     def total_energy_flux(self, xy: torch.Tensor) -> torch.Tensor:
@@ -353,7 +325,15 @@ class FluxModel(nn.Module, ABC):
         return phy.compute_mean_energy(f, self.energy_bins)
     
     @overload
-    def generate_image(self, cam: Camera, num_samples: int, nan=0.0, ignore_bbox=False):
+    def generate_image(
+        self,
+        cam: Camera,
+        num_samples: int,
+        nan=0.0,
+        ignore_bbox=False,
+        chunk_size=16384,
+        progress_bar=False
+    ):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -368,7 +348,15 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @overload
-    def generate_image(self, cam: Camera, sampler: RaySampler, nan=0.0, ignore_bbox=False):
+    def generate_image(
+        self,
+        cam: Camera,
+        sampler: RaySampler,
+        nan=0.0,
+        ignore_bbox=False,
+        chunk_size=16384,
+        progress_bar=False
+    ):
         """
         Generate an image from the camera using the integrated emission along rays.
         
@@ -383,7 +371,15 @@ class FluxModel(nn.Module, ABC):
             torch.Tensor: Image tensor of shape (cam.height, cam.width).
         """
     @torch.no_grad()
-    def generate_image(self, cam: Camera, n_or_sampler: Union[int, RaySampler], nan=0.0, ignore_bbox=False):
+    def generate_image(
+        self,
+        cam: Camera,
+        n_or_sampler: Union[int, RaySampler],
+        nan=0.0,
+        ignore_bbox=False,
+        chunk_size=16384,
+        progress_bar=False
+    ):
         ro, rd = cam.create_rays_ecef(self.device)
         ro = self.frame.from_ecef(ro, is_point=True) # (n, 3)
         rd = self.frame.from_ecef(rd, is_point=False) # (n, 3)
@@ -401,9 +397,23 @@ class FluxModel(nn.Module, ABC):
             num_samples = n_or_sampler
             sampler = EqualSampler(num_samples)
         
-        g = self.integrate_emis_along_ray(ro, rd, tn, tf, sampler, cam.wavelength)
-        h, w = cam.image.shape
-        img = g.reshape(h, w)
+        chunks = list(iter_chunks(len(ro), chunk_size))
+        it = tqdm.tqdm(chunks) if progress_bar else chunks
+
+        gs = []
+        for (beg, end) in it:
+            ro_ = ro[beg:end, ...]
+            rd_ = rd[beg:end, ...]
+            tn_ = tn[beg:end, ...]
+            tf_ = tf[beg:end, ...]
+            g_ = self.integrate_emis_along_ray(ro_, rd_, tn_, tf_, sampler, cam.wavelength)
+            gs.append(g_)
+            
+            if progress_bar:
+                it.set_postfix_str(f"pixels:{end}/{len(ro)}")
+        
+        g = torch.cat(gs, dim=0)
+        img = g.reshape_as(cam.image)
         img = torch.nan_to_num(img, nan=nan)
         return img
     

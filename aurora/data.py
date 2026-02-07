@@ -187,6 +187,7 @@ def config_from_dict(data: dict, device=torch.device("cpu")):
 @dataclass
 class CameraInfo:
     camera_id: int
+    name: str
     longitude: float
     latitude: float
     altitude: float
@@ -215,13 +216,9 @@ def load_camera(cam_info: CameraInfo, cam_dir: PathLike, device=torch.device("cp
     azimuth = load_matrix_data(cam_dir / "az_cam.dat").to(device)
     zenith = load_matrix_data(cam_dir / "ze_cam.dat").to(device)
     
-    cam_name = cam_info.location_name
-    if cam_info.wavelength is not None:
-        cam_name = f"{cam_info.location_name}-{cam_info.wavelength}"
-    
     return Camera(
         camera_id=cam_info.camera_id,
-        name=cam_name,
+        name=cam_info.name,
         longitude=cam_info.longitude,
         latitude=cam_info.latitude,
         altitude=cam_info.altitude,
@@ -301,9 +298,16 @@ def load_camera_positions(set_path: PathLike) -> List[CameraInfo]:
             raise ValueError(f"Section {idx} missing coordinates")
         if location_name is None:
             raise ValueError(f"Section {idx} missing location name")
+        
+        # Choose a unique name
+        cam_name = location_name
+        if wavelength is not None:
+            cam_name = f"{location_name}-{wavelength}"
+        
         # Create CameraData object
         camera = CameraInfo(
             camera_id=idx,
+            name=cam_name,
             longitude=coords[0],
             latitude=coords[1],
             altitude=coords[2],

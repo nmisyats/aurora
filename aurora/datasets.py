@@ -76,7 +76,7 @@ class RayDataset(Dataset):
             frame: Frame,
             bbox: BBox,
             wl: Optional[str] = None,
-            intersect_only=False
+            bbox_only=False
         ):
         device = frame.device
 
@@ -101,7 +101,7 @@ class RayDataset(Dataset):
         rd = torch.cat(rd_list)
         g_ref = torch.cat(g_ref_list)
 
-        if intersect_only:
+        if bbox_only:
             tn, tf = bbox.intersection(ro, rd)
         else:
             slice_min = torch.tensor([-torch.inf, -torch.inf, bbox.z_min], device=device)

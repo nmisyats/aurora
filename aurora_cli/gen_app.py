@@ -25,6 +25,8 @@ def generate_reconstructed_flux(
     import torch
     import aurora as au
 
+    torch.set_grad_enabled(False)
+
     device = au.utils.choose_best_device(gpu)
     recon = au.models.load_model(recon_path, device)
     recon.eval()
@@ -83,6 +85,8 @@ def generate_reconstructed_flux_at(
     import torch
     import aurora as au
 
+    torch.set_grad_enabled(False)
+
     device = au.utils.choose_best_device(gpu)
     recon = au.models.load_model(recon_path, device)
     recon.eval()
@@ -115,7 +119,7 @@ def generate_reconstructed_flux_at(
 def generate_volume_emission(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
-    wl: str = typer.Option(None, help="Wavelength (if multiple wavelengths)."),
+    wl: str = typer.Option(None, help="Wavelength (if multiple wavelengths)"),
     res_x: int = typer.Option(100, help="X resolution"),
     res_y: int = typer.Option(100, help="Y resolution"), 
     res_z: int = typer.Option(50, help="Z resolution"),
@@ -127,28 +131,34 @@ def generate_volume_emission(
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
     """Generate the 3D volume emission rate of a reconstruction."""
+    import torch
     import aurora as au
+
+    torch.set_grad_enabled(False)
 
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
         recon = au.models.load_model(recon_or_ref_path, device)
-        recon.eval()
-        recon.chunk_size = chunk_size
-        recon.chunk_progress_bar = True
-        xyz_min = recon.bbox.xyz_min
-        xyz_max = recon.bbox.xyz_max
-        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = recon.get_emission_rate(xyz, wl).cpu()
     else:
         if config is None:
-            typer.echo("Configuration file required for reference flux", err=True)
+            typer.echo("Configuration file required.", err=True)
             raise typer.Exit(1)
-        ref_recon = au.models.load_grid_model(recon_or_ref_path, config, device)
-        xyz_min = ref_recon.bbox.xyz_min
-        xyz_max = ref_recon.bbox.xyz_max
-        xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = ref_recon.get_emission_rate(xyz, wl).cpu()
+        recon = au.models.load_grid_model(recon_or_ref_path, config, device)
+    if recon.is_multi_wavelength:
+        if wl is None:
+            typer.echo("Missing wavelength argument.", err=True)
+            raise typer.Exit(1)
+        if wl not in recon.wavelengths:
+            typer.echo(f"Unknown wavelength {wl}, "
+                       f"available: {', '.join(recon.wavelengths)}.",
+                       err=True)
+            raise typer.Exit(1)
+    recon.eval()
+    xyz_min = recon.bbox.xyz_min
+    xyz_max = recon.bbox.xyz_max
+    xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
+    l = recon.get_emission_rate(xyz, wl).cpu()
     
     if save is not None:
         au.data.save_3d_grid_data(l, save)
@@ -181,15 +191,16 @@ def generate_electron_density(
     opacity: str = typer.Option("0,0.1,0.3,0.6,0.8,1.0,1.0", help="Opacity values as comma-separated list")
 ):
     """Generate the 3D electron density of a reconstruction."""
+    import torch
     import aurora as au
+
+    torch.set_grad_enabled(False)
 
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
         recon = au.models.load_model(recon_or_ref_path, device)
         recon.eval()
-        recon.chunk_size = chunk_size
-        recon.chunk_progress_bar = True
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
@@ -236,29 +247,43 @@ def generate_images(
     figsize_per_col: float = typer.Option(2.0, help="Figure size per column")
 ):
     """Generate images from cameras using the reconstructed flux."""
+    import torch
     import aurora as au
+
+    torch.set_grad_enabled(False)
 
     device = au.utils.choose_best_device(gpu)
     
     if recon_or_ref_path.suffix == ".pth":
         recon = au.models.load_model(recon_or_ref_path, device)
-        recon.chunk_size = chunk_size
-        recon.chunk_progress_bar = True
     else:
         if config is None:
-            typer.echo("Configuration file required for reference flux", err=True)
+            typer.echo("Configuration file required.", err=True)
             raise typer.Exit(1)
         recon = au.models.load_grid_model(recon_or_ref_path, config, device)
     recon.eval()
 
-    cams = au.data.load_cameras(cam_pos, cam_dir, device)
+    cam_infos = au.data.load_camera_positions(cam_pos)
     
     if names is not None:
         names_list = names.split(',')
-        cams = [c for c in cams if c.name in names_list]
+        cam_infos = [c for c in cam_infos if c.name in names_list]
     
-    if downsample is not None:
-        cams = [cam.downsample(downsample) for cam in cams]
+    cams = []
+    for cam_info in cam_infos:
+        wl_dir = cam_dir / cam_info.location_name
+        if cam_info.wavelength is not None:
+            wl_dir = wl_dir / cam_info.wavelength
+        else:
+            wl_dir = cam_dir
+        cam = au.data.load_camera(cam_info, wl_dir, device)
+        if downsample:
+            cam = cam.downsample(downsample)
+        cams.append(cam)
+    
+    if len(cams) == 0:
+        typer.echo("No camera found.")
+        raise typer.Exit(0)
 
     # Generate images
     generated_imgs = []
@@ -266,8 +291,8 @@ def generate_images(
     camera_names = []
     
     for i, cam in enumerate(cams):
-        print(f"Generating image {i+1}/{len(cams)} ({cam.name})")
-        img = recon.generate_image(cam, ray_bins)
+        typer.echo(f"Generating image {i+1}/{len(cams)} ({cam.name})")
+        img = recon.generate_image(cam, ray_bins, chunk_size=chunk_size, progress_bar=True)
         generated_imgs.append(img)
         reference_imgs.append(cam.image)
         camera_names.append(cam.name)

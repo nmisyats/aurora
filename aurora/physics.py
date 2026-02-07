@@ -29,21 +29,49 @@ class PhysicalModel:
         if emis_mats is None and dens_mat is None:
             raise ValueError("Missing emission or density matrix.")
         
-        if torch.is_tensor(emis_mats):
-            # Single wavelength
-            self.emis_mats = emis_mats.unsqueeze(0) # (1, n_z, n_E)
-            self.wl_to_idx = {None: 0}
+        if emis_mats is not None:
+            if torch.is_tensor(emis_mats):
+                # Single wavelength
+                self.emis_mats = emis_mats.unsqueeze(0) # (1, n_z, n_E)
+                self.wl_to_idx = {None: 0}
+            else:
+                # Multiple wavelengths
+                self.wl_to_idx = {}
+                emis_mats_list = []
+                for i, (wl, emis_mat) in enumerate(emis_mats.items()):
+                    emis_mats_list.append(emis_mat)
+                    self.wl_to_idx[wl] = i
+                self.emis_mats = torch.stack(emis_mats_list) # (n_lam, n_z, n_E)
         else:
-            # Multiple wavelengths
-            self.wl_to_idx = {}
-            emis_mats_list = []
-            for i, (wl, emis_mat) in enumerate(emis_mats.items()):
-                emis_mats_list.append(emis_mat)
-                self.wl_to_idx[wl] = i
-            self.emis_mats = torch.stack(emis_mats_list) # (n_lam, n_z, n_E)
+            self.emis_mats = None
+            self.wl_to_idx = None
+        
         self.dens_mat = dens_mat
+        
         self.altitude_bins = altitude_bins
         self.energy_bins = energy_bins
+    
+    def to(self, device: torch.device):
+        """Move all tensors to the specified device and return a new
+        PhysicalModel instance."""
+        new_physics = object.__new__(PhysicalModel)
+
+        if self.emis_mats is not None:
+            new_physics.emis_mats = self.emis_mats.to(device)
+        else:
+            new_physics.emis_mats = None
+        
+        self.wl_to_idx = self.wl_to_idx
+        
+        if self.dens_mat is not None:
+            new_physics.dens_mat = self.dens_mat.to(device)
+        else:
+            new_physics.dens_mat = None
+        
+        new_physics.altitude_bins = self.altitude_bins
+        new_physics.energy_bins = self.energy_bins
+        
+        return new_physics
 
 
 def compute_emission_rate(
