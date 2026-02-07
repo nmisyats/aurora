@@ -32,6 +32,7 @@ class ModelConfig:
         new_config.frame = self.frame.to(device)
         new_config.bbox = self.bbox.to(device)
         new_config.physics = self.physics.to(device)
+        return new_config
 
 
 class FluxModel(nn.Module, ABC):
