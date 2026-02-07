@@ -6,7 +6,6 @@ import torch
 from aurora.camera import Camera
 from aurora.bbox import BBox
 import aurora.geodesy as geo
-import aurora.geometry as gmt
 from aurora.data import RadarPointCloud
 
 
