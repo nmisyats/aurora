@@ -115,6 +115,7 @@ def generate_reconstructed_flux_at(
 def generate_volume_emission(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction or reference flux"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
+    wl: str = typer.Option(None, help="Wavelength (if multiple wavelengths)."),
     res_x: int = typer.Option(100, help="X resolution"),
     res_y: int = typer.Option(100, help="Y resolution"), 
     res_z: int = typer.Option(50, help="Z resolution"),
@@ -138,7 +139,7 @@ def generate_volume_emission(
         xyz_min = recon.bbox.xyz_min
         xyz_max = recon.bbox.xyz_max
         xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = recon.get_emission_rate(xyz).cpu()
+        l = recon.get_emission_rate(xyz, wl).cpu()
     else:
         if config is None:
             typer.echo("Configuration file required for reference flux", err=True)
@@ -147,7 +148,7 @@ def generate_volume_emission(
         xyz_min = ref_recon.bbox.xyz_min
         xyz_max = ref_recon.bbox.xyz_max
         xyz = au.utils.xyz_grid(xyz_min, xyz_max, res_x, res_y, res_z)
-        l = ref_recon.get_emission_rate(xyz).cpu()
+        l = ref_recon.get_emission_rate(xyz, wl).cpu()
     
     if save is not None:
         au.data.save_3d_grid_data(l, save)
