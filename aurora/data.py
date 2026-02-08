@@ -2,7 +2,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Union, Optional, List, Dict
 
-from schema import Schema, Optional as And, Or, Use
+from schema import Schema, Optional as Opt, And, Or, Use
 import yaml
 try:
     from yaml import CLoader as Loader
@@ -77,8 +77,8 @@ def config_schema(base_path=None):
             "alt_max": Use(float),
         },
         "physics": {
-            "emis_mat": Or(valid_path, {str: valid_path}, only_one=True),
-            "dens_mat": valid_path,
+            Opt("emis_mat"): Or(valid_path, {str: valid_path}, only_one=True),
+            Opt("dens_mat"): valid_path,
             "altitude_bins": valid_path,
             "energy_bins": valid_path,
         }
