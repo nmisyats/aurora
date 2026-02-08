@@ -22,6 +22,9 @@ def generate_reconstructed_flux(
     ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
 ):
     """Generate the total energy of reconstruction."""
+    if not plot and not save:
+        raise ValueError("Missing save path or plot option.")
+    
     import torch
     import aurora as au
 
@@ -42,14 +45,14 @@ def generate_reconstructed_flux(
     xy = au.utils.xy_grid(xy_min, xy_max, res_x, res_y)
     est_f = recon.flux(xy)
 
-    if save is not None:
+    if save:
         au.data.save_3d_grid_data(est_f, save)
-    
+
     if not plot:
         return
     
     if ref_flux is None or ref_config is None:
-        if plot == "Q0":
+        if "Q0" in plot:
             est_q0 = recon.compute_total_energy_flux(est_f)
             au.plot.plot_flux_2d(
                 flux_data=est_q0,
@@ -58,7 +61,7 @@ def generate_reconstructed_flux(
                 unit="mW/m²",
                 cmap=cmap
             )
-        else:
+        if "E0" in plot:
             est_e0 = recon.compute_mean_energy(est_f)
             au.plot.plot_flux_2d(
                 flux_data=est_e0,
@@ -69,7 +72,7 @@ def generate_reconstructed_flux(
             )
     else:
         ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
-        if plot == "Q0":
+        if "Q0" in plot:
             est_q0 = recon.compute_total_energy_flux(est_f)
             ref_q0 = recon.compute_total_energy_flux(ref.data)
             au.plot.plot_flux_2d_comparison(
@@ -81,7 +84,7 @@ def generate_reconstructed_flux(
                 titles=("Reference $Q_0$", "Reconstructed $Q_0$"),
                 cmap=cmap
             )
-        else:
+        if "E0" in plot:
             est_e0 = recon.compute_mean_energy(est_f)
             ref_e0 = recon.compute_mean_energy(ref.data)
             au.plot.plot_flux_2d_comparison(
