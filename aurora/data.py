@@ -55,7 +55,7 @@ def path_validator(base_path: Optional[PathLike] = None):
     if base_path is not None:
         validators.append(Use(lambda p: resolve_relative_to_base(p, base_path)))
     validators.append(lambda p: p.exists())
-    return And(*validators, error="Must be a valid path")
+    return And(*validators)
 
 
 def config_schema(base_path=None):
