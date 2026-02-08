@@ -53,18 +53,18 @@ gen     Generation utilities
 
 ### Training basics
 
-To train a reconstruction, we must first define a configuration file
-that describes the physical model that is used for reconstruction. A
-template of such file, named `config.yaml` is shown below:
+To train a reconstruction, first define a configuration file
+that describes the physical model that is used for reconstruction.
+An example `config.yaml` is shown below:
 
 ```yaml
-frame: # Oblique reference frame description
-  origin_lat: 69.348333333333
-  origin_lon: 20.365000000000
+frame: # Oblique reference frame
+  origin_lat: 69.3483
+  origin_lon: 20.3650
   origin_alt: 90.0
   field_inc: 77.9
   field_dec: 6.0
-bbox: # Reconstruction bounding box description
+bbox: # Reconstruction bounding box
   east_min: -70.0
   east_max: 70.0
   south_min: -40.0
@@ -72,13 +72,13 @@ bbox: # Reconstruction bounding box description
   alt_min: 90.0
   alt_max: 190.0
 physics: # Physical model data
-  emis_mat: ../model/M_emis.dat
-  dens_mat: ../model/M_dens.dat
-  altitude_bins: ../model/altitude.dat
-  energy_bins: ../model/energy.dat
+  emis_mat: model/M_emis.dat
+  dens_mat: model/M_dens.dat
+  altitude_bins: model/altitude.dat
+  energy_bins: model/energy.dat
 ```
 
-> **Note**: Paths provided in YAML configuration files are relative to the *location of the YAML file*.
+> **Note**: Paths provided in YAML configuration files are relative to the *location of the YAML file*, unless provided as absolute paths.
 
 Training a reconstruction requires to first choose one of the
 available model for the electron flux. The list of available
@@ -103,7 +103,7 @@ Arguments
     config_file      PATH  Path to YAML configuration file [default: None] [required]
 
 Options
-    ---options                               PATH     Path to YAML training configuration file [default: None]
+    --options                                PATH     Path to YAML training configuration file [default: None]
     --cam-pos                                PATH     Camera positions file [default: None]
     --cam-dir                                PATH     Cameras directory [default: None]
     --radar                                  PATH     Radar point cloud file [default: None]
@@ -136,11 +136,11 @@ Options
 
 The most basic training on a set of cameras would be done as follows:
 ```
-aurora train <model_name> path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save recon.pth
+aurora train <model_name> path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save model.pth
 ```
-The trained model will be saved as a self-contained file `recon.pth`.
+The trained model will be saved as a self-contained file `model.pth`.
 
-If a reference flux is available to compare the reconsutrction (simulated data) with, it
+If a ground truth flux is available to compare the reconstruction with, it
 can be added to the final flux plot by adding the following options:
 ```
 --ref-flux path/to/flux.dat --ref-config path/to/flux_config.yaml
@@ -154,7 +154,7 @@ and load the options from it. For example:
 cam_dir: path/to/camera/images
 cam_pos: path/to/camera_position.set
 iters: 5000
-save: recon.pth
+save: model.pth
 ref_flux: path/to/flux.dat
 ref_config: path/to/flux_config.yaml
 ```
@@ -176,9 +176,9 @@ or has already been generated. To generate new data (total flux, emission rate, 
 from a pretrained reconstruction (or reference flux), use `aurora gen`.
 
 For example, to generate, plot, and save a 3D emission volume rate from a pretrained
-`recon.pth` reconstruction, use:
+`model.pth` reconstruction, use:
 ```
-aurora gen emis recon.pth --save emis_rate.dat
+aurora gen emis model.pth --save emis_rate.dat
 ```
 This will both save the generated emission and plot it for vizualization.
 To vizualize the generated emission rate later, use:
@@ -196,8 +196,7 @@ unlike reconstruction models which bundles also physical configuration.
 ### Minimal example
 
 The following python script illustrates how to use `aurora`
-as a python library. This is especially useful to easily create more
-advanced custom experiments.
+as a python library.
 
 ```python
 # example.py
@@ -206,7 +205,7 @@ import torch
 from matplotlib import pyplot as plt
 
 import aurora as au
-from aurora import Frame, BBox, PhysicalModel, ModelConfig, RayDataset, StratifiedSampler
+from aurora import Frame, BBox, ModelConfig, RayDataset, StratifiedSampler
 from aurora.models import SpectralMLP
 
 # Choose a device to run the reconstruction on
@@ -220,8 +219,6 @@ frame = Frame(
     field_inclination=77.9,
     field_declination=6.0
 )
-print(frame)
-
 # Define the reconstruction bounding box
 bbox = BBox(
     frame=frame,
@@ -229,54 +226,47 @@ bbox = BBox(
     east_range=(-70.0, 70.0),
     altitude_range=(90.0, 190.0)
 )
-print(bbox)
-
-# Load physical model data
-physics = PhysicalModel(
-    altitude_bins=au.data.load_altitude_bins("../model/altitude.dat"),
-    energy_bins=au.data.load_energy_bins("../model/energy.dat"),
-    emis_mat=au.data.load_emission_matrix("../model/M_emis.dat"),
-    dens_mat=au.data.load_density_matrix("../model/M_dens.dat")
+# Create the physical model configuration
+config = ModelConfig(
+    bbox=bbox,
+    altitude_bins=au.data.load_altitude_bins("model/altitude.dat"),
+    energy_bins=au.data.load_energy_bins("model/energy.dat"),
+    emis_mats=au.data.load_emission_matrix("model/M_emis.dat"),
+    dens_mat=au.data.load_density_matrix("model/M_dens.dat")
 )
 
-# Group the overall configuration
-config = ModelConfig(frame, bbox, physics)
-
-# Instantiate the trainable flux model in the chosen device
+# Instantiate the trainable flux model on the chosen device
 model = SpectralMLP(config).to(device)
 print(model)
 
 # Load the cameras images and preprocess ray data
-cameras = au.data.load_cameras("../datasets/camera_position.set", "../datasets/simulation1")
-ray_data = RayDataset(cameras, frame, bbox).to(device)
+cameras = au.data.load_cameras("dataset/camera_position.set", "dataset/images")
+ray_data = RayDataset(cameras, bbox.expand()) # Inifinitely wide bounding box
+ray_data = ray_data.to(device)
 
 # Define the loss function that evaluates a model's loss during one
 # training iteration
 ray_sampler = StratifiedSampler(num_bins=64) # Ray sampler for training
 def iter_loss(model):
-    batch = ray_data.sample_batch(4096) # random batch of 4096 rays
-    loss = au.ray_loss(model, batch, ray_sampler) # evaluate the loss
+    batch = ray_data.sample_batch(4096) # Random batch of 4096 rays
+    loss = au.ray_loss(model, batch, ray_sampler) # Evaluate the loss
     return loss
 
-# Train the model with the defined loss for 2000 iterations
-au.train(model, iter_loss, 2000)
+# Train the model with the defined loss for 5000 iterations
+au.train(model, iter_loss, 5000)
+
 # Save the reconstruction after training
 au.save_model(model, "./example.pth")
 
-## Plot the reconstructed total energy flux
-
-# Set the reconstruction in evaluation mode
-# (this disables gradient computation for more efficiency)
+# Plot the reconstructed total energy flux
 model.eval()
-# Create a uniform grid spanning the xy bounding box
-xy = au.utils.xy_grid(bbox.xy_min, bbox.xy_max, 128, 128).to(device)
-# Plot the flux
-au.plot.plot_flux_2d(
-    flux_data=model.flux(xy),
-    xy_bounds=bbox.xy_bounds,
-    energy_edges=physics.energy_bins
-)
-plt.show()
+with torch.no_grad():
+    # Create a uniform grid spanning the xy bounding box, generate and
+    # plot the total energy flux
+    xy = bbox.xy_grid(100, 100).to(device)
+    q0 = model.total_energy_flux(xy)
+    au.plot.plot_flux_2d(q0, bbox.xy_bounds)
+    plt.show()
 ```
 Run the script directly with
 ```
@@ -293,7 +283,6 @@ is shown below.
 
 ```python
 from aurora.models import FluxModel
-from aurora import Frame, BBox
 
 class MyModel(FluxModel):
     def __init__(
@@ -332,7 +321,8 @@ class MyModel(FluxModel):
     def forward(self, xy: torch.Tensor):
         ...
 ```
-Then, define its training command at the bottom of the`aurora_cli/train_app.py` using the following template:
+Then, define its training command at the bottom of the `aurora_cli/train_app.py`
+using the following template:
 ```python
 ... # Other models
 
@@ -385,5 +375,5 @@ Options
 It can be then be trained as any other model using its registered name, with
 custom extra arguments:
 ```
-aurora train my_model path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save recon.pth --param1 74 --param2 2.718
+aurora train my_model path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save my_model.pth --param1 74 --param2 2.718
 ```
