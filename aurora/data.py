@@ -130,7 +130,7 @@ def config_from_dict(data: dict):
         bbox=bbox,
         altitude_bins=altitude_bins,
         energy_bins=energy_bins,
-        emis_mats=emis_mats,
+        emis_mat=emis_mats,
         dens_mat=dens_mat
     )
 

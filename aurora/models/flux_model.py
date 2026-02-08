@@ -24,23 +24,23 @@ class ModelConfig:
         bbox: BBox,
         altitude_bins: torch.Tensor,
         energy_bins: torch.Tensor,
-        emis_mats: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+        emis_mat: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
         dens_mat: Optional[torch.Tensor] = None,
     ):
-        if emis_mats is None and dens_mat is None:
+        if emis_mat is None and dens_mat is None:
             raise ValueError("Missing emission or density matrix.")
         
-        if emis_mats is not None:
-            if torch.is_tensor(emis_mats):
+        if emis_mat is not None:
+            if torch.is_tensor(emis_mat):
                 # Single wavelength
-                self.emis_mats = emis_mats.unsqueeze(0) # (1, n_z, n_E)
+                self.emis_mats = emis_mat.unsqueeze(0) # (1, n_z, n_E)
                 self.wl_to_idx = {None: 0}
             else:
                 # Multiple wavelengths
                 self.wl_to_idx = {}
                 emis_mats_list = []
-                for i, (wl, emis_mat) in enumerate(emis_mats.items()):
-                    emis_mats_list.append(emis_mat)
+                for i, (wl, mat) in enumerate(emis_mat.items()):
+                    emis_mats_list.append(mat)
                     self.wl_to_idx[wl] = i
                 self.emis_mats = torch.stack(emis_mats_list) # (n_lam, n_z, n_E)
         else:

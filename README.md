@@ -231,7 +231,7 @@ config = ModelConfig(
     bbox=bbox,
     altitude_bins=au.data.load_altitude_bins("model/altitude.dat"),
     energy_bins=au.data.load_energy_bins("model/energy.dat"),
-    emis_mats=au.data.load_emission_matrix("model/M_emis.dat"),
+    emis_mat=au.data.load_emission_matrix("model/M_emis.dat"),
     dens_mat=au.data.load_density_matrix("model/M_dens.dat")
 )
 
