@@ -108,16 +108,16 @@ class BSplineMLP(FluxModel):
     def forward(self, xy: torch.Tensor):
         xy = self.bbox.norm_xy(xy)
         xy_enc = self.encoder(xy)
-        coeffs = self.mlp(xy_enc) # (batch_size, num_basis)
+        coeffs_raw = self.mlp(xy_enc) # (batch_size, num_basis)
+        coeffs = torch.sigmoid(coeffs_raw)
+
         log_f_at_edges = torch.matmul(coeffs, self.basis_matrix_T) # (batch_size, num_edges)
         log_f_at_edges *= self.max_log_flux
-        f_at_edges = torch.pow(10.0, log_f_at_edges)
-        f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
-        f = torch.max(f, torch.tensor(1e-3, device=f.device))
-        log_f = torch.log(f)
+        log_f = 0.5 * (log_f_at_edges[:, :-1] + log_f_at_edges[:, 1:])
+        f = torch.pow(10.0, log_f)
+        
         return {
             "f": f,
-            "f_at_edges": f_at_edges,
             "log_f_at_edges": log_f_at_edges,
             "log_f": log_f,
             "coeffs": coeffs
