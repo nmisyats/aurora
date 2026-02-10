@@ -82,8 +82,8 @@ class MLP(nn.Sequential):
 
 def exp10(
         x: torch.Tensor,
-        log_min: Optional[float] = None,
-        log_max: Optional[float] = None
+        log_min: float = -torch.inf,
+        log_max: float = torch.inf
     ):
     """Computes 10^x with optional clamping of the input values.
     
@@ -92,7 +92,7 @@ def exp10(
         log_min: Optional minimum value to clamp x to. If None, no lower bound.
         log_max: Optional maximum value to clamp x to. If None, no upper bound.
         
-    Returns:
+    Returns:s
         torch.Tensor: 10^x where x has been clamped to the specified range
             [log_min, log_max].
     """
