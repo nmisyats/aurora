@@ -78,7 +78,7 @@ class BilinearMLP(FluxModel):
         # xy: (B, 2)
         B = xy.shape[0]
 
-        xy_norm = self.bbox.norm_xy(xy) # (B, 2)
+        xy_norm = self.bbox.normalize_xy(xy) # (B, 2)
         xy_encoded = self.position_encoder(xy_norm) # (B, pos_enc)
         xy_embed = self.position_embedder(xy_encoded) # (B, pos_embed)
         

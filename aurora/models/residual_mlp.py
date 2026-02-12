@@ -35,7 +35,7 @@ class ResidualMLP(FluxModel):
         self.details_mlp = ann.MLP(details_in_dim, self.num_bins, hidden_size_details)
     
     def forward(self, xy: torch.Tensor):
-        xy_norm = self.bbox.norm_xy(xy)
+        xy_norm = self.bbox.normalize_xy(xy)
         xy_enc = self.encoder(xy_norm)
         log_f_low = self.coarse_mlp(xy_enc)
 

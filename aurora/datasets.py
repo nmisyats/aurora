@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import NamedTuple, List, Optional
+from dataclasses import dataclass, astuple
 
 import torch
 
@@ -9,24 +10,49 @@ import aurora.geodesy as geo
 from aurora.data import RadarPointCloud
 
 
+@dataclass
+class DatasetBatch(ABC):
+    @abstractmethod
+    def __len__(self) -> int:
+        """
+        Returns the number of samples in the batch.
+        """
+        ...
+    
+    def __iter__(self):
+        """
+        Iterates through the members as a tuple.
+        """
+        return iter(astuple(self))
+    
+    @property
+    @abstractmethod
+    def device(self) -> torch.device:
+        ...
+    
+    @abstractmethod
+    def to(self, *args, **kwargs) -> 'DatasetBatch':
+        ...
+
+
 class Dataset(ABC):
+    @abstractmethod
+    def __getitem__(self, idx) -> DatasetBatch:
+        """
+        Get batch(es).
+        
+        Args:
+            idx: int, slice, list, or tensor of indices
+            
+        Returns:
+            Batch of the selected indices.
+        """
+        ...
+    
     @abstractmethod
     def __len__(self) -> int:
         """
         Returns the number of samples in the dataset.
-        """
-        ...
-
-    @abstractmethod
-    def __getitem__(self, idx) -> NamedTuple:
-        """
-        Get sample(s) from the dataset at index `idx`.
-        
-        Args:
-            idx: Index of the sample to retrieve.
-        
-        Returns:
-            A tuple containing the sample data.
         """
         ...
     
@@ -43,11 +69,11 @@ class Dataset(ABC):
         """
         assert batch_size > 0 and batch_size <= len(self)
         if replacement:
-            indices = torch.randint(0, len(self), (batch_size,))
+            idx = torch.randint(0, len(self), (batch_size,))
         else:
             perm = torch.randperm(len(self))
-            indices = perm[:batch_size]
-        return self[indices]
+            idx = perm[:batch_size]
+        return self[idx]
     
     @property
     @abstractmethod
@@ -55,17 +81,32 @@ class Dataset(ABC):
         ...
     
     @abstractmethod
-    def to(self, device: torch.device) -> 'Dataset':
+    def to(self, *args, **kwargs) -> 'Dataset':
         ...
 
-
-class RayBatch(NamedTuple):
+@dataclass
+class RayBatch(DatasetBatch):
     ro: torch.Tensor
     rd: torch.Tensor
     tn: torch.Tensor
     tf: torch.Tensor
     g_ref: torch.Tensor
     wl: str
+
+    def __len__(self):
+        return len(self.ro)
+    
+    @property
+    def device(self):
+        return self.ro.device
+    
+    def to(self, *args, **kwargs):
+        self.ro = self.ro.to(*args, **kwargs)
+        self.rd = self.rd.to(*args, **kwargs)
+        self.tn = self.tn.to(*args, **kwargs)
+        self.tf = self.tf.to(*args, **kwargs)
+        self.g_ref = self.g_ref.to(*args, **kwargs)
+        return self
 
 class RayDataset(Dataset):
     def __init__(self, cameras: List[Camera], bbox: BBox, wl: Optional[str] = None):
@@ -103,9 +144,6 @@ class RayDataset(Dataset):
         self.tf = tf[valid_mask].contiguous()
         self.g_ref = g_ref[valid_mask].contiguous()
         self.wl = wl
-
-    def __len__(self):
-        return len(self.ro)
     
     def __getitem__(self, idx):
         return RayBatch(
@@ -117,26 +155,37 @@ class RayDataset(Dataset):
             self.wl
         )
     
+    def __len__(self):
+        return len(self.ro)
+    
     @property
     def device(self):
         return self.ro.device
     
-    def to(self, device: torch.device):
-        new_dataset = object.__new__(RayDataset)
-        
-        new_dataset.ro = self.ro.to(device)
-        new_dataset.rd = self.rd.to(device)
-        new_dataset.tn = self.tn.to(device)
-        new_dataset.tf = self.tf.to(device)
-        new_dataset.g_ref = self.g_ref.to(device)
-        new_dataset.wl = self.wl
+    def to(self, *args, **kwargs):
+        self.ro = self.ro.to(*args, **kwargs)
+        self.rd = self.rd.to(*args, **kwargs)
+        self.tn = self.tn.to(*args, **kwargs)
+        self.tf = self.tf.to(*args, **kwargs)
+        self.g_ref = self.g_ref.to(*args, **kwargs)
+        return self
 
-        return new_dataset
-
-
-class RadarBatch(NamedTuple):
+@dataclass
+class RadarBatch(DatasetBatch):
     p: torch.Tensor
     d_ref: torch.Tensor
+
+    def __len__(self):
+        return len(self.p)
+    
+    @property
+    def device(self):
+        return self.p.device
+    
+    def to(self, *args, **kwargs):
+        self.p = self.p.to(*args, **kwargs)
+        self.d_ref = self.d_ref.to(*args, **kwargs)
+        return self
 
 class RadarDataset(Dataset):
     def __init__(self, data: RadarPointCloud, bbox: BBox):
@@ -154,23 +203,21 @@ class RadarDataset(Dataset):
         p = bbox.frame.from_ecef(p_ecef, is_point=True)
 
         inside_mask = bbox.contains(p)
+
         self.p = p[inside_mask].contiguous()
         self.d_ref = d[inside_mask].contiguous()
-
-    def __len__(self):
-        return len(self.p)
     
     def __getitem__(self, idx):
         return RadarBatch(self.p[idx], self.d_ref[idx])
+    
+    def __len__(self):
+        return len(self.p)
     
     @property
     def device(self):
         return self.p.device
     
-    def to(self, device: torch.device):
-        new_dataset = object.__new__(RadarDataset)
-        
-        new_dataset.p = self.p.to(device)
-        new_dataset.d_ref = self.d_ref.to(device)
-
-        return new_dataset
+    def to(self, *args, **kwargs):
+        self.p = self.p.to(*args, **kwargs)
+        self.d_ref = self.d_ref.to(*args, **kwargs)
+        return self

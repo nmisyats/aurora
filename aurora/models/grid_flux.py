@@ -24,7 +24,7 @@ class GridSampledFlux(FluxModel):
         H, W, B = self.data.shape
 
         # Normalize xy to [0, 1]
-        norm_xy = self.bbox.norm_xy(xy)
+        norm_xy = self.bbox.normalize_xy(xy)
         norm_xy = torch.clamp(norm_xy, 0, 1)
 
         # Scale to image pixel coordinates

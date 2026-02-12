@@ -46,13 +46,13 @@ class BBox:
     def device(self):
         return self.xyz_min.device
     
-    def norm_xyz(self, xyz: torch.Tensor):
+    def normalize_xyz(self, xyz: torch.Tensor):
         return (xyz - self.xyz_min) / (self.xy_max - self.xyz_min)
     
     def real_xyz(self, xyz_norm: torch.Tensor):
         return self.xyz_min + xyz_norm * (self.xyz_max - self.xyz_min)
     
-    def norm_xy(self, xy: torch.Tensor):
+    def normalize_xy(self, xy: torch.Tensor):
         return (xy - self.xy_min) / (self.xy_max - self.xy_min)
     
     def real_xy(self, xy_norm: torch.Tensor):
@@ -119,7 +119,9 @@ class BBox:
         return self.altitude_range[1]
     
     def expand(self, dx=torch.inf, dy=torch.inf):
-        """Expands the bounding box by `dx` and `dy` in the x and y directions."""
+        """
+        Expands the bounding box by `dx` and `dy` in the x and y directions.
+        """
         new_bbox = object.__new__(BBox)
 
         xyz_min = self.xyz_min.detach().clone()
@@ -147,19 +149,11 @@ class BBox:
             f"device={self.device}"
             f")"
         )
-    
-    def to(self, device):
-        """Move all tensors to the specified device and return a new BBox instance."""
-        new_bbox = object.__new__(BBox)
 
-        new_bbox.xyz_min = self.xyz_min.to(device)
-        new_bbox.xyz_max = self.xyz_max.to(device)
-
-        new_bbox.south_range = self.south_range
-        new_bbox.east_range = self.east_range
-        new_bbox.altitude_range = self.altitude_range
-
-        new_bbox.frame = self.frame.to(device)
-        
-        return new_bbox
+    def to(self, *args, **kwargs):
+        """Move all tensors to the specified device."""
+        self.xyz_min = self.xyz_min.to(*args, **kwargs)
+        self.xyz_max = self.xyz_max.to(*args, **kwargs)
+        self.frame = self.frame.to(*args, **kwargs)
+        return self
 

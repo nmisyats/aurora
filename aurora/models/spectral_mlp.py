@@ -30,7 +30,7 @@ class SpectralMLP(FluxModel):
         nn.init.constant_(self.mlp[-1].bias, self.max_log_flux / 2.0)
     
     def forward(self, xy: torch.Tensor):
-        xy_norm = self.bbox.norm_xy(xy)
+        xy_norm = self.bbox.normalize_xy(xy)
         xy_enc = self.encoder(xy_norm)
         log_f = self.mlp(xy_enc)
         f = ann.exp10(log_f, 0.0, self.max_log_flux)

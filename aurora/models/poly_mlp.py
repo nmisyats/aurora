@@ -66,7 +66,7 @@ class PolyMLP(FluxModel):
         return basis # (num_basis, num_edges)
     
     def forward(self, xy: torch.Tensor):
-        xy = self.bbox.norm_xy(xy)
+        xy = self.bbox.normalize_xy(xy)
         xy_enc = self.encoder(xy)
         coeffs = self.mlp(xy_enc) # (batch_size, num_basis)
         log_f_at_edges = torch.matmul(coeffs, self.basis_functions) # (batch_size, num_edges)
