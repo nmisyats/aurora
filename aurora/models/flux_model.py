@@ -440,21 +440,8 @@ class FluxModel(nn.Module, ABC):
         img = g.reshape_as(cam.image)
         img = torch.nan_to_num(img, nan=nan)
         return img
-    
+
     def to(self, *args, **kwargs):
-        new_model = super().to(*args, **kwargs)
-        
-        device = None
-        if args:
-            arg = args[0]
-            if isinstance(arg, (torch.device, str)):
-                device = arg
-            elif hasattr(arg, 'device'): # tensor-like
-                device = arg.device
-        if 'device' in kwargs:
-            device = kwargs['device']
-        
-        if device is not None:
-            new_model.bbox = self.bbox.to(device)
-        
-        return new_model
+        super().to(*args, **kwargs)
+        self.bbox.to(*args, **kwargs)
+        return self

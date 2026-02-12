@@ -94,29 +94,15 @@ class Frame:
             f"o_lon={self.origin_longitude}, "
             f"o_alt={self.origin_altitude}, "
             f"mf_inc={self.field_inclination}, "
-            f"mf_dec={self.field_declination}, "
-            f"device={self.device}"
+            f"mf_dec={self.field_declination}"
             f")"
         )
     
-    def to(self, device):
-        """Move all tensors to the specified device and return a new Frame instance."""
-        # Create a shallow copy of the current instance
-        new_frame = object.__new__(Frame)
-        
-        # Copy scalar attributes (no computation needed)
-        new_frame.origin_latitude = self.origin_latitude
-        new_frame.origin_longitude = self.origin_longitude
-        new_frame.origin_altitude = self.origin_altitude
-        new_frame.field_inclination = self.field_inclination
-        new_frame.field_declination = self.field_declination
-        new_frame.z_to_h_factor = self.z_to_h_factor
-        
-        # Move tensor attributes to the new device (no recomputation)
-        new_frame.origin_ecef = self.origin_ecef.to(device)
-        new_frame.enu_to_field_mat = self.enu_to_field_mat.to(device)
-        new_frame.field_to_enu_mat = self.field_to_enu_mat.to(device)
-        new_frame.ecef_to_field_mat = self.ecef_to_field_mat.to(device)
-        new_frame.field_to_ecef_mat = self.field_to_ecef_mat.to(device)
-        
-        return new_frame
+    def to(self, *args, **kwargs):
+        """Move all tensors to the specified device."""
+        self.origin_ecef = self.origin_ecef.to(*args, **kwargs)
+        self.enu_to_field_mat = self.enu_to_field_mat.to(*args, **kwargs)
+        self.field_to_enu_mat = self.field_to_enu_mat.to(*args, **kwargs)
+        self.ecef_to_field_mat = self.ecef_to_field_mat.to(*args, **kwargs)
+        self.field_to_ecef_mat = self.field_to_ecef_mat.to(*args, **kwargs)
+        return self
