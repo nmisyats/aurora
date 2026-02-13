@@ -75,7 +75,7 @@ def generate_reconstructed_flux(
         ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
         if "Q0" in plot:
             est_q0 = recon.compute_total_energy_flux(est_f)
-            ref_q0 = recon.compute_total_energy_flux(ref.data)
+            ref_q0 = ref.compute_total_energy_flux(ref.data)
             au.plot.plot_flux_2d_comparison(
                 est_data=est_q0,
                 ref_data=ref_q0,
@@ -87,7 +87,7 @@ def generate_reconstructed_flux(
             )
         if "E0" in plot:
             est_e0 = recon.compute_mean_energy(est_f)
-            ref_e0 = recon.compute_mean_energy(ref.data)
+            ref_e0 = ref.compute_mean_energy(ref.data)
             au.plot.plot_flux_2d_comparison(
                 est_data=est_e0,
                 ref_data=ref_e0,
