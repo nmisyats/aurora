@@ -211,7 +211,7 @@ def plot_flux_2d_comparison(
     est_data = est_data.cpu()
     ref_data = ref_data.cpu()
     
-    fig, grid = plt.subplots(1, 2, figsize=figsize, sharex=False, sharey=False)
+    fig, grid = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=False)
     
     # Get bounds
     est_xy_min, est_xy_max = est_bounds
@@ -255,6 +255,11 @@ def plot_flux_2d_comparison(
         cmap=cmap,
         vmin=vmin, vmax=vmax
     )
+
+    x_min = min(x_ref_min, x_est_min)
+    x_max = max(x_ref_max, x_est_max)
+    for ax in grid:
+        ax.set_ylim(x_max, x_min)  # keep your “origin at top” convention
     
     # Show MAE if requested
     if show_mae:
@@ -292,10 +297,7 @@ def plot_flux_2d_comparison(
         )
     
     # Add colorbar and labels
-    divider = make_axes_locatable(grid[1])
-    cax = divider.append_axes("right", size="5%", pad=0.05)  # 5% of the image width
-    # Add colorbar in that axes
-    cbar = fig.colorbar(im, cax=cax)
+    cbar = fig.colorbar(im, ax=grid, fraction=0.046, pad=0.04)
     cbar.set_label(unit)
     
     grid[0].set_title(titles[0])
