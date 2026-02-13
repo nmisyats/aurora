@@ -18,8 +18,7 @@ def generate_reconstructed_flux(
     plot: str = typer.Option(None, help="Plot the total energy flux (Q0) or mean energy (E0)"),
     save: Path = typer.Option(None, help="Save flux data to file"),
     cmap: str = typer.Option("jet", help="Colormap for plotting"),
-    ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
-    ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+    ref: Path = typer.Option(None, help="Path to folder containing reference flux.dat and config.yaml to compare with")
 ):
     """Generate the total energy of reconstruction."""
     if not plot and not save:
@@ -51,7 +50,7 @@ def generate_reconstructed_flux(
     if not plot:
         return
     
-    if ref_flux is None or ref_config is None:
+    if ref is None:
         if "Q0" in plot:
             est_q0 = recon.compute_total_energy_flux(est_f)
             au.plot.plot_flux_2d(
@@ -71,6 +70,8 @@ def generate_reconstructed_flux(
                 cmap=cmap
             )
     else:
+        ref_flux = ref / "flux.dat"
+        ref_config = ref / "config.yaml"
         ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
         if "Q0" in plot:
             est_q0 = recon.compute_total_energy_flux(est_f)
@@ -106,8 +107,7 @@ def generate_reconstructed_flux_at(
     gpu: bool = typer.Option(True, help="Use GPU if available"),
     plot: bool = typer.Option(True, help="Plot the generated flux"),
     save: Path = typer.Option(None, help="Save flux data to file"),
-    ref_flux: Path = typer.Option(None, help="Reference flux to compare with"),
-    ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+    ref: Path = typer.Option(None, help="Path to folder containing reference flux.dat and config.yaml to compare with")
 ):
     """Generate the energy spectrum at a given xy location."""
     import torch
@@ -120,26 +120,28 @@ def generate_reconstructed_flux_at(
     recon.eval()
     
     xy = torch.tensor([x, y], device=device)
-    estimated_f = recon.flux(xy).cpu()
+    est_f = recon.flux(xy).cpu()
 
     if save is not None:
-        au.data.save_matrix_data(estimated_f.unsqueeze(1), save)
+        au.data.save_matrix_data(est_f.unsqueeze(1), save)
     
     if plot:
-        if ref_flux is not None and ref_config is not None:
-            ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
-            reference_f = ref.flux(xy).cpu()
+        if ref is None:
             au.plot.plot_flux_1d(
-                flux_data=(reference_f, estimated_f),
+                flux_data=est_f,
+                energy_edges=recon.energy_bins.cpu(),
+                title=f"Flux at (x, y) = ({x}, {y})"
+            )
+        else:
+            ref_flux = ref / "flux.dat"
+            ref_config = ref / "config.yaml"
+            ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
+            ref_f = ref.flux(xy).cpu()
+            au.plot.plot_flux_1d(
+                flux_data=(ref_f, est_f),
                 energy_edges=recon.energy_bins.cpu(),
                 title=f"Flux at (x, y) = ({x}, {y})",
                 labels=("Reference", "Reconstructed")
-            )
-        else:
-            au.plot.plot_flux_1d(
-                flux_data=estimated_f,
-                energy_edges=recon.energy_bins.cpu(),
-                title=f"Flux at (x, y) = ({x}, {y})"
             )
         plt.show()
 
@@ -152,7 +154,6 @@ def generate_volume_emission(
     res_y: int = typer.Option(100, help="Y resolution"), 
     res_z: int = typer.Option(50, help="Z resolution"),
     gpu: bool = typer.Option(True, help="Use GPU if available"),
-    chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
     plot: bool = typer.Option(True, help="Plot the volume"),
     save: Path = typer.Option(None, help="Save volume data"),
     cmap: str = typer.Option("coolwarm", help="Volume colormap"),
@@ -191,7 +192,7 @@ def generate_volume_emission(
     if save is not None:
         au.data.save_3d_grid_data(l, save)
     
-    if plot:
+    if not plot:
         # Parse opacity values
         opacity_vals = list(map(float, opacity.split(',')))
         
@@ -212,7 +213,6 @@ def generate_electron_density(
     res_y: int = typer.Option(100, help="Y resolution"), 
     res_z: int = typer.Option(50, help="Z resolution"),
     gpu: bool = typer.Option(True, help="Use GPU if available"),
-    chunk_size: int = typer.Option(16384, help="Size of chunks to split batches for flux estimation"),
     plot: bool = typer.Option(True, help="Plot the volume"),
     save: Path = typer.Option(None, help="Save volume data"),
     cmap: str = typer.Option("coolwarm", help="Volume colormap"),

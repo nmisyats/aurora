@@ -40,8 +40,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
         def train_func(
             config_file: Path = typer.Argument(..., help="Path to YAML configuration file"),
             options: Path = typer.Option(None, help="Path to YAML training configuration file"),
-            cam_pos: Path = typer.Option(None, help="Camera positions file"),
-            cam_dir: Path = typer.Option(None, help="Cameras directory"),
+            cams: Path = typer.Option(None, help="Camera data directory containing camera_position.set and directory for each camera"),
             radar: Path = typer.Option(None, help="Radar point cloud file"),
             gpu: bool = typer.Option(True, help="Use GPU if available"),
             iters: int = typer.Option(2000, help="Number of training iterations"),
@@ -59,8 +58,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             plot_flux: bool = typer.Option(True, help="Plot the reconstructed flux after training complete"),
             plot_res_x: int = typer.Option(128, help="x resolution for plotting"),
             plot_res_y: int = typer.Option(128, help="y resolution for plotting"),
-            ref_flux: Path = typer.Option(None, help="Reference flux to compare the reconstruction with"),
-            ref_config: Path = typer.Option(None, help="Path to configuration file for reference flux"),
+            ref: Path = typer.Option(None, help="Path to folder containing reference flux.dat and config.yaml to compare with"),
             **model_kwargs
         ):
             import torch
@@ -101,8 +99,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                     return current_value
 
             # Apply the priority logic to all parameters
-            cam_pos = get_param_value('cam_pos', cam_pos)
-            cam_dir = get_param_value('cam_dir', cam_dir)
+            cams = get_param_value('cams', cams)
             radar = get_param_value('radar', radar)
             gpu = get_param_value('gpu', gpu)
             iters = get_param_value('iters', iters)
@@ -119,8 +116,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             plot_flux = get_param_value('plot', plot_flux)
             plot_res_x = get_param_value('plot_res_x', plot_res_x)
             plot_res_y = get_param_value('plot_res_y', plot_res_y)
-            ref_flux = get_param_value('ref_flux', ref_flux)
-            ref_config = get_param_value('ref_config', ref_config)
+            ref = get_param_value('ref', ref)
 
             # Apply the same logic to config_kwargs (model-specific parameters)
             final_config_kwargs = {}
@@ -134,7 +130,9 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
 
             # Load the datasets
             ray_data, rad_data = None, None
-            if cam_pos and cam_dir:
+            if cams:
+                cam_dir = Path(cams)
+                cam_pos = cam_dir / "camera_position.set"
                 cams = au.data.load_cameras(cam_pos, cam_dir)
                 ray_data = au.datasets.RayDataset(cams, config.bbox)
                 ray_data = ray_data.to(device)
@@ -175,7 +173,14 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                 model.eval()
                 rec_xy = model.bbox.xy_grid(plot_res_x, plot_res_y)
                 est_f = model.flux(rec_xy)
-                if ref_flux is not None and ref_config is not None:
+                if ref is None:
+                    au.plot.plot_flux_2d(
+                        flux_data=model.compute_total_energy_flux(est_f),
+                        xy_bounds=model.bbox.xy_bounds
+                    )
+                else:
+                    ref_flux = ref / "flux.dat"
+                    ref_config = ref / "config.yaml"
                     ref = au.models.load_grid_model(ref_flux, ref_config).to(device)
                     ref_f = ref.data
                     au.plot.plot_flux_2d_comparison(
@@ -183,11 +188,6 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
                         ref_data=model.compute_total_energy_flux(ref_f),
                         est_bounds=model.bbox.xy_bounds,
                         ref_bounds=ref.bbox.xy_bounds
-                    )
-                else:
-                    au.plot.plot_flux_2d(
-                        flux_data=model.compute_total_energy_flux(est_f),
-                        xy_bounds=model.bbox.xy_bounds
                     )
             
             if plot_loss or plot_flux:

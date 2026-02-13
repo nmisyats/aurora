@@ -99,51 +99,65 @@ model-specific arguments. The command to train a model
 `<model_name>` is `aurora train <model_name>`.
 For example, running `aurora train spectral_mlp --help` outputs:
 ```
-Arguments
-    config_file      PATH  Path to YAML configuration file [default: None] [required]
+Usage: aurora train spectral_mlp [OPTIONS] CONFIG_FILE
 
-Options
-    --options                                PATH     Path to YAML training configuration file [default: None]
-    --cam-pos                                PATH     Camera positions file [default: None]
-    --cam-dir                                PATH     Cameras directory [default: None]
-    --radar                                  PATH     Radar point cloud file [default: None]
-    --gpu                  --no-gpu                   Use GPU if available [default: gpu]
-    --iters                                  INTEGER  Number of training iterations [default: 2000]
-    --ray-batch                              INTEGER  Batch size for ray loss [default: 4096]
-    --ray-bins                               INTEGER  Number of bins for ray integration [default: 100]
-    --radar-batch                            INTEGER  Batch size for radar loss [default: 1000]
-    --smooth-batch                           INTEGER  Batch size for spectral smoothness loss [default: 1024]
-    --ray-weight                             FLOAT    Weight for ray loss [default: 1.0]
-    --radar-weight                           FLOAT    Weight for radar loss [default: 1.0]
-    --smooth-weight                          FLOAT    Weight for spectral smoothness loss [default: 0.0]
-    --lr                                     FLOAT    Initial learning rate [default: 5e-05]
-    --reg-strength                           FLOAT    Regularization strength [default: 1.0]
-    --save                                   PATH     Path to file where to save the reconstruction [default: None]
-    --plot-loss            --no-plot-loss             Plot the training losses [default: no-plot-loss]
-    --plot-flux            --no-plot-flux             Plot the reconstructed flux after training complete [default: plot-flux]
-    --plot-res-x                             INTEGER  x resolution for plotting [default: 128]
-    --plot-res-y                             INTEGER  y resolution for plotting [default: 128]
-    --ref-flux                               PATH     Reference flux to compare the reconstruction with [default: None]
-    --ref-config                             PATH     Path to configuration file for reference flux [default: None]
-    --enc-exp                                INTEGER  Fourier embedding maximum exponent [default: 4]
-    --max-log-f                              FLOAT    Logarithmic range of the flux [default: 7.0]
-    --num-hidden                             INTEGER  Number of hidden layers [default: 4]
-    --hidden-size                            INTEGER  Size of each hidden layer [default: 128]
-    --help                                            Show this message and exit.
+  Train spectral_mlp model
+
+Arguments:
+  CONFIG_FILE  Path to YAML configuration file  [required]
+
+Options:
+  --options PATH                Path to YAML training configuration file
+  --cams PATH                   Camera data directory containing
+                                camera_position.set and directory for each
+                                camera
+  --radar PATH                  Radar point cloud file
+  --gpu / --no-gpu              Use GPU if available  [default: gpu]
+  --iters INTEGER               Number of training iterations  [default: 2000]
+  --ray-batch INTEGER           Batch size for ray loss  [default: 4096]
+  --ray-bins INTEGER            Number of bins for ray integration  [default:
+                                100]
+  --radar-batch INTEGER         Batch size for radar loss  [default: 1024]
+  --smooth-batch INTEGER        Batch size for spectral smoothness loss
+                                [default: 1024]
+  --ray-weight FLOAT            Weight for ray loss  [default: 1.0]
+  --radar-weight FLOAT          Weight for radar loss  [default: 1.0]
+  --smooth-weight FLOAT         Weight for spectral smoothness loss  [default:
+                                0.0]
+  --lr FLOAT                    Initial learning rate  [default: 5e-05]
+  --reg-strength FLOAT          Parameter L2 regularization strength
+                                [default: 1.0]
+  --save PATH                   Path to file where to save the reconstruction
+  --plot-loss / --no-plot-loss  Plot the training losses  [default: no-plot-
+                                loss]
+  --plot-flux / --no-plot-flux  Plot the reconstructed flux after training
+                                complete  [default: plot-flux]
+  --plot-res-x INTEGER          x resolution for plotting  [default: 128]
+  --plot-res-y INTEGER          y resolution for plotting  [default: 128]
+  --ref PATH                    Path to folder containing reference flux.dat
+                                and config.yaml to compare with
+  --enc-exp INTEGER             Maximum positional encoding exponent
+                                [default: 4]
+  --max-log-f INTEGER           Maximum logarithmic value of the reconstructed
+                                flux  [default: 7.0]
+  --num-hidden INTEGER          Number of hidden layers  [default: 4]
+  --hidden-size INTEGER         Size of each hidden layer  [default: 128]
+  --help                        Show this message and exit.
 ```
 
 ### Example training
 
 The most basic training on a set of cameras would be done as follows:
 ```
-aurora train <model_name> path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save model.pth
+aurora train <model_name> path/to/config.yaml --cams path/to/camera/dataset --save model.pth
 ```
 The trained model will be saved as a self-contained file `model.pth`.
 
 If a ground truth flux is available to compare the reconstruction with, it
-can be added to the final flux plot by adding the following options:
+can be added to the final flux plot by adding the path to a directory containing
+a `flux.dat` and `config.yaml` files with the options:
 ```
---ref-flux path/to/flux.dat --ref-config path/to/flux_config.yaml
+--ref path/to/groundtruth
 ```
 
 For convenience, it is possible to bundle training options into a YAML file
@@ -151,12 +165,10 @@ and load the options from it. For example:
 ```yaml
 # train.yaml
 
-cam_dir: path/to/camera/images
-cam_pos: path/to/camera_position.set
+cams: path/to/camera/dataset
 iters: 5000
 save: model.pth
-ref_flux: path/to/flux.dat
-ref_config: path/to/flux_config.yaml
+ref: path/to/groundtruth
 ```
 ```
 aurora train spectral_mlp config.yaml --options train.yaml
@@ -172,7 +184,7 @@ aurora train spectral_mlp config.yaml --options train.yaml --iters 2000 --lr 1e-
 ### Generating and plotting data
 
 `aurora plot` contains utility commands for plotting data that is static
-or has already been generated. To generate new data (total flux, emission rate, images)
+or has already been generated into a `.dat` file. To generate new data (total flux, emission rate, images)
 from a pretrained reconstruction (or reference flux), use `aurora gen`.
 
 For example, to generate, plot, and save a 3D emission volume rate from a pretrained
@@ -375,5 +387,5 @@ Options
 It can be then be trained as any other model using its registered name, with
 custom extra arguments:
 ```
-aurora train my_model path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save my_model.pth --param1 74 --param2 2.718
+aurora train my_model path/to/config.yaml --cams path/to/camera/dataset --save my_model.pth --param1 74 --param2 2.718
 ```
