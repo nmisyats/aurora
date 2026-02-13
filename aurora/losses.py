@@ -21,10 +21,27 @@ def ray_loss(model: FluxModel, batch: RayBatch, sampler: RaySampler) -> torch.Te
     g_pred = model.integrate_emis_along_ray(ro, rd, tn, tf, sampler, wl)
     return F.mse_loss(g_pred, g_target)
 
+class RayLoss(nn.Module):
+    def __init__(self, sampler: RaySampler):
+        super().__init__()
+        self.sampler = sampler
+
+    def forward(self, model: FluxModel, batch: RayBatch):
+        return ray_loss(model, batch, self.sampler)
+
+
 def radar_loss(model: FluxModel, batch: RadarBatch) -> torch.Tensor:
     p, d_target = batch
     d_pred = model.get_electron_density(p)
     return F.mse_loss(d_pred, d_target)
+
+class RadarLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, model: FluxModel, batch: RadarBatch):
+        return radar_loss(model, batch)
+
 
 def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor) -> torch.Tensor:
     out = model.forward(xy)
@@ -46,21 +63,6 @@ def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor) -> torch.Tensor
     # L2 smoothness penalty
     smoothness_penalty = torch.mean(second_diff**2)
     return smoothness_penalty
-
-class RayLoss(nn.Module):
-    def __init__(self, sampler: RaySampler):
-        super().__init__()
-        self.sampler = sampler
-
-    def forward(self, model: FluxModel, batch: RayBatch):
-        return ray_loss(model, batch, self.sampler)
-
-class RadarLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-    
-    def forward(self, model: FluxModel, batch: RadarBatch):
-        return radar_loss(model, batch)
 
 class SpectralSmoothnessLoss(nn.Module):
     def __init__(self):
