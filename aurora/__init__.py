@@ -2,7 +2,7 @@ from aurora.camera import Camera
 from aurora.frame import Frame
 from aurora.bbox import BBox
 from aurora.trainer import train_loop, train
-from aurora.samplers import EqualSampler, StratifiedSampler
+from aurora.samplers import EqualSampler, StratifiedSampler, HierarchicalSampler
 from aurora.losses import ray_loss, radar_loss, spectral_smoothness_loss
 from aurora.models import ModelConfig, save_model, load_model, load_grid_model
 from aurora.datasets import RayDataset, RadarDataset
@@ -26,6 +26,7 @@ __all__ = [
     "train",
     "EqualSampler",
     "StratifiedSampler",
+    "HierarchicalSampler",
     "ray_loss",
     "radar_loss",
     "spectral_smoothness_loss",
