@@ -98,11 +98,16 @@ class Frame:
             f")"
         )
     
+    def _apply(self, fn):
+        """Apply a function to all member tensors."""
+        self.origin_ecef = fn(self.origin_ecef)
+        self.enu_to_field_mat = fn(self.enu_to_field_mat)
+        self.field_to_enu_mat = fn(self.field_to_enu_mat)
+        self.ecef_to_field_mat = fn(self.ecef_to_field_mat)
+        self.field_to_ecef_mat = fn(self.field_to_ecef_mat)
+        return self
+    
     def to(self, *args, **kwargs):
         """Move all tensors to the specified device."""
-        self.origin_ecef = self.origin_ecef.to(*args, **kwargs)
-        self.enu_to_field_mat = self.enu_to_field_mat.to(*args, **kwargs)
-        self.field_to_enu_mat = self.field_to_enu_mat.to(*args, **kwargs)
-        self.ecef_to_field_mat = self.ecef_to_field_mat.to(*args, **kwargs)
-        self.field_to_ecef_mat = self.field_to_ecef_mat.to(*args, **kwargs)
+        self._apply(lambda t: t.to(*args, **kwargs))
         return self

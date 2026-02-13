@@ -149,11 +149,16 @@ class BBox:
             f"device={self.device}"
             f")"
         )
+    
+    def _apply(self, fn):
+        """Apply a function to all member tensors."""
+        self.xyz_min = fn(self.xyz_min)
+        self.xyz_max = fn(self.xyz_max)
+        self.frame._apply(fn)
+        return self
 
     def to(self, *args, **kwargs):
         """Move all tensors to the specified device."""
-        self.xyz_min = self.xyz_min.to(*args, **kwargs)
-        self.xyz_max = self.xyz_max.to(*args, **kwargs)
-        self.frame = self.frame.to(*args, **kwargs)
+        self._apply(lambda t: t.to(*args, **kwargs))
         return self
 

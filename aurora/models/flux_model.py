@@ -441,7 +441,7 @@ class FluxModel(nn.Module, ABC):
         img = torch.nan_to_num(img, nan=nan)
         return img
 
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.bbox.to(*args, **kwargs)
+    def _apply(self, fn, recurse=True):
+        super()._apply(fn, recurse)
+        self.bbox._apply(fn)
         return self
