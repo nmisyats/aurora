@@ -262,8 +262,7 @@ def generate_electron_density(
 @gen_app.command("imgs")
 def generate_images(
     recon_or_ref_path: Path = typer.Argument(..., help="Path to reconstruction"),
-    cam_pos: Path = typer.Argument(..., help="Camera positions file"),
-    cam_dir: Path = typer.Argument(..., help="Cameras directory"),
+    cams: Path = typer.Argument(..., help="Camera dataset directory"),
     config: Path = typer.Option(None, help="Path to configuration for reference flux"),
     names: str = typer.Option(None, help="Comma-separated camera names"),
     ray_bins: int = typer.Option(100, help="Number of ray bins"),
@@ -291,6 +290,8 @@ def generate_images(
         recon = au.models.load_grid_model(recon_or_ref_path, config).to(device)
     recon.eval()
 
+    cam_pos = cams / "camera_position.set"
+    cam_dir = cams
     if names is None:
         cams = au.data.load_cameras(cam_pos, cam_dir)
     else:
