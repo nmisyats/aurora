@@ -62,7 +62,7 @@ class Camera:
 
         az = self.azimuth.flatten().to(device)
         ze = self.zenith.flatten().to(device)
-        rd_enu = geo.az_ze_to_enu(az, ze).to(device)
+        rd_enu = geo.az_ze_to_enu(az, ze)
         rd_ecef = geo.rotate_enu_to_ecef(rd_enu, lat, lon)
 
         ro_ecef = geo.geodetic_to_ecef(lat, lon, alt).to(device)

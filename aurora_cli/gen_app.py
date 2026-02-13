@@ -305,11 +305,13 @@ def generate_images(
             loc = cam_dir / info.location_name
             if info.wavelength is not None:
                 loc = loc / info.wavelength
-            cam = au.data.load_camera(info, loc, device)
-            if downsample:
-                cam = cam.downsample(downsample)
+            cam = au.data.load_camera(info, loc)
             cams.append(cam)
     
+    if downsample:
+        for i in range(len(cams)):
+            cams[i] = cams[i].downsample(downsample)
+
     if len(cams) == 0:
         typer.echo("No camera found.")
         raise typer.Exit(0)
