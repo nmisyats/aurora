@@ -323,19 +323,12 @@ def load_energy_bins(dat_path: PathLike):
     return load_matrix_data(dat_path).flatten()
 
 def load_matrix_data(dat_path: PathLike):
-    mat = []
-    with open(dat_path, "r") as f:
-        for line in f:
-            row = [float(num) for num in line.strip().split()]
-            mat.append(row)
-    mat = torch.tensor(mat, dtype=torch.float32)
-    return mat
+    mat = np.loadtxt(dat_path, dtype=np.float32)
+    return torch.from_numpy(mat)
 
 def save_matrix_data(tensor: torch.Tensor, dat_path: PathLike):
-    with open(dat_path, "w") as f:
-        for row in tensor:
-            line = " ".join(f"{val:.6f}" for val in row.tolist())
-            f.write(line + "\n")
+    mat = tensor.detach().cpu().numpy()
+    np.savetxt(dat_path, mat, fmt="%.6f", delimiter=" ")
 
 def load_3d_grid_data(dat_path: PathLike):
     data = np.loadtxt(dat_path)
