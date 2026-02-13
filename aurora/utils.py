@@ -113,12 +113,58 @@ def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
 def ceiled_div(a: int, b: int):
     return -(-a // b) # ceil(a/b)
 
-def iter_chunks(numel: int, chunk_size: int):
-    num_chunks = ceiled_div(numel, chunk_size)
-    for i in range(num_chunks):
-        chunk_start = i * chunk_size
-        chunk_stop = min((i+1) * chunk_size, numel)
-        yield chunk_start, chunk_stop
+class Chunks:
+    def __init__(self, *args):
+        if len(args) < 2:
+            raise TypeError("Expected at least 2 args: (numel, chunk_size) or (*tensors, chunk_size).")
+
+        *items, chunk_size = args
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+        
+        # indices only
+        if len(items) == 1 and isinstance(items[0], int):
+            self.numel = int(items[0])
+            self.chunk_size = chunk_size
+            self._data = None
+        else: # data mode
+            if not all(torch.is_tensor(t) for t in items):
+                raise TypeError("Expected torch.Tensors: Chunks(x, y, ..., chunk_size).")
+            n0 = items[0].size(0)
+            for i, t in enumerate(items[1:], start=1): # ensure consistent leading dim
+                ni = t.size(0)
+                if ni != n0:
+                    raise ValueError(f"All inputs must have same leading dim; got {n0} and {ni} (arg {i}).")
+            self.numel = int(n0)
+            self.chunk_size = chunk_size
+            self._data = tuple(items)
+
+    @property
+    def num_chunks(self):
+        return ceiled_div(self.numel, self.chunk_size)
+
+    def __len__(self):
+        return self.num_chunks
+
+    def indices(self):
+        for i in range(self.num_chunks):
+            start = i * self.chunk_size
+            stop = min(start + self.chunk_size, self.numel)
+            yield start, stop
+
+    def __iter__(self):
+        if self._data is None:
+            yield from self.indices()
+            return
+
+        for start, stop in self.indices():
+            if len(self._data) == 1:
+                yield self._data[0][start:stop]
+            else:
+                yield tuple(t[start:stop] for t in self._data)
+    
+    def items(self):
+        return iter(zip(self.indices(), self.__iter__()))
 
 def flatten_batch_dims(x: torch.Tensor, ndim_single: int):
     if x.ndim == ndim_single:

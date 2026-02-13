@@ -11,9 +11,9 @@ import aurora.geometry as gmt
 import aurora.physics as phy
 from aurora.utils import (
     normalize_batch_dims,
-    iter_chunks,
     flatten_batch_dims,
-    unflatten_batch_dims
+    unflatten_batch_dims,
+    Chunks
 )
 from aurora.samplers import RaySampler, EqualSampler
 
@@ -408,12 +408,10 @@ class FluxModel(nn.Module, ABC):
         ro = self.bbox.frame.from_ecef(ro, is_point=True) # (n, 3)
         rd = self.bbox.frame.from_ecef(rd, is_point=False) # (n, 3)
         
+        bbox = self.bbox
         if ignore_bbox:
-            box_min = torch.tensor([-torch.inf, -torch.inf, self.bbox.z_min], device=self.device)
-            box_max = torch.tensor([ torch.inf,  torch.inf, self.bbox.z_max], device=self.device)
-            tn, tf = gmt.ray_box_intersection(ro, rd, box_min, box_max)
-        else:
-            tn, tf = self.bbox.intersection(ro, rd)
+            bbox = bbox.expand()
+        tn, tf = bbox.intersection(ro, rd)
         
         if isinstance(n_or_sampler, RaySampler):
             sampler = n_or_sampler
@@ -421,22 +419,18 @@ class FluxModel(nn.Module, ABC):
             num_samples = n_or_sampler
             sampler = EqualSampler(num_samples)
         
-        chunks = list(iter_chunks(len(ro), chunk_size))
-        it = tqdm.tqdm(chunks) if progress_bar else chunks
+        chunks = Chunks(ro, rd, tn, tf, chunk_size)
+        it = tqdm.tqdm(chunks.items(), total=len(chunks)) if progress_bar else chunks.items()
 
-        gs = []
-        for (beg, end) in it:
-            ro_ = ro[beg:end, ...]
-            rd_ = rd[beg:end, ...]
-            tn_ = tn[beg:end, ...]
-            tf_ = tf[beg:end, ...]
-            g_ = self.integrate_emis_along_ray(ro_, rd_, tn_, tf_, sampler, cam.wavelength)
-            gs.append(g_)
-            
+        g_per_chunk = []
+        for (_, stop), (ro, rd, tn, tf) in it:
+            g = self.integrate_emis_along_ray(ro, rd, tn, tf, sampler, cam.wavelength)
+            g_per_chunk.append(g)
+
             if progress_bar:
-                it.set_postfix_str(f"pixels:{end}/{len(ro)}")
+                it.set_postfix_str(f"pixels:{stop}/{chunks.numel}")
         
-        g = torch.cat(gs, dim=0)
+        g = torch.cat(g_per_chunk, dim=0)
         img = g.reshape_as(cam.image)
         img = torch.nan_to_num(img, nan=nan)
         return img
