@@ -106,7 +106,7 @@ class BSplineMLP(FluxModel):
         return B
     
     def forward(self, xy: torch.Tensor):
-        xy = self.bbox.norm_xy(xy)
+        xy = self.bbox.normalize_xy(xy)
         xy_enc = self.encoder(xy)
         coeffs_raw = self.mlp(xy_enc) # (batch_size, num_basis)
         coeffs = torch.sigmoid(coeffs_raw)
