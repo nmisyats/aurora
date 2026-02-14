@@ -161,12 +161,10 @@ def plot_flux_1d(
     scale = 10**3 * torch.pi
     if labels is not None:
         for data, label in zip(flux_data, labels):
-            print(data.min(), data.max())
             ax.plot(energies, scale * data, label=label, marker="x")
         ax.legend()
     else:
         for data in flux_data:
-            print(data.min(), data.max())
             ax.plot(energies, scale * data, marker="x")
     
     # Set labels and title
