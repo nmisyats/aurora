@@ -158,13 +158,16 @@ def plot_flux_1d(
     energy_edges = energy_edges.cpu()
     energies = (energy_edges[1:] + energy_edges[:-1]) / 2.0
     
+    scale = 10**3 * torch.pi
     if labels is not None:
         for data, label in zip(flux_data, labels):
-            ax.plot(energies, 10**3 * torch.pi * data, label=label, marker="x")
+            print(data.min(), data.max())
+            ax.plot(energies, scale * data, label=label, marker="x")
         ax.legend()
     else:
         for data in flux_data:
-            ax.plot(energies, data)
+            print(data.min(), data.max())
+            ax.plot(energies, scale * data, marker="x")
     
     # Set labels and title
     ax.set_xlabel(xlabel)
