@@ -111,12 +111,14 @@ class BSplineMLP(FluxModel):
 
         log_f_at_edges = torch.matmul(coeffs, self.basis_matrix_T) # (batch_size, num_edges)
         log_f_at_edges *= self.max_log_flux
-        log_f = 0.5 * (log_f_at_edges[:, :-1] + log_f_at_edges[:, 1:])
-        f = torch.pow(10.0, log_f)
-        
+        f_at_edges = torch.pow(10.0, log_f_at_edges)
+        f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
+        log_f = torch.log10(f)
+
         return {
             "f": f,
-            "log_f_at_edges": log_f_at_edges,
             "log_f": log_f,
+            "log_f_at_edges": log_f_at_edges,
+            "f_at_edges": f_at_edges,
             "coeffs": coeffs
         }
