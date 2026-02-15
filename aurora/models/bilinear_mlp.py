@@ -1,10 +1,10 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 
 from aurora.models.flux_model import FluxModel, ModelConfig
-from aurora.frame import Frame
-from aurora.bbox import BBox
-import aurora.dnn as ann
+from aurora.dnn import FourierEncoder, MLP
 
 
 class BilinearMLP(FluxModel):
@@ -17,19 +17,20 @@ class BilinearMLP(FluxModel):
             position_enc: int = 4,
             energy_enc: int = 2,
             max_log_flux: float = 7.0,
-            embed_hidden_size: int = 64
+            embed_hidden_size: int = 64,
+            init_bias: Optional[float] = None
         ):
         super().__init__(config)
 
         self.max_log_flux = max_log_flux
 
-        self.position_encoder = ann.FourierEncoder(position_enc)
-        self.energy_encoder = ann.FourierEncoder(energy_enc)
+        self.position_encoder = FourierEncoder(position_enc)
+        self.energy_encoder = FourierEncoder(energy_enc)
 
         position_encode_dim = self.position_encoder.output_dim(2)
         if position_embed:
             position_embed_dim = position_embed
-            self.position_embedder = ann.MLP(
+            self.position_embedder = MLP(
                 position_encode_dim,
                 position_embed_dim,
                 (embed_hidden_size,)
@@ -41,7 +42,7 @@ class BilinearMLP(FluxModel):
         energy_encode_dim = self.energy_encoder.output_dim(1)
         if energy_embed:
             energy_embed_dim = energy_embed
-            self.energy_embedder = ann.MLP(
+            self.energy_embedder = MLP(
                 energy_encode_dim,
                 energy_embed_dim,
                 (embed_hidden_size,)
@@ -52,16 +53,9 @@ class BilinearMLP(FluxModel):
 
         self.combiner = nn.Bilinear(position_embed_dim, energy_embed_dim, 1)
 
-        self._initialize_weights()
-    
-    def _initialize_weights(self):
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_normal_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-        nn.init.xavier_normal_(self.combiner.weight)
-        nn.init.constant_(self.combiner.bias, self.max_log_flux / 2.0)
+        if init_bias is None:
+            init_bias = self.max_log_flux / 2.0
+        nn.init.constant_(self.combiner.bias, init_bias)
     
     def forward(self, xy: torch.Tensor):
         if xy.dim() == 1:
@@ -99,7 +93,8 @@ class BilinearMLP(FluxModel):
         # Evaluate the hybrid model
         log_f = self.combiner(xy_expanded, e_expanded)
         log_f = log_f.reshape(B, self.num_bins)
-        f = ann.exp10(log_f, 0.0, self.max_log_flux)
+        log_f = torch.clamp_max(log_f, self.max_log_flux)
+        f = torch.pow(10.0, log_f)
 
         return {
             "xy_embed": xy_embed,

@@ -4,9 +4,7 @@ import torch
 import torch.nn as nn
 
 from aurora.models.flux_model import FluxModel, ModelConfig
-from aurora.frame import Frame
-from aurora.bbox import BBox
-import aurora.dnn as ann
+from aurora.dnn import FourierEncoder, MLP
 
 
 class PolyMLP(FluxModel):
@@ -26,11 +24,11 @@ class PolyMLP(FluxModel):
         self.num_basis = num_basis
         self.max_log_flux = max_log_flux
 
-        self.encoder = ann.FourierEncoder(encoding_exp)
+        self.encoder = FourierEncoder(encoding_exp)
 
-        encode_dim = self.encoder.output_dim(2)
+        enc_dim = self.encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
-        self.mlp = ann.MLP(encode_dim, self.num_basis, hidden_sizes)
+        self.mlp = MLP(enc_dim, self.num_basis, hidden_sizes)
         
         # Pre-compute basis functions
         self.register_buffer('basis_functions', self._create_basis_functions(basis_fn))
@@ -74,7 +72,7 @@ class PolyMLP(FluxModel):
         f_at_edges = torch.pow(10.0, log_f_at_edges)
         f = 0.5 * (f_at_edges[:, :-1] + f_at_edges[:, 1:])
         f = torch.max(f, torch.tensor(1e-3, device=f.device))
-        log_f = torch.log(f)
+        log_f = torch.log10(f)
         return {
             "f": f,
             "f_at_edges": f_at_edges,

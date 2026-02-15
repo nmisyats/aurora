@@ -1,7 +1,7 @@
-from typing import Optional
-
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 
 class FourierEncoder(nn.Module):
     """Fourier feature encoding for positional information"""
@@ -78,23 +78,3 @@ class MLP(nn.Sequential):
             self.append(nn.Linear(sizes[i], sizes[i + 1]))
             self.append(nn.ReLU())
         self.append(nn.Linear(sizes[-2], sizes[-1]))
-
-
-def exp10(
-        x: torch.Tensor,
-        log_min: float = -torch.inf,
-        log_max: float = torch.inf
-    ):
-    """Computes 10^x with optional clamping of the input values.
-    
-    Args:
-        x: Input tensor containing the exponent values.
-        log_min: Optional minimum value to clamp x to. If None, no lower bound.
-        log_max: Optional maximum value to clamp x to. If None, no upper bound.
-        
-    Returns:s
-        torch.Tensor: 10^x where x has been clamped to the specified range
-            [log_min, log_max].
-    """
-    x = torch.clamp(x, log_min, log_max)
-    return torch.pow(10.0, x)

@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 
 from aurora.models.flux_model import FluxModel, ModelConfig
-from aurora.frame import Frame
-from aurora.bbox import BBox
-import aurora.dnn as ann
+from aurora.dnn import FourierEncoder, MLP
 
 
 class BSplineMLP(FluxModel):
@@ -23,11 +21,11 @@ class BSplineMLP(FluxModel):
         self.num_basis = num_basis
         self.max_log_flux = max_log_flux
 
-        self.encoder = ann.FourierEncoder(encoding_exp)
+        self.encoder = FourierEncoder(encoding_exp)
 
-        encode_dim = self.encoder.output_dim(2)
+        enc_dim = self.encoder.output_dim(2)
         hidden_sizes = [hidden_size] * num_hidden
-        self.mlp = ann.MLP(encode_dim, self.num_basis, hidden_sizes)
+        self.mlp = MLP(enc_dim, self.num_basis, hidden_sizes)
         
         # Pre-compute basis functions
         self.register_buffer('basis_matrix_T', self._create_basis_matrix().T)
