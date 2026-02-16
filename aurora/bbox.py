@@ -140,6 +140,10 @@ class BBox:
         new_bbox.frame = self.frame
         
         return new_bbox
+    
+    @property
+    def is_finite(self):
+        return (self.xyz_min > -torch.inf) & (self.xyz_max < torch.inf)
 
     def __repr__(self):
         return (
