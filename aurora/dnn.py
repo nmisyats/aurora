@@ -5,14 +5,16 @@ import torch.nn.functional as F
 
 class FourierEncoder(nn.Module):
     """Fourier feature encoding for positional information"""
-    def __init__(self, encoding_exp: int):
+    def __init__(self, encoding_exp: int, concat_input=True):
         """
         Args:
             encoding_exp: Number of frequency levels (2^0, 2^1, ..., 2^(encoding_exp-1))
+            concat_input: Whether to concat the original input to the encoding
         """
         super().__init__()
         
         self.encoding_exp = encoding_exp
+        self.concat_input = concat_input
         
         # Pre-compute frequency multipliers
         freqs = [(2**i) * torch.pi for i in range(encoding_exp)]
@@ -20,7 +22,10 @@ class FourierEncoder(nn.Module):
     
     def output_dim(self, input_dim: int):
         """Returns the encoded size of a tensor of size input_dim"""
-        return 2 * self.encoding_exp * input_dim
+        encoded_dim = 2 * self.encoding_exp * input_dim
+        if self.concat_input:
+            return input_dim + encoded_dim
+        return encoded_dim
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -50,10 +55,15 @@ class FourierEncoder(nn.Module):
         sin_features = torch.sin(freq_x).flatten(start_dim=-2)  # (..., input_dim * encoding_exp)
         
         # Concatenate original input with sin/cos features
-        return torch.cat([sin_features, cos_features], dim=-1)
+        features = [sin_features, cos_features]
+        if self.concat_input:
+            features.insert(0, x)
+        return torch.cat(features, dim=-1)
     
     def __repr__(self):
-        return f"FourierEncoder(encoding_exp={self.encoding_exp})"
+        return f"FourierEncoder(" \
+               f"encoding_exp={self.encoding_exp}, " \
+               f"concat_input={self.concat_input})"
 
 
 class MLP(nn.Sequential):
