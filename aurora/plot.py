@@ -225,9 +225,22 @@ def plot_flux_2d_comparison(
     x_est_min, x_est_max, y_est_min, y_est_max = bounds2d_to_tuple(est_xy_min, est_xy_max)
     x_ref_min, x_ref_max, y_ref_min, y_ref_max = bounds2d_to_tuple(ref_xy_min, ref_xy_max)
     
-    # Determine color range
-    vmin = min(est_data.min(), ref_data.min())
-    vmax = max(est_data.max(), ref_data.max())
+    # Determine color range from finite values only (keep NaNs in image data for masking effects)
+    finite_est = est_data[torch.isfinite(est_data)]
+    finite_ref = ref_data[torch.isfinite(ref_data)]
+    mins = []
+    maxs = []
+    if finite_est.numel() > 0:
+        mins.append(finite_est.min().item())
+        maxs.append(finite_est.max().item())
+    if finite_ref.numel() > 0:
+        mins.append(finite_ref.min().item())
+        maxs.append(finite_ref.max().item())
+    if mins and maxs:
+        vmin = min(mins)
+        vmax = max(maxs)
+    else:
+        vmin = vmax = None
     
     # Plot reference flux
     grid[0].imshow(
@@ -288,9 +301,14 @@ def plot_flux_2d_comparison(
                 ).squeeze()
         else:
             ref_est_cropped = ref_data
-        mae = torch.mean(torch.abs(est_data - ref_est_cropped))
+        abs_err = torch.abs(est_data - ref_est_cropped)
+        finite_err = abs_err[torch.isfinite(abs_err)]
+        if finite_err.numel() > 0:
+            mae_text = f"MAE = {finite_err.mean().item():.3f} {unit}"
+        else:
+            mae_text = f"MAE = n/a {unit}"
         grid[1].text(
-            0.99, 0.01, f"MAE = {mae:.3f} {unit}",
+            0.99, 0.01, mae_text,
             transform=grid[1].transAxes,
             ha='right', va='bottom',
             color='white', fontsize=10,
