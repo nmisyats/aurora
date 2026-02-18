@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import typer
 from matplotlib import pyplot as plt
@@ -155,4 +156,51 @@ def plot_radar(
                         #  ylim=(config.bbox.y_min, config.bbox.y_max),
                         #  zlim=(config.bbox.z_min, config.bbox.z_max)
                         )
+    plt.show()
+
+@plot_app.command("mat")
+def plot_model_matrices(
+    model_dir: Path = typer.Argument(..., help="Path to model directory containing matrix .dat files"),
+    matrix_type: Literal["emis", "dens"] = typer.Option(..., "--type", help="Matrix type to load"),
+    cmap: str = typer.Option("viridis", help="Colormap name"),
+    figsize: str = typer.Option("10,5", help="Figure size as 'width,height'"),
+):
+    """Plot emission or density matrices found in a model folder."""
+    import aurora as au
+
+    model_dir = Path(model_dir)
+    altitude_path = model_dir / "altitude.dat"
+    energy_path = model_dir / "energy.dat"
+
+    if not altitude_path.exists() or not energy_path.exists():
+        raise ValueError("Missing altitude.dat or energy.dat in model directory.")
+
+    matrix_files = sorted(
+        p for p in model_dir.glob("*.dat")
+        if matrix_type in p.stem.lower()
+    )
+    if len(matrix_files) == 0:
+        raise ValueError(f"No .dat files containing '{matrix_type}' found in {model_dir}.")
+
+    altitude_bins = au.data.load_altitude_bins(altitude_path)
+    energy_bins = au.data.load_energy_bins(energy_path)
+
+    if matrix_type == "emis":
+        mats = [au.data.load_emission_matrix(p) for p in matrix_files]
+        title = "Emission matrix"
+    else:
+        mats = [au.data.load_density_matrix(p) for p in matrix_files]
+        title = "Density matrix"
+    titles = tuple(p.stem for p in matrix_files)
+
+    width, height = map(float, figsize.split(","))
+    au.plot.plot_model_matrices(
+        matrices=mats,
+        altitude_bins=altitude_bins,
+        energy_bins=energy_bins,
+        titles=titles,
+        title=title,
+        cmap=cmap,
+        figsize=(width, height),
+    )
     plt.show()

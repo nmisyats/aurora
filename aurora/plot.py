@@ -328,6 +328,168 @@ def plot_flux_2d_comparison(
     return fig, [grid[0], grid[1]]
 
 
+def plot_model_matrices(
+    matrices: Union[torch.Tensor, Iterable[torch.Tensor]],
+    altitude_bins: torch.Tensor,
+    energy_bins: torch.Tensor,
+    titles: Optional[Tuple[str, ...]] = None,
+    xlabel: str = "Energy range [eV]",
+    ylabel: str = "Altitude range [km]",
+    title: str = "Model matrix",
+    unit: str = "a.u.",
+    cmap: str = "viridis",
+    figsize: Tuple[float, float] = (10, 5),
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    show_colorbar: bool = True,
+    max_bin_labels: int = 8,
+    aspect: str = "auto"
+) -> Tuple[Figure, Union[Axes, List[Axes]]]:
+    """
+    Plot one or more emission/density matrices as 2D heatmaps.
+    Matrix values are transformed with ``log10`` before plotting.
+
+    Expected matrix layout is ``(n_altitude_bins, n_energy_bins)``. If a matrix
+    is provided as ``(n_energy_bins, n_altitude_bins)``, it is transposed
+    automatically.
+
+    Args:
+        matrices: A 2D tensor, a stack of 2D tensors, or an iterable of 2D
+            tensors.
+        altitude_bins: Altitude bin edges of shape ``(n_altitude_bins + 1,)``.
+        energy_bins: Energy bin edges of shape ``(n_energy_bins + 1,)``.
+        titles: Optional per-panel titles.
+        xlabel: X-axis label.
+        ylabel: Y-axis label.
+        title: Base title used when multiple matrices are provided and `titles`
+            is not set.
+        unit: Unit string used for colorbar label as ``log10(unit)``.
+        cmap: Matplotlib colormap name.
+        figsize: Figure size.
+        vmin: Optional lower color limit (in log10 domain).
+        vmax: Optional upper color limit (in log10 domain).
+        show_colorbar: Whether to draw a colorbar.
+        max_bin_labels: Target number of tick labels per axis.
+        aspect: Matplotlib aspect mode.
+
+    Returns:
+        ``(fig, ax)`` for a single matrix, or ``(fig, axes)`` for multiple
+        matrices.
+    """
+    # Accept one 2D matrix, one 3D tensor (stack), or iterable of 2D tensors
+    if isinstance(matrices, torch.Tensor):
+        if matrices.ndim == 2:
+            matrices = (matrices.cpu(),)
+        else:
+            matrices = tuple(m.cpu() for m in matrices)
+    else:
+        matrices = tuple(m.cpu() for m in matrices)
+
+    altitude_bins = altitude_bins.cpu().flatten()
+    energy_bins = energy_bins.cpu().flatten()
+    n_alt = altitude_bins.numel() - 1
+    n_energy = energy_bins.numel() - 1
+
+    # Aurora matrices are (n_alt, n_energy); if swapped, transpose.
+    # Plot log10 values and keep non-finite values as NaN so they are not drawn.
+    mats = []
+    for mat in matrices:
+        if mat.shape == (n_energy, n_alt):
+            mat = mat.T
+        mat = torch.log10(mat)
+        mat = torch.where(torch.isfinite(mat), mat, torch.nan)
+        mats.append(mat)
+
+    # Shared color range across all panels (ignore NaN/inf)
+    finite_vals = [mat[torch.isfinite(mat)] for mat in mats]
+    finite_vals = [vals for vals in finite_vals if vals.numel() > 0]
+    if finite_vals:
+        all_vals = torch.cat(finite_vals)
+        if vmin is None:
+            vmin = all_vals.min().item()
+        if vmax is None:
+            vmax = all_vals.max().item()
+
+    # Ticks as actual values (not ranges), uniformly spaced along each axis
+    n_ticks = max(2, max_bin_labels)
+    e_min, e_max = energy_bins[0].item(), energy_bins[-1].item()
+    z_min, z_max = altitude_bins[0].item(), altitude_bins[-1].item()
+    e_ticks = np.geomspace(e_min, e_max, n_ticks)
+    z_ticks = np.linspace(z_min, z_max, n_ticks)
+    e_labels = [f"{v:.3g}" for v in e_ticks]
+    z_labels = [f"{v:.3g}" for v in z_ticks]
+
+    if len(mats) == 1:
+        fig, ax = plt.subplots(figsize=figsize)
+        im = ax.pcolormesh(
+            energy_bins.numpy(),
+            altitude_bins.numpy(),
+            mats[0].numpy(),
+            shading="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax
+        )
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(titles[0] if titles is not None else title)
+        ax.set_xscale("log")
+        ax.set_aspect(aspect)
+        ax.set_xlim(e_min, e_max)
+        ax.set_ylim(z_min, z_max)
+        ax.set_xticks(e_ticks)
+        ax.set_yticks(z_ticks)
+        ax.set_xticklabels(e_labels, rotation=45, ha="right")
+        ax.set_yticklabels(z_labels)
+        if show_colorbar:
+            cbar = fig.colorbar(im, ax=ax)
+            cbar.set_label(f"log10({unit})" if unit else "log10(value)")
+        return fig, ax
+
+    n = len(mats)
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+    fig, grid = plt.subplots(rows, cols, figsize=figsize, squeeze=False, sharey=True)
+    axes = grid.flatten()
+    im = None
+
+    for i, (ax, mat) in enumerate(zip(axes, mats)):
+        im = ax.pcolormesh(
+            energy_bins.numpy(),
+            altitude_bins.numpy(),
+            mat.numpy(),
+            shading="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax
+        )
+        ax.set_xlabel(xlabel)
+        if titles is not None:
+            ax.set_title(titles[i])
+        else:
+            ax.set_title(f"{title} {i+1}")
+        ax.set_xscale("log")
+        ax.set_aspect(aspect)
+        ax.set_xlim(e_min, e_max)
+        ax.set_ylim(z_min, z_max)
+        ax.set_xticks(e_ticks)
+        ax.set_yticks(z_ticks)
+        ax.set_xticklabels(e_labels, rotation=45, ha="right")
+        if i % cols == 0:
+            ax.set_ylabel(ylabel)
+            ax.set_yticklabels(z_labels)
+        else:
+            ax.set_ylabel("")
+            ax.tick_params(labelleft=False)
+
+    for ax in axes[n:]:
+        ax.axis("off")
+
+    if show_colorbar and im is not None:
+        cbar = fig.colorbar(im, ax=axes[:n].tolist(), fraction=0.046, pad=0.04)
+        cbar.set_label(f"log10({unit})" if unit else "log10(value)")
+
+    return fig, list(axes[:n])
 def plot_cameras_grid(
     cameras: List[Camera],
     selected_camera: Optional[str] = None,
