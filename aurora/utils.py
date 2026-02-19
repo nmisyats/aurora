@@ -1,9 +1,12 @@
 from typing import Union, Tuple, List, Callable
 import functools
 import inspect
+from pathlib import Path
 
 import numpy as np
 import torch
+
+PathLike = Union[Path, str]
 
 Number = Union[int, float]
 TensorLike = Union[torch.Tensor, np.ndarray, Number, List[Number], Tuple[Number, ...]]
@@ -97,7 +100,7 @@ def xyz_grid(
     xyz = torch.stack((xx, yy, zz), dim=-1)
     return xyz
 
-def downsample_image(image: torch.Tensor, factor: int) -> np.ndarray:
+def downsample_image(image: torch.Tensor, factor: int):
     """
     Downsamples a 2D or 3D image (e.g., grayscale or RGB) by picking every `factor`-th pixel.
     """
