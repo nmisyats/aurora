@@ -1,8 +1,6 @@
 import torch
 
 from aurora.models.flux_model import FluxModel, ModelConfig
-from aurora.frame import Frame
-from aurora.bbox import BBox
 
 
 class GridSampledFlux(FluxModel):
@@ -23,13 +21,12 @@ class GridSampledFlux(FluxModel):
 
         H, W, B = self.data.shape
 
-        # Normalize xy to [0, 1]
-        norm_xy = self.bbox.normalize_xy(xy)
-        norm_xy = torch.clamp(norm_xy, 0, 1)
+        # Ensure xy is between [0, 1]
+        xy = torch.clamp(xy, 0, 1)
 
         # Scale to image pixel coordinates
-        y_idx = norm_xy[:, 1] * (H - 1)
-        x_idx = norm_xy[:, 0] * (W - 1)
+        y_idx = xy[:, 1] * (H - 1)
+        x_idx = xy[:, 0] * (W - 1)
 
         # Create grid for grid_sample
         grid = torch.stack((x_idx, y_idx), dim=1).unsqueeze(0).unsqueeze(2)  # (1, N, 1, 2)

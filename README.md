@@ -306,7 +306,7 @@ class MyModel(FluxModel):
 
     def forward(self, xy: torch.Tensor):
         # Pytorch's nn.Module forward method outputing the flux estimate
-        # input: (N, 2) xy tensor
+        # input: (N, 2) xy tensor, normalized in [0, 1]
         # output: dictionary containing at least an "f" entry
         return {
             "f": ... # (N, n_energy_bins)

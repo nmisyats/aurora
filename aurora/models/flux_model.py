@@ -96,10 +96,11 @@ class FluxModel(nn.Module, ABC):
         relevant output.
         
         Args:
-            xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates.
+            xy (torch.Tensor): Tensor of shape (n, 2) in South-East coordinates
+                normalized in [0, 1].
         
         Returns:
-            out: Dictionary of tensors. out["f"] is the flux tensor at the
+            Dictionary of tensors. `out["f"]` is the flux tensor at the
             points xy of shape (n, n_E) where n_E is the number of
             energy bins.
         """
@@ -110,7 +111,9 @@ class FluxModel(nn.Module, ABC):
         """
         Calculate the electron flux distribution at points xy. See `forward`.
         """
-        return self.forward(xy)["f"]
+        xy = self.bbox.normalize_xy(xy)
+        out = self.forward(xy)
+        return out["f"]
     
     @normalize_batch_dims(xy=1)
     def total_energy_flux(self, xy: torch.Tensor) -> torch.Tensor:
