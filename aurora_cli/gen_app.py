@@ -290,19 +290,17 @@ def generate_images(
         recon = au.models.load_grid_model(recon_or_ref_path, config).to(device)
     recon.eval()
 
-    cam_pos = cams / "camera_position.set"
-    cam_dir = cams
     if names is None:
-        cams = au.data.load_cameras(cam_pos, cam_dir)
+        cams = au.data.load_cameras(cams)
     else:
-        infos = au.data.load_camera_positions(cam_pos)
+        infos = au.data.load_camera_positions(cams / "camera_position.set")
         
         names_list = names.split(',')
         infos = [c for c in infos if c.name in names_list]
         
         cams = []
         for info in infos:
-            loc = cam_dir / info.location_name
+            loc = cams / info.location_name
             if info.wavelength is not None:
                 loc = loc / info.wavelength
             cam = au.data.load_camera(info, loc)

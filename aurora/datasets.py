@@ -1,6 +1,8 @@
-from abc import ABC, abstractmethod
-from typing import NamedTuple, List, Optional
-from dataclasses import dataclass, astuple
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+import random
 
 import torch
 
@@ -11,194 +13,252 @@ from aurora.data import RadarPointCloud
 
 
 @dataclass
-class DatasetBatch(ABC):
-    @abstractmethod
-    def __len__(self) -> int:
-        """
-        Returns the number of samples in the batch.
-        """
-        ...
-    
-    def __iter__(self):
-        """
-        Iterates through the members as a tuple.
-        """
-        return iter(astuple(self))
-    
-    @property
-    @abstractmethod
-    def device(self) -> torch.device:
-        ...
-    
-    @abstractmethod
-    def to(self, *args, **kwargs) -> 'DatasetBatch':
-        ...
-
-
-class Dataset(ABC):
-    @abstractmethod
-    def __getitem__(self, idx) -> DatasetBatch:
-        """
-        Get batch(es).
-        
-        Args:
-            idx: int, slice, list, or tensor of indices
-            
-        Returns:
-            Batch of the selected indices.
-        """
-        ...
-    
-    @abstractmethod
-    def __len__(self) -> int:
-        """
-        Returns the number of samples in the dataset.
-        """
-        ...
-    
-    def sample_batch(self, batch_size: int, replacement=True):
-        """
-        Sample a number of random samples from the dataset.
-        
-        Args:
-            batch_size: Number of samples to retrieve.
-            replacement: Whether to sample with replacement.
-        
-        Returns:
-            Tuples of tensors containing the sampled data.
-        """
-        assert batch_size > 0 and batch_size <= len(self)
-        if replacement:
-            idx = torch.randint(0, len(self), (batch_size,))
-        else:
-            perm = torch.randperm(len(self))
-            idx = perm[:batch_size]
-        return self[idx]
-    
-    @property
-    @abstractmethod
-    def device(self) -> torch.device:
-        ...
-    
-    @abstractmethod
-    def to(self, *args, **kwargs) -> 'Dataset':
-        ...
-
-@dataclass
-class RayBatch(DatasetBatch):
+class RayBatch:
     ro: torch.Tensor
     rd: torch.Tensor
     tn: torch.Tensor
     tf: torch.Tensor
     g_ref: torch.Tensor
-    wl: str
+    wl: Optional[str]
 
     def __len__(self):
         return len(self.ro)
-    
+
     @property
     def device(self):
         return self.ro.device
-    
-    def to(self, *args, **kwargs):
-        self.ro = self.ro.to(*args, **kwargs)
-        self.rd = self.rd.to(*args, **kwargs)
-        self.tn = self.tn.to(*args, **kwargs)
-        self.tf = self.tf.to(*args, **kwargs)
-        self.g_ref = self.g_ref.to(*args, **kwargs)
-        return self
 
-class RayDataset(Dataset):
-    def __init__(self, cameras: List[Camera], bbox: BBox, wl: Optional[str] = None):
-        if len(cameras) == 0:
-            raise ValueError("Empty camera list.")
-        
-        device = bbox.device
+    def __iter__(self):
+        return iter((self.ro, self.rd, self.tn, self.tf, self.g_ref, self.wl))
 
-        ro_list, rd_list, g_ref_list = [], [], []
-        for cam in filter(lambda c: c.wavelength == wl, cameras):
-            cam_ro, cam_rd = cam.create_rays_ecef(device)
-            cam_ro = bbox.frame.from_ecef(cam_ro, is_point=True)
-            cam_rd = bbox.frame.from_ecef(cam_rd, is_point=False)
-            ro_list.append(cam_ro)
-            rd_list.append(cam_rd)
+    def as_tuple(self):
+        return self.ro, self.rd, self.tn, self.tf, self.g_ref, self.wl
 
-            cam_g_ref = cam.image.flatten().to(device)
-            g_ref_list.append(cam_g_ref)
-        
-        if len(ro_list) == 0:
-            raise ValueError(f"Empty dataset for wavelength {wl}.")
-
-        ro = torch.cat(ro_list)
-        rd = torch.cat(rd_list)
-        g_ref = torch.cat(g_ref_list)
-
-        tn, tf = bbox.intersection(ro, rd)
-        
-        valid_mask = ~(torch.isnan(tn) | torch.isnan(tf))
-
-        # Apply the mask to all tensors
-        self.ro = ro[valid_mask].contiguous()
-        self.rd = rd[valid_mask].contiguous()
-        self.tn = tn[valid_mask].contiguous()
-        self.tf = tf[valid_mask].contiguous()
-        self.g_ref = g_ref[valid_mask].contiguous()
-        self.wl = wl
-    
-    def __getitem__(self, idx):
-        return RayBatch(
-            self.ro[idx],
-            self.rd[idx],
-            self.tn[idx],
-            self.tf[idx],
-            self.g_ref[idx],
-            self.wl
-        )
-    
-    def __len__(self):
-        return len(self.ro)
-    
-    @property
-    def device(self):
-        return self.ro.device
-    
-    def to(self, *args, **kwargs):
-        self.ro = self.ro.to(*args, **kwargs)
-        self.rd = self.rd.to(*args, **kwargs)
-        self.tn = self.tn.to(*args, **kwargs)
-        self.tf = self.tf.to(*args, **kwargs)
-        self.g_ref = self.g_ref.to(*args, **kwargs)
-        return self
 
 @dataclass
-class RadarBatch(DatasetBatch):
+class _CameraRayData:
+    ro: torch.Tensor
+    rd: torch.Tensor
+    tn: torch.Tensor
+    tf: torch.Tensor
+    bbox_mask: torch.Tensor
+
+
+@dataclass
+class _RayPool:
+    ro: torch.Tensor
+    rd: torch.Tensor
+    tn: torch.Tensor
+    tf: torch.Tensor
+    g_ref: torch.Tensor
+    sample_count: int = 0
+
+    @property
+    def num_rays(self):
+        return len(self.ro)
+
+
+class RayDataset:
+    """
+    Pooled ray dataset for multi-camera, multi-wavelength data.
+
+    The pool is refreshed independently per wavelength. On refresh, we sample a subset
+    of images for that wavelength and flatten all valid rays into one tensor pool.
+    Batch sampling then draws random rays directly from the pooled tensors.
+    """
+
+    def __init__(
+        self,
+        cameras: List[Camera],
+        bbox: BBox,
+        device: Optional[torch.device] = None,
+        img_pool_size_per_wl: Optional[int] = 8,
+        img_pool_duration: Optional[int] = 256,
+    ):
+        if len(cameras) == 0:
+            raise ValueError("Empty camera list.")
+        if img_pool_size_per_wl is not None and img_pool_size_per_wl <= 0:
+            raise ValueError("img_pool_size_per_wl must be > 0 or None.")
+        if img_pool_duration is not None and img_pool_duration <= 0:
+            raise ValueError("img_pool_duration must be > 0 or None.")
+
+        self.cameras = cameras
+        self.device = device if device is not None else bbox.device
+        self.img_pool_size_per_wl = img_pool_size_per_wl
+        self.img_pool_duration = img_pool_duration
+
+        self._ray_data_by_wl: Dict[Optional[str], Dict[int, _CameraRayData]] = {}
+        self._image_refs_by_wl: Dict[Optional[str], List[Tuple[int, object]]] = {}
+        self._pool_by_wl: Dict[Optional[str], _RayPool] = {}
+
+        bbox = bbox.to(self.device)
+
+        for cam_idx, cam in enumerate(self.cameras):
+            wl = cam.wavelength
+
+            ro_ecef, rd_ecef = cam.create_rays_ecef(self.device)
+            ro = bbox.frame.from_ecef(ro_ecef, is_point=True)
+            rd = bbox.frame.from_ecef(rd_ecef, is_point=False)
+            tn, tf = bbox.intersection(ro, rd)
+            bbox_mask = ~(torch.isnan(tn) | torch.isnan(tf))
+
+            wl_ray_data = self._ray_data_by_wl.setdefault(wl, {})
+            wl_ray_data[cam_idx] = _CameraRayData(
+                ro=ro[bbox_mask].contiguous(),
+                rd=rd[bbox_mask].contiguous(),
+                tn=tn[bbox_mask].contiguous(),
+                tf=tf[bbox_mask].contiguous(),
+                bbox_mask=bbox_mask,
+            )
+
+            wl_images = self._image_refs_by_wl.setdefault(wl, [])
+            for img in cam.images:
+                wl_images.append((cam_idx, img))
+
+        for wl, refs in self._image_refs_by_wl.items():
+            if len(refs) == 0:
+                raise ValueError(f"No images were found for wavelength '{wl}'.")
+
+    @property
+    def wavelengths(self):
+        return tuple(self._ray_data_by_wl.keys())
+
+    def _resolve_wavelength(self, wavelength: Optional[str]):
+        if wavelength is not None:
+            if wavelength not in self._ray_data_by_wl:
+                raise ValueError(
+                    f"Unknown wavelength '{wavelength}'. Available: {list(self.wavelengths)}"
+                )
+            return wavelength
+
+        if len(self._ray_data_by_wl) != 1:
+            raise ValueError(
+                "wavelength must be provided when multiple wavelengths are loaded."
+            )
+        return next(iter(self._ray_data_by_wl.keys()))
+
+    def _pick_images_for_pool(self, wavelength: Optional[str]):
+        refs = list(self._image_refs_by_wl[wavelength])
+        if self.img_pool_size_per_wl is None or self.img_pool_size_per_wl >= len(refs):
+            random.shuffle(refs)
+            return refs
+        return random.sample(refs, self.img_pool_size_per_wl)
+
+    def _refresh_pool(self, wavelength: Optional[str]):
+        image_refs = self._pick_images_for_pool(wavelength)
+        wl_ray_data = self._ray_data_by_wl[wavelength]
+
+        ro_chunks = []
+        rd_chunks = []
+        tn_chunks = []
+        tf_chunks = []
+        g_chunks = []
+
+        for cam_idx, img in image_refs:
+            cam_data = wl_ray_data[cam_idx]
+            g_ref = img.load_image().flatten().to(self.device)
+
+            if g_ref.numel() != cam_data.bbox_mask.numel():
+                raise ValueError(
+                    f"Image size mismatch for camera index {cam_idx} at wavelength '{wavelength}'. "
+                    f"Expected {cam_data.bbox_mask.numel()} pixels, got {g_ref.numel()}."
+                )
+
+            g_ref = g_ref[cam_data.bbox_mask].contiguous()
+            if g_ref.numel() == 0:
+                continue
+
+            ro_chunks.append(cam_data.ro)
+            rd_chunks.append(cam_data.rd)
+            tn_chunks.append(cam_data.tn)
+            tf_chunks.append(cam_data.tf)
+            g_chunks.append(g_ref)
+
+        if len(g_chunks) == 0:
+            raise ValueError(
+                f"Pooled zero rays for wavelength '{wavelength}'. Check bbox coverage and images."
+            )
+
+        self._pool_by_wl[wavelength] = _RayPool(
+            ro=torch.cat(ro_chunks, dim=0),
+            rd=torch.cat(rd_chunks, dim=0),
+            tn=torch.cat(tn_chunks, dim=0),
+            tf=torch.cat(tf_chunks, dim=0),
+            g_ref=torch.cat(g_chunks, dim=0),
+            sample_count=0,
+        )
+
+    def _pool_needs_refresh(self, wavelength: Optional[str]):
+        pool = self._pool_by_wl.get(wavelength)
+        if pool is None:
+            return True
+        if self.img_pool_duration is None:
+            return False
+        if self.img_pool_size_per_wl is None:
+            return False
+        img_refs = self._image_refs_by_wl[wavelength]
+        if len(img_refs) <= self.img_pool_size_per_wl:
+            return False
+        return pool.sample_count >= self.img_pool_duration
+
+    def sample_batch(self, batch_size: int, wavelength: Optional[str] = None):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be > 0.")
+
+        wl = self._resolve_wavelength(wavelength)
+
+        if self._pool_needs_refresh(wl):
+            self._refresh_pool(wl)
+
+        pool = self._pool_by_wl[wl]
+        idxs = torch.randint(0, pool.num_rays, (batch_size,), device=self.device)
+
+        if self.img_pool_duration is not None:
+            pool.sample_count += 1
+
+        return RayBatch(
+            ro=pool.ro[idxs],
+            rd=pool.rd[idxs],
+            tn=pool.tn[idxs],
+            tf=pool.tf[idxs],
+            g_ref=pool.g_ref[idxs],
+            wl=wl,
+        )
+
+
+@dataclass
+class RadarBatch:
     p: torch.Tensor
     d_ref: torch.Tensor
 
     def __len__(self):
         return len(self.p)
-    
+
     @property
     def device(self):
         return self.p.device
-    
-    def to(self, *args, **kwargs):
-        self.p = self.p.to(*args, **kwargs)
-        self.d_ref = self.d_ref.to(*args, **kwargs)
-        return self
 
-class RadarDataset(Dataset):
-    def __init__(self, data: RadarPointCloud, bbox: BBox):
+    def __iter__(self):
+        return iter((self.p, self.d_ref))
+
+    def as_tuple(self):
+        return self.p, self.d_ref
+
+
+class RadarDataset:
+    def __init__(self, data: RadarPointCloud, bbox: BBox, device: Optional[torch.device] = None):
         if len(data.latitudes) == 0:
             raise ValueError("Empty radar cloud.")
 
-        device = bbox.device
+        self.device = device if device is not None else bbox.device
+
+        bbox = bbox.to(self.device)
 
         lat = data.latitudes.to(device)
         lon = data.longitudes.to(device)
         h = data.altitudes.to(device)
         d = data.densities.to(device)
-        
+
         p_ecef = geo.geodetic_to_ecef(lat, lon, h)
         p = bbox.frame.from_ecef(p_ecef, is_point=True)
 
@@ -206,18 +266,11 @@ class RadarDataset(Dataset):
 
         self.p = p[inside_mask].contiguous()
         self.d_ref = d[inside_mask].contiguous()
-    
-    def __getitem__(self, idx):
-        return RadarBatch(self.p[idx], self.d_ref[idx])
-    
-    def __len__(self):
-        return len(self.p)
-    
-    @property
-    def device(self):
-        return self.p.device
-    
-    def to(self, *args, **kwargs):
-        self.p = self.p.to(*args, **kwargs)
-        self.d_ref = self.d_ref.to(*args, **kwargs)
-        return self
+        if len(self.p) == 0:
+            raise ValueError("No radar points inside the bounding box.")
+
+    def sample_batch(self, batch_size: int):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be > 0.")
+        idxs = torch.randint(0, len(self.p), (batch_size,), device=self.device)
+        return RadarBatch(self.p[idxs], self.d_ref[idxs])

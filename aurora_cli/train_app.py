@@ -131,9 +131,7 @@ def model_train_command(model_name: str, model_decsription: Optional[str] = None
             # Load the datasets
             ray_data, rad_data = None, None
             if cams:
-                cam_dir = Path(cams)
-                cam_pos = cam_dir / "camera_position.set"
-                cams = au.data.load_cameras(cam_pos, cam_dir)
+                cams = au.data.load_cameras(Path(cams))
                 ray_data = au.datasets.RayDataset(cams, config.bbox)
                 ray_data = ray_data.to(device)
             if radar:

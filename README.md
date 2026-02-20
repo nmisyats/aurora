@@ -252,9 +252,8 @@ model = SpectralMLP(config).to(device)
 print(model)
 
 # Load the cameras images and preprocess ray data
-cameras = au.data.load_cameras("dataset/camera_position.set", "dataset/images")
-ray_data = RayDataset(cameras, bbox.expand()) # Inifinitely wide bounding box
-ray_data = ray_data.to(device)
+cameras = au.data.load_cameras("./dataset")
+ray_data = RayDataset(cameras, bbox.expand(), device) # Inifinitely wide bounding box
 
 # Define the loss function that evaluates a model's loss during one
 # training iteration

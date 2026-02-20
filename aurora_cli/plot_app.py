@@ -116,7 +116,7 @@ def plot_electron_density(
 def plot_cameras(
     cams: Path = typer.Argument(..., help="Camera dataset directory"),
     location: str = typer.Option(None, help="Name of specific camera to plot"),
-    title_format: str = typer.Option("{name} ({latitude:.3f}°N {longitude:.3f}°E +{altitude:.3f}km)", help="Title format"),
+    title_format: str = typer.Option("{location}", help="Title format"),
     cmap: str = typer.Option("viridis", help="Colormap name"),
     figsize_per_image: float = typer.Option(3.0, help="Size factor per image"),
     max_cols: int = typer.Option(None, help="Maximum columns in grid")
@@ -124,9 +124,7 @@ def plot_cameras(
     """Plot camera images from a dataset."""
     import aurora as au
 
-    cam_pos = cams / "camera_position.set"
-    cam_dir = cams
-    cams = au.data.load_cameras(cam_pos, cam_dir)
+    cams = au.data.load_cameras(cams)
 
     au.plot.plot_cameras_grid(
         cameras=cams,

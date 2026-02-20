@@ -496,7 +496,7 @@ def plot_cameras_grid(
     figsize_per_image: float = 3.0,
     colorbar_label: str = "kR",
     cmap: str = "viridis",
-    title_format: str = "{name}",
+    title_format: str = "{location}",
     global_color_scale: bool = True,
     max_cols: Optional[int] = None
 ) -> Tuple[Figure, Union[Axes, List[Axes]]]:
@@ -580,12 +580,11 @@ def plot_cameras_grid(
             
             # Format title
             title = title_format.format(
-                name=cam.name,
                 latitude=cam.latitude,
                 longitude=cam.longitude,
                 altitude=cam.altitude,
                 wavelength=cam.wavelength,
-                location=cam.location_name
+                location=cam.location
             )
             ax.set_title(title)
         
