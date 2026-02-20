@@ -29,6 +29,5 @@ def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor):
     # Assumings bins are logarithmically spaced
     out = model(xy)
     log_f = out["log_f"]
-    dlog_f = torch.diff(log_f, dim=1) # (B, num_bins-1)
-    d2log_f = torch.diff(dlog_f, dim=1) # (B, num_bins-2)
-    return torch.mean(d2log_f**2)
+    d2log_f = torch.diff(log_f, n=2, dim=-1) # (B, num_bins-2)
+    return torch.mean(d2log_f.square())
