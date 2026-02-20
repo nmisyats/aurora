@@ -1,5 +1,3 @@
-from functools import lru_cache
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,17 +25,10 @@ def radar_loss(model: FluxModel, batch: RadarBatch):
     return F.mse_loss(d_pred, d_target)
 
 
-@lru_cache
-def _dlogE(energy_bins: torch.Tensor):
-    E = 0.5 * (energy_bins[:-1] + energy_bins[1:]) # (num_bins,)
-    logE = torch.log(E)
-    return torch.diff(logE) # (num_bins-1,)
-
 def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor):
-    dlogE = _dlogE(model.energy_bins)
+    # Assumings bins are logarithmically spaced
     out = model(xy)
-    log_f_pred = out["log_f"]
-    fst_diff = torch.diff(log_f_pred, dim=1) # (B, num_bins-1)
-    nml_diff = fst_diff / dlogE.unsqueeze(0)
-    snd_diff = torch.diff(nml_diff, dim=1) # (B, num_bins-2)
-    return torch.mean(snd_diff**2)
+    log_f = out["log_f"]
+    dlog_f = torch.diff(log_f, dim=1) # (B, num_bins-1)
+    d2log_f = torch.diff(dlog_f, dim=1) # (B, num_bins-2)
+    return torch.mean(d2log_f**2)
