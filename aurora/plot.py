@@ -11,8 +11,10 @@ from typing import List, Optional, Tuple, Dict, Union, Iterable
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from matplotlib import animation as mpl_animation
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
+from matplotlib.image import AxesImage
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import pyvista as pv
@@ -490,13 +492,19 @@ def plot_model_matrices(
         cbar.set_label(f"log10({unit})" if unit else "log10(value)")
 
     return fig, list(axes[:n])
+
+
 def plot_cameras_grid(
     cameras: List[Camera],
     selected_camera: Optional[str] = None,
+    image_index: int = 0,
+    anim_range: Optional[Tuple[int, int]] = None,
+    anim_interval_ms: int = 200,
+    anim_repeat: bool = True,
     figsize_per_image: float = 3.0,
     colorbar_label: str = "kR",
     cmap: str = "viridis",
-    title_format: str = "{location}",
+    title_format: str = "{camera_id}",
     global_color_scale: bool = True,
     max_cols: Optional[int] = None
 ) -> Tuple[Figure, Union[Axes, List[Axes]]]:
@@ -504,100 +512,239 @@ def plot_cameras_grid(
     Plot camera images in a grid layout or single camera.
     
     Args:
-        cameras: List of camera objects with .image, .name attributes
-        selected_camera: Name of specific camera to plot (plots single image)
+        cameras: List of camera objects.
+        selected_camera: Camera selector to plot a single image. Accepted values:
+            "<location>:<wavelength>", "<location>", or camera folder name.
+        image_index: Index of the image in camera.images to load and plot
+            (ignored when anim_range is provided).
+        anim_range: Inclusive `(start, end)` image-index range to animate.
+            For example `(5, 15)` animates image indices 5..15.
+        anim_interval_ms: Animation frame interval in milliseconds.
+        anim_repeat: Whether animation should loop when finished.
         figsize_per_image: Size factor per image
         colorbar_label: Label for colorbar
         cmap: Colormap name
-        title_format: Format string for titles (can use camera attributes)
+        title_format: Format string for titles. Available fields are:
+            camera_id, name, location, wavelength, latitude, longitude,
+            altitude, data_path, image_index, image_name, image_path, date_time.
         global_color_scale: Whether to use consistent color scale across all images
         max_cols: Maximum number of columns (auto-computed if None)
         
     Returns:
         Tuple of (figure, axes). Axes is single Axes for one camera, list for multiple.
     """
-    if selected_camera is not None:
-        # Plot single camera
-        cam_dict = {cam.name: cam for cam in cameras}
-        if selected_camera not in cam_dict:
-            raise ValueError(f"Camera '{selected_camera}' not found")
-        
-        cam = cam_dict[selected_camera]
-        fig, ax = plt.subplots(figsize=(8, 6))
-        im = ax.imshow(cam.image / 1000, cmap=cmap)
-        cbar = fig.colorbar(im)
-        cbar.set_label(colorbar_label)
-        
-        # Format title with camera attributes
-        title = title_format.format(
-            name=cam.name,
-            latitude=cam.latitude,
-            longitude=cam.longitude,
-            altitude=cam.altitude
-        )
-        ax.set_title(title)
-        
-        return fig, ax
-    
+    if len(cameras) == 0:
+        raise ValueError("No cameras provided")
+    if image_index < 0:
+        raise ValueError(f"image_index must be >= 0, got {image_index}")
+    if anim_interval_ms <= 0:
+        raise ValueError(f"anim_interval_ms must be > 0, got {anim_interval_ms}")
+    if max_cols is not None and max_cols <= 0:
+        raise ValueError(f"max_cols must be > 0, got {max_cols}")
+    if anim_range is not None:
+        anim_start, anim_end = anim_range
+        if anim_start < 0 or anim_end < 0:
+            raise ValueError(f"anim_range indices must be >= 0, got {anim_range}")
+        if anim_end < anim_start:
+            raise ValueError(f"anim_range end must be >= start, got {anim_range}")
+        frame_indices = list(range(anim_start, anim_end + 1))
     else:
-        # Plot multiple cameras in grid
-        n_imgs = len(cameras)
-        if n_imgs == 0:
-            raise ValueError("No cameras provided")
-        
-        # Compute grid layout
-        if max_cols is not None:
-            cols = min(max_cols, n_imgs)
+        frame_indices = [image_index]
+
+    def _camera_id(cam: Camera) -> str:
+        base = cam.location if cam.location is not None else cam.data_path.name
+        if cam.wavelength is not None:
+            return f"{base}:{cam.wavelength}"
+        return base
+
+    def _camera_aliases(cam: Camera) -> set[str]:
+        aliases = {_camera_id(cam), cam.data_path.name}
+        if cam.location is not None:
+            aliases.add(cam.location)
+        return aliases
+
+    image_cache: Dict[Tuple[int, int], Tuple[np.ndarray, object]] = {}
+
+    def _load_plot_image(cam: Camera, idx: int) -> Tuple[np.ndarray, object]:
+        key = (id(cam), idx)
+        if key in image_cache:
+            return image_cache[key]
+        if idx >= len(cam.images):
+            raise ValueError(
+                f"Camera '{_camera_id(cam)}' has only {len(cam.images)} image(s); "
+                f"cannot use image_index={idx}."
+            )
+        img_ref = cam.images[idx]
+        img = img_ref.load_image()
+        if torch.is_tensor(img):
+            img = img.detach().cpu().numpy()
         else:
-            cols = math.ceil(math.sqrt(n_imgs))
-        rows = math.ceil(n_imgs / cols)
-        
-        # Determine color scale
-        if global_color_scale:
-            vmin = min(cam.image.min() / 1000 for cam in cameras)
-            vmax = max(cam.image.max() / 1000 for cam in cameras)
+            img = np.asarray(img)
+        image_cache[key] = (img / 1000.0, img_ref)
+        return image_cache[key]
+
+    def _format_title(cam_id: str, cam: Camera, img_ref: object, idx: int) -> str:
+        date_time = ""
+        image_name = ""
+        image_path = ""
+        if hasattr(img_ref, "date_time") and img_ref.date_time is not None:
+            date_time = img_ref.date_time.isoformat(sep=" ")
+        if hasattr(img_ref, "path"):
+            image_name = img_ref.path.name
+            image_path = str(img_ref.path)
+        fields = {
+            "camera_id": cam_id,
+            "name": cam_id,
+            "location": cam.location if cam.location is not None else cam.data_path.name,
+            "wavelength": cam.wavelength if cam.wavelength is not None else "",
+            "latitude": cam.latitude,
+            "longitude": cam.longitude,
+            "altitude": cam.altitude,
+            "data_path": str(cam.data_path),
+            "image_index": idx,
+            "image_name": image_name,
+            "image_path": image_path,
+            "date_time": date_time,
+        }
+        try:
+            return title_format.format(**fields)
+        except KeyError as exc:
+            bad_field = exc.args[0]
+            available = ", ".join(sorted(fields.keys()))
+            raise ValueError(
+                f"Unknown title field '{bad_field}'. Available fields: {available}"
+            ) from exc
+
+    if selected_camera is not None:
+        matches = [cam for cam in cameras if selected_camera in _camera_aliases(cam)]
+        if len(matches) == 0:
+            available = ", ".join(_camera_id(cam) for cam in cameras)
+            raise ValueError(
+                f"Camera '{selected_camera}' not found. Available cameras: {available}"
+            )
+        if len(matches) > 1:
+            available = ", ".join(_camera_id(cam) for cam in matches)
+            raise ValueError(
+                f"Camera selector '{selected_camera}' is ambiguous. Matches: {available}. "
+                "Use '<location>:<wavelength>'."
+            )
+        cameras_to_plot = [matches[0]]
+    else:
+        cameras_to_plot = cameras
+
+    first_idx = frame_indices[0]
+    plotted = []
+    for cam in cameras_to_plot:
+        img, img_ref = _load_plot_image(cam, first_idx)
+        plotted.append((_camera_id(cam), cam, img, img_ref))
+
+    if global_color_scale:
+        finite_mins = []
+        finite_maxs = []
+        for cam in cameras_to_plot:
+            for idx in frame_indices:
+                img, _ = _load_plot_image(cam, idx)
+                finite = img[np.isfinite(img)]
+                if finite.size > 0:
+                    finite_mins.append(float(finite.min()))
+                    finite_maxs.append(float(finite.max()))
+        if len(finite_mins) > 0:
+            vmin = min(finite_mins)
+            vmax = max(finite_maxs)
         else:
             vmin = vmax = None
-        
-        # Create figure and image grid
-        fig = plt.figure(figsize=(cols * figsize_per_image, rows * figsize_per_image))
-        grid = ImageGrid(
-            fig, 111,
-            nrows_ncols=(rows, cols),
-            axes_pad=0.4,
-            share_all=True,
-            cbar_location="right",
-            cbar_mode="single",
-            cbar_size="5%",
-            cbar_pad=0.1
-        )
-        
-        # Plot images
-        im = None
-        for ax, cam in zip(grid, cameras):
-            im = ax.imshow(cam.image / 1000, cmap=cmap, vmin=vmin, vmax=vmax)
-            ax.axis('off')
-            
-            # Format title
-            title = title_format.format(
-                latitude=cam.latitude,
-                longitude=cam.longitude,
-                altitude=cam.altitude,
-                wavelength=cam.wavelength,
-                location=cam.location
+    else:
+        vmin = vmax = None
+
+    if selected_camera is not None:
+        cam_id, cam, img, img_ref = plotted[0]
+        fig, ax = plt.subplots(figsize=(8, 6))
+        im = ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax)
+        cbar = fig.colorbar(im)
+        cbar.set_label(colorbar_label)
+        ax.set_title(_format_title(cam_id, cam, img_ref, first_idx))
+
+        if anim_range is not None:
+            def _update_single(frame_pos: int):
+                frame_idx = frame_indices[frame_pos]
+                frame_img, frame_ref = _load_plot_image(cam, frame_idx)
+                im.set_data(frame_img)
+                if not global_color_scale:
+                    finite = frame_img[np.isfinite(frame_img)]
+                    if finite.size > 0:
+                        im.set_clim(float(finite.min()), float(finite.max()))
+                ax.set_title(_format_title(cam_id, cam, frame_ref, frame_idx))
+                return (im,)
+
+            fig._aurora_animation = mpl_animation.FuncAnimation(
+                fig,
+                _update_single,
+                frames=len(frame_indices),
+                interval=anim_interval_ms,
+                repeat=anim_repeat,
+                blit=False,
             )
-            ax.set_title(title)
-        
-        # Turn off unused axes
-        for ax in grid[n_imgs:]:
-            ax.axis('off')
-        
-        # Add shared colorbar
-        if im is not None:
-            cbar = grid.cbar_axes[0].colorbar(im)
-            cbar.set_label(colorbar_label)
-        
-        return fig, list(grid[:n_imgs])
+        return fig, ax
+
+    n_imgs = len(plotted)
+    if max_cols is not None:
+        cols = min(max_cols, n_imgs)
+    else:
+        cols = math.ceil(math.sqrt(n_imgs))
+    rows = math.ceil(n_imgs / cols)
+
+    fig = plt.figure(figsize=(cols * figsize_per_image, rows * figsize_per_image))
+    grid = ImageGrid(
+        fig, 111,
+        nrows_ncols=(rows, cols),
+        axes_pad=0.4,
+        share_all=True,
+        cbar_location="right",
+        cbar_mode="single",
+        cbar_size="5%",
+        cbar_pad=0.1
+    )
+
+    im = None
+    artists: List[Tuple[Axes, AxesImage, str, Camera]] = []
+    for ax, (cam_id, cam, img, img_ref) in zip(grid, plotted):
+        im = ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.axis("off")
+        ax.set_title(_format_title(cam_id, cam, img_ref, first_idx))
+        artists.append((ax, im, cam_id, cam))
+
+    for ax in grid[n_imgs:]:
+        ax.axis("off")
+
+    if im is not None:
+        cbar = grid.cbar_axes[0].colorbar(im)
+        cbar.set_label(colorbar_label)
+
+    if anim_range is not None:
+        def _update_grid(frame_pos: int):
+            frame_idx = frame_indices[frame_pos]
+            updated = []
+            for ax, im_artist, cam_id, cam in artists:
+                frame_img, frame_ref = _load_plot_image(cam, frame_idx)
+                im_artist.set_data(frame_img)
+                if not global_color_scale:
+                    finite = frame_img[np.isfinite(frame_img)]
+                    if finite.size > 0:
+                        im_artist.set_clim(float(finite.min()), float(finite.max()))
+                ax.set_title(_format_title(cam_id, cam, frame_ref, frame_idx))
+                updated.append(im_artist)
+            return tuple(updated)
+
+        fig._aurora_animation = mpl_animation.FuncAnimation(
+            fig,
+            _update_grid,
+            frames=len(frame_indices),
+            interval=anim_interval_ms,
+            repeat=anim_repeat,
+            blit=False,
+        )
+
+    return fig, list(grid[:n_imgs])
 
 
 def plot_volume_3d(

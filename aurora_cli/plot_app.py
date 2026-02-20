@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 import typer
 from matplotlib import pyplot as plt
@@ -115,23 +115,94 @@ def plot_electron_density(
 @plot_app.command("cams")
 def plot_cameras(
     cams: Path = typer.Argument(..., help="Camera dataset directory"),
-    location: str = typer.Option(None, help="Name of specific camera to plot"),
-    title_format: str = typer.Option("{location}", help="Title format"),
+    camera: Optional[str] = typer.Option(
+        None,
+        "--camera",
+        "-c",
+        help="Camera selector: <location>[:wavelength], <location>, or folder name",
+    ),
+    location: Optional[str] = typer.Option(
+        None,
+        "--location",
+        help="Alias for --camera",
+    ),
+    wavelength: Optional[str] = typer.Option(
+        None,
+        "--wavelength",
+        "-w",
+        help="Load only cameras with this wavelength",
+    ),
+    image_index: int = typer.Option(
+        0,
+        "-i",
+        min=0,
+        help="Image index to plot from each camera",
+    ),
+    anim: Optional[str] = typer.Option(
+        None,
+        "--anim",
+        help="Animate an inclusive image range 'start,end' (example: 5,15)",
+    ),
+    anim_interval_ms: int = typer.Option(
+        200,
+        "--anim-interval-ms",
+        min=1,
+        help="Animation frame interval in milliseconds",
+    ),
+    anim_repeat: bool = typer.Option(
+        True,
+        "--anim-repeat/--no-anim-repeat",
+        help="Repeat animation when it reaches the end",
+    ),
+    title_format: str = typer.Option(
+        "{camera_id}",
+        help="Title format, e.g. '{camera_id}' or '{location} {date_time}'",
+    ),
     cmap: str = typer.Option("viridis", help="Colormap name"),
     figsize_per_image: float = typer.Option(3.0, help="Size factor per image"),
-    max_cols: int = typer.Option(None, help="Maximum columns in grid")
+    max_cols: Optional[int] = typer.Option(None, help="Maximum columns in grid"),
+    global_color_scale: bool = typer.Option(
+        True,
+        "--global-color-scale/--per-camera-color-scale",
+        help="Use shared color scale across all plotted images",
+    ),
 ):
     """Plot camera images from a dataset."""
     import aurora as au
 
-    cams = au.data.load_cameras(cams)
+    if camera is not None and location is not None and camera != location:
+        raise typer.BadParameter("Use either --camera or --location, not both with different values.")
+    selected_camera = camera if camera is not None else location
+    wl_filter = [wavelength] if wavelength is not None else None
+    anim_range = None
+    if anim is not None:
+        parts = [part.strip() for part in anim.split(",")]
+        if len(parts) != 2:
+            raise typer.BadParameter("--anim must be formatted as 'start,end' (example: 5,15).")
+        try:
+            start_idx = int(parts[0])
+            end_idx = int(parts[1])
+        except ValueError as exc:
+            raise typer.BadParameter("--anim values must be integers (example: 5,15).") from exc
+        if start_idx < 0 or end_idx < 0:
+            raise typer.BadParameter("--anim indices must be >= 0.")
+        if end_idx < start_idx:
+            raise typer.BadParameter("--anim end index must be >= start index.")
+        anim_range = (start_idx, end_idx)
+
+    cams = au.data.load_cameras(cams, wl_filter=wl_filter)
 
     au.plot.plot_cameras_grid(
         cameras=cams,
-        selected_camera=location,
+        selected_camera=selected_camera,
+        image_index=image_index,
+        anim_range=anim_range,
+        anim_interval_ms=anim_interval_ms,
+        anim_repeat=anim_repeat,
         figsize_per_image=figsize_per_image,
         cmap=cmap,
         title_format=title_format,
+        global_color_scale=global_color_scale,
         max_cols=max_cols
     )
     plt.show()
