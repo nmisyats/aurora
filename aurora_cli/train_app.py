@@ -352,25 +352,23 @@ def train_spectral_mlp(
     )
     return model, history
 
-@model_train_command("poly_mlp", "MLP learning a polynomial basis of the flux")
-def train_poly_mlp(
+@model_train_command("bspline_mlp", "B-spline coefficients learned by an MLP")
+def train_bspline_mlp(
     config: 'au.models.ModelConfig',
     training_config: TrainingConfig,
     enc_exp: int = typer.Option(4, help="Maximum positional encoding exponent"),
     max_log_f: float = typer.Option(7.0, help="Maximum logarithmic value of the reconstructed flux"),
-    basis: str = typer.Option("mono", help="Polynomial basis to use: mono or chebyshev"),
-    num_basis: int = typer.Option(8, help="Number of basis function for polynomial representation"),
+    num_basis: int = typer.Option(8, help="Number of B-spline basis functions"),
     num_hidden: int = typer.Option(4, help="Number of hidden layers"),
     hidden_size: int = typer.Option(128, help="Size of each hidden layer")
 ):
     import aurora as au
 
     # Instantiate reconstruction model
-    model = au.models.PolyMLP(
+    model = au.models.BSplineMLP(
         config=config,
         encoding_exp=enc_exp,
         max_log_flux=max_log_f,
-        basis_fn=basis,
         num_basis=num_basis,
         num_hidden=num_hidden,
         hidden_size=hidden_size
