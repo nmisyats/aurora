@@ -2,6 +2,7 @@ from typing import Optional, List
 from pathlib import Path
 from datetime import datetime
 import re
+from functools import cached_property
 
 import torch
 
@@ -63,12 +64,6 @@ class Camera:
         self.wavelength = wavelength
         self.data_path = Path(data_path)
         self.ds_factor = ds_factor
-
-        self.azimuth = dat.load_matrix_data(self.data_path / "az_cam.dat")
-        self.zenith = dat.load_matrix_data(self.data_path / "ze_cam.dat")
-        if self.ds_factor is not None:
-            self.azimuth = downsample_image(self.azimuth, self.ds_factor)
-            self.zenith = downsample_image(self.zenith, self.ds_factor)
         
         self.images: List[Image] = []
         for img_file in sorted(self.data_path.rglob("*image.dat")):
@@ -77,8 +72,6 @@ class Camera:
         if len(self.images) == 0:
             raise FileNotFoundError(f"No image file found in {self.data_path}.")
 
-        self._image = None
-
     @property
     def width(self):
         return self.azimuth.size(1)
@@ -86,12 +79,24 @@ class Camera:
     @property
     def height(self):
         return self.azimuth.size(0)
+
+    @cached_property
+    def azimuth(self):
+        az = dat.load_matrix_data(self.data_path / "az_cam.dat")
+        if self.ds_factor is not None:
+            az = downsample_image(az, self.ds_factor)
+        return az
     
-    @property
+    @cached_property
+    def zenith(self):
+        ze = dat.load_matrix_data(self.data_path / "ze_cam.dat")
+        if self.ds_factor is not None:
+            ze = downsample_image(ze, self.ds_factor)
+        return ze
+    
+    @cached_property
     def image(self):
-        if self._image is None:
-            self._image = self.images[0].load_image()
-        return self._image
+        return self.images[0].load_image()
 
     def downsample(self, factor: int):
         ds_cam = object.__new__(Camera)
@@ -102,8 +107,6 @@ class Camera:
         ds_cam.wavelength = self.wavelength
         ds_cam.data_path = self.data_path
         ds_cam.ds_factor = factor
-        ds_cam.azimuth = downsample_image(self.azimuth, factor)
-        ds_cam.zenith = downsample_image(self.zenith, factor)
         if self.ds_factor is not None:
             ds_cam.ds_factor *= self.ds_factor
         ds_cam.images = [img.downsample(factor, camera=ds_cam) for img in self.images]
