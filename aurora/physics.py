@@ -20,7 +20,7 @@ def compute_emission_rate(
         torch.Tensor: Volume emission rate tensor of shape (n,) [cm-3 s-1].
     """
     z_idx = torch.bucketize(z.contiguous(), altitude_bins) - 1
-    z_idx = torch.clamp(z_idx, 0, emis_mat.shape[1]-1)
+    z_idx = torch.clamp(z_idx, 0, emis_mat.shape[0]-1)
     m_z = emis_mat[z_idx.flatten(),:]
     m_z = m_z.reshape(*z_idx.shape, m_z.shape[-1])
     l = torch.sum(m_z * f, dim=-1)
@@ -45,7 +45,7 @@ def compute_electron_density(
         torch.Tensor: Electron density tensor of shape (n,) [cm-3].
     """
     z_idx = torch.bucketize(z.contiguous(), altitude_bins) - 1
-    z_idx = torch.clamp(z_idx, 0, dens_mat.shape[1]-1)
+    z_idx = torch.clamp(z_idx, 0, dens_mat.shape[0]-1)
     m_z = dens_mat[z_idx.flatten(),:]
     m_z = m_z.reshape(*z_idx.shape, m_z.shape[-1])
     d2 = torch.sum(m_z * f, dim=-1)
