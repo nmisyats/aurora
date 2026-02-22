@@ -5,6 +5,7 @@ from aurora.models.hybrid_mlp import HybridMLP
 from aurora.models.residual_mlp import ResidualMLP
 from aurora.models.bilinear_mlp import BilinearMLP
 from aurora.models.bspline_mlp import BSplineMLP
+from aurora.models.lowrank_mlp import LowRankMLP
 
 from aurora.models.utils import save_model, load_model, load_grid_model
 
@@ -18,6 +19,7 @@ __all__ = [
     "ResidualMLP",
     "BilinearMLP",
     "BSplineMLP",
+    "LowRankMLP",
     "save_model",
     "load_model",
     "load_grid_model",
