@@ -81,8 +81,16 @@ class HybridMLP(FluxModel):
         
         e_low = self.energy_bins[:-1]
         e_high = self.energy_bins[1:]
-        log_e = torch.log(0.5 * (e_low + e_high))
-        log_e_norm = (log_e - log_e.min()) / (log_e.max() - log_e.min())
+        log_e_low = torch.log(self.energy_bins[:-1])
+        log_e_high = torch.log(self.energy_bins[1:])
+        if self.training:
+            u = torch.rand(self.num_bins, device=xy.device)
+            log_e = log_e_low + u * (log_e_high - log_e_low)
+        else:
+            log_e = torch.log(0.5 * (e_low + e_high))
+        log_e_min = log_e_low[0]
+        log_e_max = log_e_high[-1]
+        log_e_norm = (log_e - log_e_min) / (log_e_max - log_e_min)
         log_e_norm = log_e_norm.reshape(self.num_bins, 1) # (N, 1)
         e_encoded = self.energy_encoder(log_e_norm) # (N, energy_enc)
         e_embed = self.energy_embedder(e_encoded) # (N, energy_embed)
