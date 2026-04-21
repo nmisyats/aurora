@@ -37,13 +37,9 @@ def spectral_smoothness_loss(model: FluxModel, xy: torch.Tensor) -> torch.Tensor
     log_centers = torch.log(bin_centers)
     log_spacing = torch.diff(log_centers)  # (num_bins-1,)
     # Second-order derivative approximation in log-energy space
-    # d²f/d(log E)² ≈ [f(i+1) - f(i)]/Δ(log E) - [f(i) - f(i-1)]/Δ(log E)
     first_diff = torch.diff(log_f_pred, dim=1)  # (batch_size, num_bins-1)
-    # Normalize by log spacing
     normalized_diff = first_diff / log_spacing.unsqueeze(0)  # (batch_size, num_bins-1)
-    # Second derivative
     second_diff = torch.diff(normalized_diff, dim=1)  # (batch_size, num_bins-2)
-    # L2 smoothness penalty
     smoothness_penalty = torch.mean(second_diff**2)
     return smoothness_penalty
 
