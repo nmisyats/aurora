@@ -156,7 +156,7 @@ def plot_flux_1d(
     
     if labels is not None:
         for data, label in zip(flux_data, labels):
-            ax.plot(energies, 10**3 * torch.pi * data, label=label, marker="x")
+            ax.plot(energies, 10**4 * torch.pi * data, label=label, marker="x")
         ax.legend()
     else:
         for data in flux_data:
