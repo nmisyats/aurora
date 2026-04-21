@@ -414,6 +414,7 @@ def plot_cameras_grid(
 def plot_volume_3d(
     volume_data: torch.Tensor,
     xyz_bounds: Tuple[torch.Tensor, torch.Tensor],
+    title_text: str,
     scalars_name: str = "density",
     cmap: str = "coolwarm",
     opacity: Optional[List[float]] = None,
@@ -481,9 +482,9 @@ def plot_volume_3d(
         scalar_bar_args=dict(
             title=scalars_name,
             vertical=True,
-            title_font_size=16,
-            label_font_size=12,
-            fmt="%.2e",
+            title_font_size=20,
+            label_font_size=18,
+            fmt="%.1e",
             n_labels=5,
             italic=False,
             width=0.08,
@@ -492,10 +493,28 @@ def plot_volume_3d(
             position_y=0.2,
         ),
     )
+    pl.scalar_bars[scalars_name].SetVerticalTitleSeparation(20)
+    # pl.add_title(title, font_size=10)
+    title = pl.add_text(
+        title_text,
+        position=(0.5, 0.94),
+        viewport=True,
+        font_size=14,
+    )
+    title.prop.justification_horizontal = "center"
+    title.prop.justification_vertical = "top"
     
     # Optional additions
     if show_axes:
-        pl.show_axes()
+        # pl.show_axes()
+        pl.add_axes(
+            viewport=(0.0, 0.0, 0.3, 0.3),
+            line_width=3,
+            cone_radius=0.5,
+            shaft_length=0.7,
+            tip_length=0.3,
+            label_size=(0.35, 0.16),
+        )
     if show_bounds:
         pl.add_bounding_box()
     

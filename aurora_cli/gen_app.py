@@ -159,6 +159,7 @@ def generate_volume_emission(
         plotter = au.plot.plot_volume_3d(
             volume_data=10**6 * l, # to m^{-3}s^{-1}
             xyz_bounds=(xyz_min, xyz_max),
+            title_text="Volume emission rate",
             scalars_name="L [photons/m³/s]",
             cmap=cmap,
             opacity=opacity_vals
@@ -213,6 +214,7 @@ def generate_electron_density(
         plotter = au.plot.plot_volume_3d(
             volume_data=10**6 * d, # to m^{-3}
             xyz_bounds=(xyz_min, xyz_max),
+            title_text="Electron density",
             scalars_name="D [electrons/m³]",
             cmap=cmap,
             opacity=opacity_vals

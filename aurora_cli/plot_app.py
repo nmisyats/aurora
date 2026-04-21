@@ -78,6 +78,7 @@ def plot_volume_emission(
     pl = au.plot.plot_volume_3d(
         volume_data=10**6 * emis_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
+        title_text="Volume emission rate",
         scalars_name="L [photons/m³/s]"
     )
 
@@ -103,6 +104,7 @@ def plot_electron_density(
     pl = au.plot.plot_volume_3d(
         volume_data=10**6 * dens_data,
         xyz_bounds=(config.bbox.xyz_min, config.bbox.xyz_max),
+        title_text="Electron density",
         scalars_name="D [electrons/m³]"
     )
 
