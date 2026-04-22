@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "aurora",
-    version = "0.0.1",
+    version = "1.0.0",
     author = "Nazar Misyats",
     packages=['aurora', 'aurora_cli'],
     entry_points={
