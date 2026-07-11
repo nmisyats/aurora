@@ -387,3 +387,19 @@ custom extra arguments:
 ```
 aurora train my_model path/to/config.yaml --cam-pos path/to/camera_position.dat --cam-dir path/to/camera/images --save recon.pth --param1 74 --param2 2.718
 ```
+
+## License
+
+This project is licensed under the terms of the MIT License.
+
+## Citation
+
+If you use this software, please cite our work as follows:
+> Misyats, N., Tanaka, Y. & Ikehata, S. Fast and scalable reconstruction of auroral electron flux using neural implicit functions. Earth Planets Space 78, 137 (2026). DOI: https://doi.org/10.1186/s40623-026-02484-x
+
+Additionally, you may cite the specific version of the software archived on Zenodo:
+> Misyats, N., Tanaka, Y. & Ikehata, S. Aurora (Version 1.0.0). Zenodo (2026). DOI: https://doi.org/10.5281/zenodo.19699757
+
+## Feedback and Notification
+
+We would appreciate it if you could notify us when using this software for your research or when publishing any results derived from it. Hearing about your use cases helps us improve the software and demonstrate its impact to our funders.
